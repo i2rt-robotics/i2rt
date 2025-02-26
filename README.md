@@ -1,13 +1,14 @@
 # I2RT Python API
 
-A Python client library for interacting with I2RT products, designed with simplicity and extensibility in mind.
+A Python client library for interacting with [I2RT](https://i2rt.com/) products, designed with simplicity and extensibility in mind.
 
+[![I2RT](https://github.com/user-attachments/assets/025ac3f0-7af1-4e6f-ab9f-7658c5978f92)](https://i2rt.com/)
 ## Features
 
 - Plug and play python interface for I2RT robots
 - Real-time robot control via CAN bus communication
 - Support for directly communicating with motor (DM series motors)
-- Built-in gravity compensation using MuJoCo physics engine
+- Visualization and gravity compensation using MuJoCo physics engine
 
 ## Installation
 
@@ -19,11 +20,13 @@ pip install -e .
 Plug in the CAN device and run the following command to check the available CAN devices.
 ```bash
 ls -l /sys/class/net/can*
+```
 
 This should give you something like this
 ```bash
 lrwxrwxrwx 1 root root 0 Jul 15 14:35 /sys/class/net/can0 -> ../../devices/platform/soc/your_can_device/can0
 ```
+
 Where can0 is the CAN device name.
 
 You need to bring up the CAN interface with
@@ -107,10 +110,9 @@ while time.time() - start_time < 1:
 We welcome contributions! Please make a PR.
 
 ## License
-This project is licensed under the [appropriate license] - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
-- [I2RT](https://i2rt.com/)
 - Contact: support@i2rt.com
 
 ## Acknowledgments
