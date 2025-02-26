@@ -3,7 +3,8 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from functools import partial
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -14,12 +15,12 @@ from i2rt.motor_drivers.dm_driver import (
     ReceiveMode,
 )
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import GripperForceLimiter, JointMapper
+from i2rt.robots.utils import JointMapper
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.urdf")
-ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.urdf")
+YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam_v0/mjmodel.xml")
+ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/mjmodel.xml")
 
 
 def sigmoid(x: float) -> float:
@@ -28,6 +29,11 @@ def sigmoid(x: float) -> float:
 
 def sigmoid_with_full_shift(x: float, w: float = 1, b_x: float = 0, b_y: float = 0) -> float:
     return sigmoid(w * (x - b_x)) + b_y
+
+
+MAX_ALLOWED_GRIPPER_OFFSET_RATIO = (
+    0.02  # when kp is 20 and the gripper range in 5, the max gripper torque is around 0.02 * 20 * 5 = 2.
+)
 
 
 @dataclass
@@ -68,6 +74,101 @@ class JointCommands:
         )
 
 
+# todo: implement real gripper finger tip level force limit
+def linear_gripper_force_torque_map(
+    motor_stroke: float, gripper_stroke: float, gripper_force: float, current_angle: float
+) -> float:
+    """Maps the motor stroke required to achieve a given gripper force.
+
+    Args:
+        motor_stroke (float): in rad
+        gripper_stroke (float): in meter
+        gripper_force (float): in newton
+    """
+    # force = torque * motor_stroke / gripper_stroke
+    return gripper_force * motor_stroke / gripper_stroke
+
+
+def zero_linkage_crank_gripper_force_torque_map(
+    gripper_close_angle: float,
+    gripper_open_angle: float,
+    motor_reading_to_crank_angle: Callable[[float], float],
+    gripper_stroke: float,
+    current_angle: float,
+    gripper_force: float,
+) -> float:
+    """Maps the motor crank torque required to achieve a given gripper force.
+
+    Args:
+        gripper_close_angle (float): Angle of the crank in radians at the closed position.
+        gripper_open_angle (float): Angle of the crank in radians at the open position.
+        gripper_stroke (float): Linear displacement of the gripper in meters.
+        current_angle (float): Current crank angle in radians (relative to the closed position).
+        gripper_force (float): Required gripping force in Newtons (N).
+
+    Returns:
+        float: Required motor torque in Newton-meters (Nm).
+    """
+    current_angle = motor_reading_to_crank_angle(current_angle)
+    # Compute crank radius based on the total stroke and angle change
+    crank_radius = gripper_stroke / (2 * (np.cos(gripper_close_angle) - np.cos(gripper_open_angle)))
+    # gripper_position = crank_radius * (np.cos(gripper_close_angle) - np.cos(current_angle + gripper_close_angle))
+    grad_gripper_position = crank_radius * np.sin(current_angle)
+
+    # Compute the required torque
+    target_torque = gripper_force * grad_gripper_position
+    return target_torque
+
+
+class GripperForceLimiter:
+    def __init__(self, max_force: float, gripper_type: str):
+        self.max_force = max_force
+        self.gripper_type = gripper_type
+        self._is_clogged = False
+        if self.gripper_type == "arx_92mm_linear":
+            self.gripper_force_torque_map = partial(
+                linear_gripper_force_torque_map,
+                motor_stroke=4.93,
+                gripper_stroke=0.092,
+                gripper_force=self.max_force,
+            )
+        elif self.gripper_type == "yam_small":
+            self.gripper_force_torque_map = partial(
+                zero_linkage_crank_gripper_force_torque_map,
+                motor_reading_to_crank_angle=lambda x: (-x + 0.174),
+                gripper_close_angle=8 / 180.0 * np.pi,
+                gripper_open_angle=170 / 180.0 * np.pi,
+                gripper_stroke=0.071,  # unit in meter
+                gripper_force=self.max_force,
+            )
+        else:
+            raise ValueError(f"Unknown gripper type: {self.gripper_type}")
+
+    def compute_target_gripper_torque(self, gripper_state: Dict[str, float]) -> float:
+        current_eff = gripper_state["current_eff"]
+        current_speed = gripper_state["current_qvel"]
+        if self._is_clogged:
+            normalized_current_qpos = gripper_state["current_normalized_qpos"]
+            normalized_target_qpos = gripper_state["target_normalized_qpos"]
+            # 0 close 1 open
+            if normalized_current_qpos < normalized_target_qpos:  # want to open
+                self._is_clogged = False
+            # code below will cause oscillation on some configurations
+            # if np.abs(current_eff) < 0.3 and np.abs(current_speed) > 0.35:
+            #     self._is_clogged = False
+        else:
+            if np.abs(current_eff) > 0.4 and np.abs(current_speed) < 0.3:
+                self._is_clogged = True
+
+        if self._is_clogged:
+            target_eff = self.gripper_force_torque_map(current_angle=gripper_state["current_qpos"])
+            # print(f"current_eff: {current_eff}, gripper clogged, adjust force to {target_eff}")
+            self._is_clogged = True
+            return target_eff + 0.3  # this is to compensate the friction
+        else:
+            return None
+
+
 class MotorChainRobot(Robot):
     """A generic Robot protocol."""
 
@@ -89,13 +190,16 @@ class MotorChainRobot(Robot):
     ) -> None:
         if gripper_index is not None:
             assert gripper_limits is not None, "Gripper limits are required if gripper index is provided."
+            self._max_gripper_offset = abs(gripper_limits[1] - gripper_limits[0]) * MAX_ALLOWED_GRIPPER_OFFSET_RATIO
+        else:
+            self._max_gripper_offset = None
 
         if joint_limits is not None:
             joint_limits = np.array(joint_limits)
             assert np.all(
                 joint_limits[:, 0] < joint_limits[:, 1]
             ), "Lower joint limits must be smaller than upper limits"
-        self._last_gripper_command_qpos = None
+
         self._joint_limits = joint_limits
         assert clip_motor_torque >= 0.0
         self._clip_motor_torque = clip_motor_torque
@@ -108,11 +212,14 @@ class MotorChainRobot(Robot):
         self.remapper = JointMapper({}, len(motor_chain))  # so it works without gripper
         self._gripper_limits = gripper_limits
         self._gripper_force_limiter = GripperForceLimiter(
-            max_force=limit_gripper_force, gripper_type=gripper_type, kp=kp[gripper_index]
+            max_force=limit_gripper_force, gripper_type=gripper_type
         )  # force in newton
         self._gripper_adjusted_qpos = None
         if self._gripper_index is not None:
             self._limit_gripper_force = limit_gripper_force
+            self._max_gripper_offset = (
+                abs(self._gripper_limits[1] - self._gripper_limits[0]) * MAX_ALLOWED_GRIPPER_OFFSET_RATIO
+            )
 
             self.remapper = JointMapper(
                 index_range_map={gripper_index: gripper_limits},
@@ -228,10 +335,29 @@ class MotorChainRobot(Robot):
                         "target_normalized_qpos": self.remapper.to_command_joint_pos_space(joint_commands.pos)[
                             self._gripper_index
                         ],
-                        "last_command_qpos": self._last_gripper_command_qpos,
                     }
 
-                    joint_commands.pos[self._gripper_index] = self._gripper_force_limiter.update(gripper_state)
+                    target_eff = self._gripper_force_limiter.compute_target_gripper_torque(gripper_state)
+                    if target_eff is not None:
+                        command_sign = np.sign(gripper_state["target_qpos"] - gripper_state["current_qpos"])
+
+                        current_zero_eff_pos = (
+                            self._gripper_adjusted_qpos
+                            - command_sign * gripper_state["current_eff"] / self._kp[self._gripper_index]
+                        )
+
+                        target_gripper_raw_pos = (
+                            current_zero_eff_pos + command_sign * target_eff / self._kp[self._gripper_index]
+                        )
+
+                        # Update gripper target position
+                        a = 0.1
+                        self._gripper_adjusted_qpos = (
+                            1 - a
+                        ) * self._gripper_adjusted_qpos + a * target_gripper_raw_pos
+                        joint_commands.pos[self._gripper_index] = self._gripper_adjusted_qpos
+                    else:
+                        self._gripper_adjusted_qpos = gripper_state["current_qpos"]
 
             # add final clip so the gripper won't be over-adjusted
             joint_commands.pos[self._gripper_index] = np.clip(
@@ -239,8 +365,6 @@ class MotorChainRobot(Robot):
                 min(self._gripper_limits),
                 max(self._gripper_limits),
             )
-            self._last_gripper_command_qpos = joint_commands.pos[self._gripper_index]
-
             # Send commands to motor chain and update joint state
             motor_state = self.motor_chain.set_commands(
                 motor_torques,
@@ -463,7 +587,7 @@ def get_arx_robot(channel: str = "can0", model_path: str = ARX_XML_PATH) -> Moto
         gripper_limits=np.array([0.0, 4.93]),
         kp=np.array([80, 80, 80, 40, 10, 10, 20]),
         kd=np.array([5, 5, 5, 1.5, 1.5, 1.5, 0.5]),
-        limit_gripper_force=20.0,
+        limit_gripper_force=50.0,
         gripper_type="arx_92mm_linear",
     )
 
@@ -492,8 +616,7 @@ if __name__ == "__main__":
             time.sleep(1)
     elif args.operation_mode == "test_gripper":
         for _ in range(30):
-            for gripper_pos in [0.8, 0.0]:
-                print(f"gripper_pos: {gripper_pos}")
+            for gripper_pos in [1.0, 0.3]:
                 robot.command_joint_pos(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, gripper_pos]))
-                time.sleep(4)
+                time.sleep(5)
                 print(robot.get_observations())
