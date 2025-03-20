@@ -21,6 +21,7 @@ I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.urdf")
 ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.urdf")
 
+
 @dataclass
 class JointStates:
     names: List[str]
@@ -224,7 +225,7 @@ class MotorChainRobot(Robot):
 
                     joint_commands.pos[self._gripper_index] = self._gripper_force_limiter.update(gripper_state)
 
-            # add final clip so the gripper won't be over-adjusted
+                # add final clip so the gripper won't be over-adjusted
                 joint_commands.pos[self._gripper_index] = np.clip(
                     joint_commands.pos[self._gripper_index],
                     min(self._gripper_limits),
@@ -396,7 +397,7 @@ def get_yam_robot(channel: str = "can0", model_path: str = YAM_XML_PATH) -> Moto
         [0x01, "DM4340"],
         [0x02, "DM4340"],
         [0x03, "DM4340"],
-        [0x04, "DM4340"],
+        [0x04, "DM4310"],
         [0x05, "DM4310"],
         [0x06, "DM4310"],
         [0x07, "DM4310"],

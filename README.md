@@ -16,7 +16,7 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products,
 pip install -e .
 ```
 
-## CAN Usage
+## Basic CAN Usage
 Plug in the CAN device and run the following command to check the available CAN devices.
 ```bash
 ls -l /sys/class/net/can*
@@ -38,6 +38,15 @@ We have provided a convenience script to reset all CAN devices. Simply run
 ```bash
 sh scripts/reset_all_can.sh
 ```
+
+### See [set_persist_id_socket_can.md](doc/set_persist_id_socket_can.md) if you want to set persistent CAN device names
+
+## Test YAM Zero Gravity mode
+
+```bash
+python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp
+```
+
 
 ## YAM Robot Arm Usage
 
