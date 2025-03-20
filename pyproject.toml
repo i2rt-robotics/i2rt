@@ -14,6 +14,7 @@ dependencies = [
     "portal",
     "tyro",
     "python-can",
+    "dm-env",
 ]
 
 [project.optional-dependencies]
