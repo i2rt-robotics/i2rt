@@ -9,6 +9,10 @@ from typing import List, Optional, Protocol, Tuple
 import can
 import numpy as np
 
+# set control frequence
+CONTROL_FREQ = 250
+CONTROL_PERIOD = 1.0 / CONTROL_FREQ  # 4 ms
+
 
 @dataclass
 class MotorConstants:
@@ -33,6 +37,7 @@ class MotorType:
     DM4310V = "DM4310V"
     DM4340 = "DM4340"
     DMH6215 = "DMH6215"
+    DM3507 = "DM3507"
 
     @classmethod
     def get_motor_constants(cls, motor_type: str) -> MotorConstants:
@@ -84,6 +89,15 @@ class MotorType:
                 VELOCITY_MIN=-45,
                 TORQUE_MAX=10,
                 TORQUE_MIN=-10,
+            )
+        elif motor_type == cls.DM3507:
+            return MotorConstants(
+                POSITION_MAX=12.5,
+                POSITION_MIN=-12.5,
+                VELOCITY_MAX=50,
+                VELOCITY_MIN=-50,
+                TORQUE_MAX=5,
+                TORQUE_MIN=-5,
             )
         else:
             raise ValueError(f"Motor type '{motor_type}' not recognized.")
@@ -484,6 +498,7 @@ class DMSingleMotorCanInterface(CanInterface):
         """
         data = message.data
         error_int = (data[0] & 0xF0) >> 4  # TODO: error code seems incorrect, double check
+
         # convert error into hex
         error_hex = hex(error_int)
         error_message = MotorErrorCode.get_error_message(error_int)
@@ -652,46 +667,32 @@ class DMChainCanInterface(MotorChain):
             print("waiting for the first state")
 
     def _set_torques_and_update_state(self) -> None:
-        last_time = time.time()
-        iteration_count = 0
-        self.motor_interface.try_receive_message()
+        last_step_time = time.time()
         while self.running:
             try:
-                current_time = time.time()
-                elapsed_time = current_time - last_time
+                # Maintain desired control frequency.
+                while time.time() - last_step_time < CONTROL_PERIOD - 0.001:
+                    time.sleep(0.001)
+                curr_time = time.time()
+                step_time = curr_time - last_step_time
+                last_step_time = curr_time
+                if step_time > 0.005:  # 5 ms
+                    print(f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
+
+                # Update state.
                 with self.command_lock:
                     motor_feedback = self._set_commands(self.commands)
                 with self.state_lock:
                     self.state = motor_feedback
-
-                self._update_absolute_positions(motor_feedback)
-                time.sleep(0.001)
-                iteration_count += 1
-                # Optionally reset counter and timer every second or another fixed interval
-                # to keep the displayed frequency relevant to a recent time window
-                if elapsed_time >= 10.0:
-                    control_frequency = iteration_count / elapsed_time
-
-                    # # Overwrite the current line with the new frequency information
-                    # sys.stdout.write(f"\rControl Frequency: {control_frequency:.2f} Hz")
-                    # sys.stdout.flush()  # Ensure it's displayed
-
-                    # print(f"Control Frequency: {control_frequency:.2f} Hz")
-
-                    # Reset the counter and timer
-                    last_time = current_time
-                    iteration_count = 0
-
+                    self._update_absolute_positions(motor_feedback)
             except Exception as e:
                 print(f"DM Error in control loop: {e}")
                 raise e
 
     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
-        # for joint 0 and joint1
         motor_feedback = []
         for idx, motor_info in enumerate(self.motor_list):
             motor_id, motor_type = motor_info
-            # torque = torques[idx] * self.motor_direction[idx]
             torque = commands[idx].torque * self.motor_direction[idx]
             pos = self._joint_position_sim_to_real_idx(commands[idx].pos, idx)
 
@@ -713,8 +714,6 @@ class DMChainCanInterface(MotorChain):
                 raise e
 
             motor_feedback.append(fd_back)
-            # motor_pos.append(fd_back.position)
-            # motor_vel.append(fd_back.velocity * self.motor_direction[idx])
         return motor_feedback
 
     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:

@@ -18,8 +18,8 @@ from i2rt.robots.utils import GripperForceLimiter, JointMapper
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.urdf")
-ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.urdf")
+YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
+ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.xml")
 
 
 @dataclass
@@ -358,6 +358,8 @@ class MotorChainRobot(Robot):
             if self._gripper_index is None:
                 return {
                     "joint_pos": self._joint_state.pos,
+                    "joint_vel": self._joint_state.vel,
+                    "joint_eff": self._joint_state.eff,
                 }
             else:
                 return {
@@ -416,7 +418,7 @@ def get_yam_robot(channel: str = "can0", model_path: str = YAM_XML_PATH) -> Moto
         motor_chain,
         xml_path=model_path,
         use_gravity_comp=True,
-        gravity_comp_factor=1.2,
+        gravity_comp_factor=1.3,
         gripper_index=6,
         gripper_limits=np.array([0.0, -2.7]),
         kp=np.array([80, 80, 80, 40, 10, 10, 20]),

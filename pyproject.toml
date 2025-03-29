@@ -9,12 +9,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
+    "dm-env",
+    "mink",
     "mujoco==3.2.5",
     "numpy",
     "portal",
-    "tyro",
     "python-can",
-    "dm-env",
+    "tyro",
 ]
 
 [project.optional-dependencies]
