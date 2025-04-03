@@ -208,7 +208,7 @@
     <parent link="link_1"/>
     <child link="link_2"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-3.66519" upper="-0"/>
+    <limit effort="10" velocity="10" lower="0" upper="3.14159"/>
   </joint>
   <!-- Joint from base_link to link_1 -->
   <joint name="joint1" type="revolute">

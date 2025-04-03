@@ -19,7 +19,7 @@
       <geom pos="-0.00192861 -0.00795735 0.0208176" quat="0.707105 0 0 -0.707108" type="mesh" rgba="1 0.6 0 1" mesh="link_1_collision"/>
       <body name="link_2" pos="2.5e-05 -0.02 0.0409" quat="1 1 1 1">
         <inertial pos="0.132008 2.10599e-06 0.000293073" quat="1 1 1 1" mass="1.24434" diaginertia="0.0121902 0.0121318 0.000683304"/>
-        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="-3.66519 0" actuatorfrcrange="-10 10"/>
+        <joint name="joint2" pos="0 0 0" axis="0 0 1" range="0 3.14159" actuatorfrcrange="-10 10"/>
         <geom pos="0.132008 2.10599e-06 0.000293073" quat="9.38184e-07 9.38187e-07 0.707108 0.707105" type="mesh" rgba="1 0.6 0 1" mesh="link_2_collision"/>
         <body name="link_3" pos="0.264 0 0" quat="0 1 0 0">
           <inertial pos="-0.121816 -0.054846 -0.000111108" quat="1 1 1 1" mass="0.853698" diaginertia="0.00699732 0.00696112 0.000788244"/>
