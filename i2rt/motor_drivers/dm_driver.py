@@ -192,6 +192,7 @@ class EncoderInfo:
 
 
 class MotorErrorCode:
+    disabled = 0x0
     normal = 0x1
     over_voltage = 0x8
     under_voltage = 0x9
@@ -204,6 +205,7 @@ class MotorErrorCode:
     # create a dict map error code to error message
     motor_error_code_dict = {
         normal: "normal",
+        disabled: "disabled",
         over_voltage: "over voltage",
         under_voltage: "under voltage",
         over_current: "over current",
@@ -217,7 +219,7 @@ class MotorErrorCode:
 
     @classmethod
     def get_error_message(cls, error_code: int) -> str:
-        return cls.motor_error_code_dict.get(int(error_code), "Unknown error code")
+        return cls.motor_error_code_dict.get(int(error_code), f"Unknown error code: {error_code}")
 
 
 class ReceiveMode(AutoNameEnum):
@@ -379,12 +381,21 @@ class DMSingleMotorCanInterface(CanInterface):
         Args:
             motor_id (int): The ID of the motor to turn on.
         """
-        # self.clean_error(motor_id=motor_id)
-        for _ in range(1):
+        for _ in range(7):
             self.try_receive_message()
         id = motor_id  # self._get_frame_id(motor_id)
         data = [0xFF] * 7 + [0xFC]
         message = self._send_message_get_response(id, motor_id, data)
+        # dummy motor type just check motor status
+        motor_info = self.parse_recv_message(message, MotorType.DM4310)
+
+        if int(motor_info.error_code, 16) != MotorErrorCode.normal:
+            print(f"motor {motor_id} error: {motor_info.error_message}")
+            self.clean_error(motor_id=motor_id)
+            # enable again
+            message = self._send_message_get_response(id, motor_id, data)
+        else:
+            print(f"motor {motor_id} is already on")
 
     def clean_error(self, motor_id: int) -> None:
         # self.try_receive_message()
@@ -651,7 +662,6 @@ class DMChainCanInterface(MotorChain):
     def _motor_on(self) -> None:
         for motor_id, motor_type in self.motor_list:
             print(motor_id, motor_type)
-            self.motor_interface.clean_error(motor_id)
             time.sleep(0.001)
             self.motor_interface.motor_on(motor_id)
 
@@ -799,8 +809,12 @@ class MultiDMChainCanInterface(MotorChain):
 
 
 if __name__ == "__main__":
-    channel = "canable0"
-    motor_chain_name = "arx_real"
+    import argparse
+    args = argparse.ArgumentParser()
+    args.add_argument("--channel", type=str, default="can0")
+    args = args.parse_args()
+    channel = args.channel
+    motor_chain_name = "yam_real"
     motor_list = [
         [0x01, "DM4310"],
         [0x02, "DM4310"],

@@ -432,11 +432,11 @@ def get_arx_robot(channel: str = "can0", model_path: str = ARX_XML_PATH) -> Moto
     motor_list = [
         [0x01, "DM4340"],
         [0x02, "DM4340"],
-        [0x03, "DM4340"],
-        [0x04, "DM4310"],
+        [0x04, "DM4340"],
         [0x05, "DM4310"],
         [0x06, "DM4310"],
         [0x07, "DM4310"],
+        [0x08, "DM4310"],
     ]
     motor_offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     motor_directions = [1, 1, 1, 1, 1, 1, 1]

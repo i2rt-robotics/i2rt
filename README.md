@@ -90,6 +90,28 @@ To launch the leader robot run
 ```bash
 python scripts/minimum_gello.py --mode leader  --can_channel can0
 ```
+### YAM configuration
+
+By default, the arm comes out of the factory with a safety timeout feature enabled. This timeout is set to 200?ms, meaning that if the motor does not receive a command within 200?ms, it will enter an error state, disable itself, and switch to damping mode. (Contact sales@i2rt.com if you want to disable this feature by default for your bulk order.)
+
+We consider this a safety mechanism—particularly in cases where the CAN connection goes offline. Without this safeguard, gravity compensation under certain configurations could produce positive feedback torque, potentially leading to injury.
+However, we understand that this feature may not always be desirable, especially when the arm is intentionally offline. For such cases, we provide a tool to disable the timeout feature.
+
+To remove the timeout feature, run the following command.
+```bash
+python i2rt/motor_config_tool/remove_timeout.py --channel can0
+```
+
+To set the timeout feature, run the following command.
+```bash
+python i2rt/motor_config_tool/set_timeout.py --channel can0 --timeout
+```
+
+We also provide a tool to zero the motor offsets.
+```bash
+python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
+```
+
 
 ## Flow Base Usage
 
