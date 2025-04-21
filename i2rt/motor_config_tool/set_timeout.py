@@ -32,6 +32,7 @@ for motor_id in motor_ids:
     for reg_name in ["id", "master_id", "timeout"]:
         info = get_special_message_response(can_interface, motor_id, reg_name)
         print(f'current setting: {reg_name} = {info}')
+        time.sleep(0.1)
         
     write_special_message(can_interface, motor_id, "timeout", timeout)
     print(save_to_memory(can_interface, motor_id, "timeout"))

@@ -136,10 +136,15 @@ def get_special_message_response(can_interface: RawCanInterface, motor_id: int, 
     """
     assert reg_name in register_addr_map, f"reg_name {reg_name} not in register_addr_map"
     reg_id, convert_func = register_addr_map[reg_name]
-    message = can_interface._send_message_get_response(
-        0x7FF, [motor_id, 0x00, 0x33, reg_id, 0x00, 0x00, 0x00, 0x00], max_retry=20
-    )
-    return convert_func(message.data)
+    for _ in range(3):
+        try:
+            message = can_interface._send_message_get_response(
+                0x7FF, [motor_id, 0x00, 0x33, reg_id, 0x00, 0x00, 0x00, 0x00], max_retry=20
+            )
+            return convert_func(message.data)
+        except Exception as e:
+            pass
+    raise Exception(f"Failed to read {reg_name} of motor {motor_id} after 3 retries")
 
 
 def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_name: str, data: Any) -> Any:
@@ -160,11 +165,16 @@ def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_nam
         byte_list = uint32_to_bytes(data)
     elif convert_func is bytes_to_float32:
         byte_list = float32_to_bytes(data)
-    print(byte_list)
-    message = can_interface._send_message_get_response(
-        0x7FF, [motor_id, 0x00, 0x55, reg_id] + list(byte_list), max_retry=20
-    )
-    return convert_func(message.data)
+    for _ in range(3):
+        try:
+            message = can_interface._send_message_get_response(
+                0x7FF, [motor_id, 0x00, 0x55, reg_id] + list(byte_list), max_retry=20
+            )
+            result =  convert_func(message.data)
+            return result
+        except Exception as e:
+            pass
+
 
 
 def save_to_memory(can_interface: RawCanInterface, motor_id: int, reg_name: str) -> can.Message:
