@@ -375,7 +375,7 @@ class DMSingleMotorCanInterface(CanInterface):
         """Calculate the Control Frame ID for a given motor."""
         return self.cmd_idoffset + motor_id
 
-    def motor_on(self, motor_id: int) -> None:
+    def motor_on(self, motor_id: int, motor_type: str) -> None:
         """Turn on the motor.
 
         Args:
@@ -396,6 +396,8 @@ class DMSingleMotorCanInterface(CanInterface):
             message = self._send_message_get_response(id, motor_id, data)
         else:
             print(f"motor {motor_id} is already on")
+        motor_info = self.parse_recv_message(message, motor_type)
+        return motor_info
 
     def clean_error(self, motor_id: int) -> None:
         # self.try_receive_message()
@@ -613,6 +615,7 @@ class DMChainCanInterface(MotorChain):
         self.command_lock = threading.Lock()
         self.absolute_positions = None
         self._motor_on()
+        self.start_thread_flag = start_thread
         if start_thread:
             self.start_thread()
 
@@ -660,11 +663,13 @@ class DMChainCanInterface(MotorChain):
         return joint_position_sim * self.motor_direction[idx] + self.motor_offset[idx]
 
     def _motor_on(self) -> None:
+        motor_feedback = []
         for motor_id, motor_type in self.motor_list:
             print(motor_id, motor_type)
             time.sleep(0.001)
-            self.motor_interface.motor_on(motor_id)
-
+            motor_feedback.append(self.motor_interface.motor_on(motor_id, motor_type))
+        self._update_absolute_positions(motor_feedback)
+        self.state = motor_feedback
         self.running = True
         print("starting separate thread for control loop")
 

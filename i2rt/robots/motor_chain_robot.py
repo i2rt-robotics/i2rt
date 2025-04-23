@@ -149,13 +149,14 @@ class MotorChainRobot(Robot):
         self._command_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._joint_state: Optional[JointStates] = None
-
-        self._stop_event = threading.Event()  # Add a stop event
-        self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
-        self._server_thread.start()
         while self._joint_state is None:
             # wait to recive joint data
             time.sleep(0.05)
+            self._joint_state = self._motor_state_to_joint_state(self.motor_chain.read_states())
+        
+        self._stop_event = threading.Event()  # Add a stop event
+        self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
+        self._server_thread.start()
 
     def get_robot_info(self) -> Dict[str, Any]:
         """Get the robot information, such as kp, kd, joint limits, gripper limits, etc."""
@@ -232,7 +233,16 @@ class MotorChainRobot(Robot):
                     max(self._gripper_limits),
                 )
                 self._last_gripper_command_qpos = joint_commands.pos[self._gripper_index]
-
+            if not self.motor_chain.start_thread_flag:
+                self.motor_chain.set_commands(
+                    motor_torques,
+                    pos=joint_commands.pos,
+                    vel=joint_commands.vel,
+                    kp=joint_commands.kp,
+                    kd=joint_commands.kd,
+                )
+                self.motor_chain.start_thread()
+                self.motor_chain.start_thread_flag = True
             # Send commands to motor chain and update joint state
             motor_state = self.motor_chain.set_commands(
                 motor_torques,
@@ -413,6 +423,7 @@ def get_yam_robot(channel: str = "can0", model_path: str = YAM_XML_PATH) -> Moto
         channel,
         motor_chain_name="yam_real",
         receive_mode=ReceiveMode.p16,
+        start_thread=False,
     )
     return MotorChainRobot(
         motor_chain,
@@ -447,6 +458,7 @@ def get_arx_robot(channel: str = "can0", model_path: str = ARX_XML_PATH) -> Moto
         channel,
         motor_chain_name="arx_real",
         receive_mode=ReceiveMode.p16,
+        start_thread=False,
     )
     return MotorChainRobot(
         motor_chain,
@@ -481,7 +493,6 @@ if __name__ == "__main__":
 
     if args.operation_mode == "gravity_comp":
         while True:
-            robot.zero_torque_mode()
             print(robot.get_observations())
             time.sleep(1)
     elif args.operation_mode == "test_gripper":

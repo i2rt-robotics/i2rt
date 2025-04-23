@@ -143,7 +143,7 @@ def get_special_message_response(can_interface: RawCanInterface, motor_id: int, 
             )
             return convert_func(message.data)
         except Exception as e:
-            pass
+            can_interface.try_receive_message(motor_id)
     raise Exception(f"Failed to read {reg_name} of motor {motor_id} after 3 retries")
 
 
@@ -173,7 +173,7 @@ def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_nam
             result =  convert_func(message.data)
             return result
         except Exception as e:
-            pass
+            can_interface.try_receive_message(motor_id)
 
 
 

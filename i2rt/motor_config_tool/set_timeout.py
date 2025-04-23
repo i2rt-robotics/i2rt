@@ -11,9 +11,7 @@ can_interface = RawCanInterface(
     channel=args.channel,
     bustype="socketcan",
 )
-control_interface = DMSingleMotorCanInterface(
-    channel=args.channel, bustype="socketcan", control_mode=ControlMode.MIT
-)
+
 if args.timeout:
     timeout = 4000
 else:
@@ -26,6 +24,9 @@ else:
     motor_ids = [motor_id]
 
 for motor_id in motor_ids:
+    control_interface = DMSingleMotorCanInterface(
+        channel=args.channel, bustype="socketcan", control_mode=ControlMode.MIT
+    )
     control_interface.motor_off(motor_id)
     print("#"*30)
     print(f"processing motor {motor_id}, before removing timeout")
@@ -41,3 +42,7 @@ for motor_id in motor_ids:
     for reg_name in ["id", "master_id", "timeout"]:
         info = get_special_message_response(can_interface, motor_id, reg_name)
         print(f'current setting: {reg_name} = {info}')
+        time.sleep(0.1)
+    for _ in range(4):
+        can_interface.try_receive_message(motor_id)
+    control_interface.close()
