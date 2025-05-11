@@ -43,19 +43,19 @@ sh scripts/reset_all_can.sh
 
 ## Test YAM Zero Gravity mode
 
-This enables you to launch the robot in zero gravity mode.
+This enables you to launch the robot in zero gravity mode: 
 ```bash
 python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp
 ```
 
 ## YAM Robot Arm Usage
-
+Default timeout is enabled for YAM motors. Please refer to [YAM configuration](#yam-configuration) for more details.
 ### Getting started
 ```python
 from i2rt.robots.motor_chain_robot import get_yam_robot
 
 # Get a robot instance
-robot = get_yam_robot(channel="can0")
+robot = get_yam_robot(channel="can0", motor_timeout_enabled=True)
 
 # Get the current joint positions
 joint_pos = robot.get_joint_pos()
@@ -92,10 +92,16 @@ python scripts/minimum_gello.py --mode leader  --can_channel can0
 ```
 ### YAM configuration
 
-By default, the arm comes out of the factory with a safety timeout feature enabled. This timeout is set to 200?ms, meaning that if the motor does not receive a command within 200?ms, it will enter an error state, disable itself, and switch to damping mode. (Contact sales@i2rt.com if you want to disable this feature by default for your bulk order.)
+By default, the arm comes out of the factory with a safety timeout feature enabled. This timeout is set to 200ms, meaning that if the motor does not receive a command within 200ms, it will enter an error state, disable itself, and switch to damping mode. (Contact sales@i2rt.com if you want to disable this feature by default for your bulk order.)
 
-We consider this a safety mechanism—particularly in cases where the CAN connection goes offline. Without this safeguard, gravity compensation under certain configurations could produce positive feedback torque, potentially leading to injury.
+We consider this a safety mechanismâ€”particularly in cases where the CAN connection goes offline. Without this safeguard, gravity compensation under certain configurations could produce positive feedback torque, potentially leading to injury.
 However, we understand that this feature may not always be desirable, especially when the arm is intentionally offline. For such cases, we provide a tool to disable the timeout feature.
+
+If your arm has timeout removed, you can run the following command to launch the arm so the arm won't sudden drop during initialization. However, if the arm is offline and is at the gravity compensation mode the arm may move unexpectedly. Please be aware of this risk before removing the timeout.
+
+```bash
+python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp
+```
 
 To remove the timeout feature, run the following command.
 ```bash
@@ -111,7 +117,13 @@ We also provide a tool to zero the motor offsets.
 ```bash
 python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
 ```
+After moving the timeout, you can initialize the YAM arm with the following command.
+```python
+from i2rt.robots.motor_chain_robot import get_yam_robot
 
+# Get a robot instance
+robot = get_yam_robot(channel="can0", motor_timeout_enabled=False)
+```
 
 ## Flow Base Usage
 

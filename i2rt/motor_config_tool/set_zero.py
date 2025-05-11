@@ -12,7 +12,7 @@ motor_control_interface = DMSingleMotorCanInterface(
     )
 
 motor_id = args.motor_id
-motor_control_interface.motor_on(motor_id)
+motor_control_interface.motor_on(motor_id, MotorType.DM4310)
 current_position = motor_control_interface.set_control(motor_id, MotorType.DM4310, 0, 0, 0, 0, 0).position
 print(f"current position: {current_position}")
 

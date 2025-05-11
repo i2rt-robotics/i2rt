@@ -13,7 +13,7 @@ can_interface = RawCanInterface(
 )
 
 if args.timeout:
-    timeout = 4000
+    timeout = 8000
 else:
     timeout = 0
 

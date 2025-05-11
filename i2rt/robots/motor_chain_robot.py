@@ -21,7 +21,7 @@ I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
 ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.xml")
 
-
+import logging
 @dataclass
 class JointStates:
     names: List[str]
@@ -176,7 +176,7 @@ class MotorChainRobot(Robot):
         iteration_count = 0
         self.update()
 
-        print("initializing, ....")
+        logging.info("initializing, ....")
 
         while not self._stop_event.is_set():  # Check the stop event
             current_time = time.time()
@@ -404,7 +404,9 @@ class MotorChainRobot(Robot):
         print("Robot closed with all torques set to zero.")
 
 
-def get_yam_robot(channel: str = "can0", model_path: str = YAM_XML_PATH) -> MotorChainRobot:
+def get_yam_robot(channel: str = "can0", 
+                  model_path: str = YAM_XML_PATH, 
+                  motor_timeout_enabled: bool = True) -> MotorChainRobot:
     motor_list = [
         [0x01, "DM4340"],
         [0x02, "DM4340"],
@@ -423,8 +425,40 @@ def get_yam_robot(channel: str = "can0", model_path: str = YAM_XML_PATH) -> Moto
         channel,
         motor_chain_name="yam_real",
         receive_mode=ReceiveMode.p16,
-        start_thread=False,
+        start_thread=motor_timeout_enabled,
     )
+    motor_states = motor_chain.read_states()
+    
+    current_pos = [m.pos for m in motor_states]
+    logging.info(f"current_pos: {current_pos}")
+
+    for idx, motor_state in enumerate(motor_states):
+        motor_position = motor_state.pos
+        # if not within -pi to pi, set to the nearest equivalent position
+        if motor_position < -np.pi:
+            logging.info(f'motor {idx} is at {motor_position}, adding {2 * np.pi}')
+            extra_offset = -2 * np.pi
+        elif motor_position > np.pi:
+            logging.info(f'motor {idx} is at {motor_position}, subtracting {2 * np.pi}')
+            extra_offset = +2 * np.pi
+        else:
+            extra_offset = 0.0
+        motor_offsets[idx] += extra_offset
+    motor_chain.close()
+    time.sleep(0.5)
+    logging.info(f"adjusted motor_offsets: {motor_offsets}")
+    
+    motor_chain = DMChainCanInterface(
+        motor_list,
+        motor_offsets,
+        motor_directions,
+        channel,
+        motor_chain_name="yam_real",
+        receive_mode=ReceiveMode.p16,
+        start_thread=motor_timeout_enabled,
+        )
+    motor_states = motor_chain.read_states()
+    logging.info(f"YAN initial motor_states: {motor_states}")
     return MotorChainRobot(
         motor_chain,
         xml_path=model_path,
@@ -482,12 +516,13 @@ if __name__ == "__main__":
     args.add_argument("--model", type=str, default="yam")
     args.add_argument("--channel", type=str, default="can0")
     args.add_argument("--operation_mode", type=str, default="gravity_comp")
+    args.add_argument("--motor_timeout_disabled", action='store_true')
     args = args.parse_args()
 
     if args.model == "arx":
         robot = get_arx_robot(args.channel)
     elif args.model == "yam":
-        robot = get_yam_robot(args.channel)
+        robot = get_yam_robot(args.channel, motor_timeout_enabled=not args.motor_timeout_disabled)
     else:
         raise ValueError(f"Unknown model: {args.model}")
 

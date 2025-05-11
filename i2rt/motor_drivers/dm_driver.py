@@ -5,9 +5,15 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Protocol, Tuple
-
+import logging
 import can
 import numpy as np
+import os
+log_level = os.getenv("LOGLEVEL", "WARNING").upper()
+
+# Configure the logging
+logging.basicConfig(level=getattr(logging, log_level, logging.WARNING),
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # set control frequence
 CONTROL_FREQ = 250
@@ -304,9 +310,9 @@ class CanInterface:
                     return response
                 self.try_receive_message(id)
             except (can.CanError, AssertionError) as e:
-                print(e)
+                logging.warning(e)
                 # print warning in red
-                print(
+                logging.warning(
                     "\033[91m"
                     + f"CAN Error {self.name}: Failed to communicate with motor {id} over can bus. Retrying..."
                     + "\033[0m"
@@ -347,7 +353,7 @@ class CanInterface:
             message = self.bus.recv(timeout=0.002)
             if message:
                 return message
-        print(
+        logging.warning(
             "\033[91m"
             + f"Failed to receive message, {self.name} motor id {motor_id} motor timeout. Check if the motor is powered on or if the motor ID exists."
             + "\033[0m"
@@ -381,21 +387,27 @@ class DMSingleMotorCanInterface(CanInterface):
         Args:
             motor_id (int): The ID of the motor to turn on.
         """
-        for _ in range(7):
+        current_level = logging.getLogger().getEffectiveLevel()
+        logging.getLogger().setLevel(logging.ERROR)
+        for _ in range(2):
             self.try_receive_message()
+
+
         id = motor_id  # self._get_frame_id(motor_id)
         data = [0xFF] * 7 + [0xFC]
         message = self._send_message_get_response(id, motor_id, data)
         # dummy motor type just check motor status
         motor_info = self.parse_recv_message(message, MotorType.DM4310)
-
         if int(motor_info.error_code, 16) != MotorErrorCode.normal:
-            print(f"motor {motor_id} error: {motor_info.error_message}")
+            logging.info(f"motor {motor_id} error: {motor_info.error_message}")
             self.clean_error(motor_id=motor_id)
+            self.try_receive_message()
+            logging.info(f"motor {motor_id} error cleaned")
             # enable again
             message = self._send_message_get_response(id, motor_id, data)
         else:
-            print(f"motor {motor_id} is already on")
+            logging.info(f"motor {motor_id} is already on")
+        logging.getLogger().setLevel(current_level)
         motor_info = self.parse_recv_message(message, motor_type)
         return motor_info
 
@@ -403,14 +415,14 @@ class DMSingleMotorCanInterface(CanInterface):
         # self.try_receive_message()
         id = motor_id  # self._get_frame_id(motor_id)
         data = [0xFF] * 7 + [0xFB]
-        print("clear error")
+        logging.info("clear error")
         message = can.Message(arbitration_id=motor_id, data=data, is_extended_id=False)
         for _ in range(3):
             try:
                 self.bus.send(message)
             except Exception as e:
-                print(e)
-                print("\033[91m" + "CAN Error: Failed to communicate with motor over can bus. Retrying..." + "\033[0m")
+                logging.warning(e)
+                logging.warning("\033[91m" + "CAN Error: Failed to communicate with motor over can bus. Retrying..." + "\033[0m")
         # message = self._send_message_get_response(id, data)
 
     def motor_off(self, motor_id: int) -> None:
@@ -519,7 +531,7 @@ class DMSingleMotorCanInterface(CanInterface):
         motor_id_of_this_response = self.receive_mode.to_motor_id(message.arbitration_id)
         if error_hex != "0x1":
             # print motor id and error
-            print(f"motor id: {motor_id_of_this_response}, error: {error_message}")
+            logging.warning(f"motor id: {motor_id_of_this_response}, error: {error_message}")
         p_int = (data[1] << 8) | data[2]
         v_int = (data[3] << 4) | (data[4] >> 4)
         t_int = ((data[4] & 0xF) << 8) | data[5]
