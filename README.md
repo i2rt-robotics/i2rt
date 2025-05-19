@@ -100,7 +100,7 @@ However, we understand that this feature may not always be desirable, especially
 If your arm has timeout removed, you can run the following command to launch the arm so the arm won't sudden drop during initialization. However, if the arm is offline and is at the gravity compensation mode the arm may move unexpectedly. Please be aware of this risk before removing the timeout.
 
 ```bash
-python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp
+python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp --motor_timeout_disabled
 ```
 
 To remove the timeout feature, run the following command.
