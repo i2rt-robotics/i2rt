@@ -4,11 +4,13 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Protocol, Tuple
+from typing import List, Optional, Protocol, Tuple, Callable
 import logging
 import can
 import numpy as np
 import os
+from typing import Any
+
 log_level = os.getenv("LOGLEVEL", "WARNING").upper()
 
 # Configure the logging
@@ -232,6 +234,7 @@ class ReceiveMode(AutoNameEnum):
     p16 = enum.auto()
     same = enum.auto()
     zero = enum.auto()
+    plus_one = enum.auto()
 
     def get_receive_id(self, motor_id: int) -> int:
         if self == ReceiveMode.p16:
@@ -240,6 +243,8 @@ class ReceiveMode(AutoNameEnum):
             return motor_id
         elif self == ReceiveMode.zero:
             return 0
+        elif self == ReceiveMode.plus_one:
+            return motor_id + 1
         else:
             raise NotImplementedError(f"receive_mode: {self} not recognized")
 
@@ -270,6 +275,19 @@ class ControlMode:
         else:
             raise ValueError(f"Control mode '{control_mode}' not recognized.")
 
+######### for passive encoder #########
+@dataclass
+class PassiveEncoderInfo:
+    """The encoder report."""
+
+    id: int
+    """The device number, uint8."""
+    position: float
+    """Position, in radian."""
+    velocity: float
+    """Velocity, in radian/s."""
+    io_inputs: List[bool]
+    """The discrete inputs, list of boolean."""
 
 class CanInterface:
     def __init__(
@@ -278,18 +296,27 @@ class CanInterface:
         bustype: str = "pcan",
         bitrate: int = 1000000,
         name: str = "default_can_interface",
-        receive_mode: ReceiveMode = ReceiveMode.p16,
+        receive_mode: ReceiveMode = ReceiveMode.p16
     ):
         self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
         self.busstate = self.bus.state
         self.name = name
         self.receive_mode = receive_mode
+        
+        # Initialize BufferedReader for asynchronous message handling
+        self.buffered_reader = can.BufferedReader()
+        self.notifier = can.Notifier(self.bus, [self.buffered_reader])
 
     def close(self) -> None:
         """Shut down the CAN bus."""
+        self.notifier.stop()
         self.bus.shutdown()
 
-    def _send_message_get_response(self, id: int, motor_id: int, data: List[int], max_retry: int = 20) -> can.Message:
+    def _send_message_get_response(self, id: int, 
+                                   motor_id: int,
+                                   data: List[int], 
+                                   max_retry: int = 20,
+                                   expected_id: int = None) -> can.Message:
         """Send a message over the CAN bus.
 
         Args:
@@ -305,13 +332,13 @@ class CanInterface:
                 self.bus.send(message)
                 response = self._receive_message(motor_id)
 
-                expected_id = self.receive_mode.get_receive_id(motor_id)
+                if expected_id is None:
+                    expected_id = self.receive_mode.get_receive_id(motor_id)
                 if response and (expected_id == response.arbitration_id):
                     return response
                 self.try_receive_message(id)
             except (can.CanError, AssertionError) as e:
                 logging.warning(e)
-                # print warning in red
                 logging.warning(
                     "\033[91m"
                     + f"CAN Error {self.name}: Failed to communicate with motor {id} over can bus. Retrying..."
@@ -322,7 +349,7 @@ class CanInterface:
             f"fail to communicate with the motor {id} on {self.name} at can channel {self.bus.channel_info}"
         )
 
-    def try_receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.009) -> Optional[can.Message]:
+    def try_receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.002) -> Optional[can.Message]:
         """Try to receive a message from the CAN bus.
 
         Args:
@@ -337,7 +364,7 @@ class CanInterface:
             return None
 
     def _receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.009) -> Optional[can.Message]:
-        """Receive a message from the CAN bus.
+        """Receive a message from the CAN bus using BufferedReader.
 
         Args:
             timeout (float): The time to wait for a message (in seconds).
@@ -350,7 +377,8 @@ class CanInterface:
         """
         start_time = time.time()
         while (time.time() - start_time) < timeout:
-            message = self.bus.recv(timeout=0.002)
+            # Use BufferedReader to get the message
+            message = self.buffered_reader.get_message(timeout = 0.001)
             if message:
                 return message
         logging.warning(
@@ -359,6 +387,42 @@ class CanInterface:
             + "\033[0m"
         )
 
+        
+class PassiveEncoderReader():
+    def __init__(self, can_interface: CanInterface,
+                 receive_mode: ReceiveMode = ReceiveMode.plus_one):
+        self.can_interface = can_interface
+        self.receive_mode = receive_mode
+        
+    def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+        # this encoder's trigger message is 0x02
+        data=[0xFF, 0x02]
+        message = self.can_interface._send_message_get_response(encoder_id, 
+                            encoder_id, data, expected_id = self.receive_mode.get_receive_id(0x50E))
+        pos, vel, button_state = self._parse_encoder_message(message)
+        result = PassiveEncoderInfo(id = encoder_id, position = pos, velocity = vel, io_inputs = button_state)
+        return result
+    
+    def _parse_encoder_message(self, message: can.Message) -> PassiveEncoderInfo:
+        # Standard format
+        struct_format = "!B h h B"
+        device_id, position, velocity, digital_inputs = struct.unpack(struct_format, message.data)
+
+        # Convert position and velocity to radians
+        position_rad = position * 2 * np.pi / 4096
+        velocity_rad = velocity * 2 * np.pi / 4096
+        button_state = [digital_inputs % 2, digital_inputs // 2]
+        
+        return position_rad, velocity_rad, button_state
+
+class EncoderChain():
+    def __init__(self, encoder_ids: List[int], encoder_interface: CanInterface):
+        self.encoder_ids = encoder_ids
+        self.encoder_interface = encoder_interface
+
+    def read_states(self) -> List[PassiveEncoderInfo]:
+        return [self.encoder_interface.read_encoder(encoder_id) for encoder_id in self.encoder_ids]
+        
 
 class DMSingleMotorCanInterface(CanInterface):
     """Class for CAN interface with a single motor."""
@@ -395,7 +459,9 @@ class DMSingleMotorCanInterface(CanInterface):
 
         id = motor_id  # self._get_frame_id(motor_id)
         data = [0xFF] * 7 + [0xFC]
+        
         message = self._send_message_get_response(id, motor_id, data)
+        
         # dummy motor type just check motor status
         motor_info = self.parse_recv_message(message, MotorType.DM4310)
         if int(motor_info.error_code, 16) != MotorErrorCode.normal:
@@ -598,6 +664,8 @@ class DMChainCanInterface(MotorChain):
         motor_chain_name: str = "default_motor_chain",
         receive_mode: ReceiveMode = ReceiveMode.p16,
         control_mode: ControlMode = ControlMode.MIT,
+        # assume this driver shares the same bus interface with the motor interface
+        get_same_bus_device_driver: Optional[Callable] = None,
     ):
         assert len(motor_list) > 0
         assert (
@@ -622,9 +690,17 @@ class DMChainCanInterface(MotorChain):
                 name=motor_chain_name,
             )
         self.state = None
-        self.commands = [MotorCmd() for _ in range(len(motor_list))]
         self.state_lock = threading.Lock()
+        self.commands = [MotorCmd() for _ in range(len(motor_list))]
         self.command_lock = threading.Lock()
+        
+        self.same_bus_device_states = None
+        self.same_bus_device_lock = threading.Lock()
+        if get_same_bus_device_driver is not None:
+            self.same_bus_device_driver = get_same_bus_device_driver(self.motor_interface)
+        else:
+            self.same_bus_device_driver = None
+        
         self.absolute_positions = None
         self._motor_on()
         self.start_thread_flag = start_thread
@@ -686,6 +762,8 @@ class DMChainCanInterface(MotorChain):
         print("starting separate thread for control loop")
 
     def start_thread(self) -> None:
+        # clean error again for motor with timeout enabled 
+        self._motor_on()
         thread = threading.Thread(target=self._set_torques_and_update_state)
         thread.start()
         time.sleep(0.1)
@@ -704,7 +782,7 @@ class DMChainCanInterface(MotorChain):
                 step_time = curr_time - last_step_time
                 last_step_time = curr_time
                 if step_time > 0.005:  # 5 ms
-                    print(f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
+                    logging.warning(f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
 
                 # Update state.
                 with self.command_lock:
@@ -712,6 +790,12 @@ class DMChainCanInterface(MotorChain):
                 with self.state_lock:
                     self.state = motor_feedback
                     self._update_absolute_positions(motor_feedback)
+                if self.same_bus_device_driver is not None:
+                    time.sleep(0.01)
+                    with self.same_bus_device_lock:
+                        # assume the same bus device is a passive input device (no commands to send) for now. 
+                        self.same_bus_device_states = self.same_bus_device_driver.read_states()
+                        time.sleep(0.001)
             except Exception as e:
                 print(f"DM Error in control loop: {e}")
                 raise e
@@ -784,7 +868,9 @@ class DMChainCanInterface(MotorChain):
             self.commands = command
         if get_state:
             return self.read_states(torques=torques)
-
+    def get_same_bus_device_states(self) -> Any:
+        with self.same_bus_device_lock:
+            return self.same_bus_device_states
     def close(self) -> None:
         self.running = False
 
