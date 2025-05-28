@@ -315,7 +315,7 @@ class CanInterface:
     def _send_message_get_response(self, id: int, 
                                    motor_id: int,
                                    data: List[int], 
-                                   max_retry: int = 20,
+                                   max_retry: int = 5,
                                    expected_id: int = None) -> can.Message:
         """Send a message over the CAN bus.
 
@@ -344,7 +344,7 @@ class CanInterface:
                     + f"CAN Error {self.name}: Failed to communicate with motor {id} over can bus. Retrying..."
                     + "\033[0m"
                 )
-            time.sleep(0.002)
+                time.sleep(0.001)
         raise AssertionError(
             f"fail to communicate with the motor {id} on {self.name} at can channel {self.bus.channel_info}"
         )
@@ -378,7 +378,7 @@ class CanInterface:
         start_time = time.time()
         while (time.time() - start_time) < timeout:
             # Use BufferedReader to get the message
-            message = self.buffered_reader.get_message(timeout = 0.001)
+            message = self.buffered_reader.get_message(timeout = 0.0008)
             if message:
                 return message
         logging.warning(
@@ -519,7 +519,7 @@ class DMSingleMotorCanInterface(CanInterface):
         if diff < 0.01:
             print(f"motor {motor_id} set zero position success, current position: {current_state.position}")
         # message = self._receive_message(timeout=0.5)
-
+        
     def set_control(
         self,
         motor_id: int,
@@ -770,9 +770,10 @@ class DMChainCanInterface(MotorChain):
         while self.state is None:
             time.sleep(0.1)
             print("waiting for the first state")
-
+            
     def _set_torques_and_update_state(self) -> None:
         last_step_time = time.time()
+        
         while self.running:
             try:
                 # Maintain desired control frequency.
@@ -781,21 +782,27 @@ class DMChainCanInterface(MotorChain):
                 curr_time = time.time()
                 step_time = curr_time - last_step_time
                 last_step_time = curr_time
-                if step_time > 0.005:  # 5 ms
+                if step_time > 0.007:  # 5 ms
                     logging.warning(f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
 
                 # Update state.
                 with self.command_lock:
                     motor_feedback = self._set_commands(self.commands)
+                    errors = np.array([True if motor_feedback[i].error_code != "0x1" else False for i in range(len(motor_feedback))])
+                    if np.all(errors):
+                        self.running = False
+                        raise Exception("All motors have errors, stopping control loop")
+                    
                 with self.state_lock:
                     self.state = motor_feedback
                     self._update_absolute_positions(motor_feedback)
                 if self.same_bus_device_driver is not None:
-                    time.sleep(0.01)
+                    time.sleep(0.01) #TODO: check if this is necessary
                     with self.same_bus_device_lock:
                         # assume the same bus device is a passive input device (no commands to send) for now. 
                         self.same_bus_device_states = self.same_bus_device_driver.read_states()
                         time.sleep(0.001)
+                time.sleep(0.001) # this is necessary, else the locks will not be released
             except Exception as e:
                 print(f"DM Error in control loop: {e}")
                 raise e
@@ -937,8 +944,8 @@ if __name__ == "__main__":
         motor_chain_name,
         receive_mode=ReceiveMode.p16,
     )
-    # while True:
-    for _ in range(10):
+    while True:
+    # for _ in range(10):
         motor_chain.set_commands(np.zeros(len(motor_list)))
-        print(motor_chain.read_states())
+        # print(motor_chain.read_states())
         time.sleep(0.001)

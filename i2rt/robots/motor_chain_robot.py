@@ -183,13 +183,16 @@ class MotorChainRobot(Robot):
             elapsed_time = current_time - last_time
 
             self.update()
+            if not self.motor_chain.running:
+                logging.error("Motor chain is not running, exiting")
+                exit()
             time.sleep(0.0008)
 
             iteration_count += 1
             if elapsed_time >= 10.0:
                 control_frequency = iteration_count / elapsed_time
                 # Overwrite the current line with the new frequency information
-                # print(f"Grav Comp Control Frequency: {control_frequency:.2f} Hz")
+                logging.info(f"Grav Comp Control Frequency: {control_frequency:.2f} Hz")
 
                 # Reset the counter and timer
                 last_time = current_time
