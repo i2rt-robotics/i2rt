@@ -40,6 +40,41 @@ class JointStates:
 
 
 @dataclass
+class JointObservations:
+    """A class representing the observations of a robot."""
+
+    # Joint Positions (EXCLUDING GRIPPER)
+    pos: np.ndarray
+
+    # Joint Velocities
+    vel: np.ndarray
+
+    # Joint Efforts
+    eff: np.ndarray
+
+    # Torques, if present, its length should be the same as the number of joints
+    torques: Optional[np.ndarray] = None
+
+    # Gripper Position, if present, its length should be 1
+    gripper_pos: Optional[np.ndarray] = None
+
+    def asdict(self) -> Dict[str, Any]:
+        return {
+            "pos": self.pos.flatten().tolist(),
+            "gripper_pos": (
+                None
+                if self.gripper_pos is None
+                else self.gripper_pos.flatten().tolist()
+            ),
+            "vel": self.vel.flatten().tolist(),
+            "eff": self.eff.flatten().tolist(),
+            "torques": (
+                None if self.torques is None else self.torques.flatten().tolist()
+            ),
+        }
+
+
+@dataclass
 class JointCommands:
     torques: np.ndarray
 
@@ -401,7 +436,7 @@ class MotorChainRobot(Robot):
             self._kp = np.zeros(len(self.motor_chain))
             self._kd = np.zeros(len(self.motor_chain))
 
-    def get_observations(self) -> Dict[str, np.ndarray]:
+    def get_observations(self) -> JointObservations:
         """Get the current observations of the robot.
 
         This is to extract all the information that is available from the robot,
@@ -409,24 +444,27 @@ class MotorChainRobot(Robot):
         information from additional sensors, such as cameras, force sensors, etc.
 
         Returns:
-            Dict[str, np.ndarray]: A dictionary of observations.
+            JointObservations: The current observations of the robot.
         """
+
+        # Fetch torque values from previous update() call
+        prev_torques = (
+            None if self._last_torque is None else copy.deepcopy(self._last_torque)
+        )
+
         with self._state_lock:
-            if self._gripper_index is None:
-                return {
-                    "joint_pos": self._joint_state.pos,
-                    "joint_vel": self._joint_state.vel,
-                    "joint_eff": self._joint_state.eff,
-                }
-            else:
-                return {
-                    "joint_pos": self._joint_state.pos[: self._gripper_index],
-                    "gripper_pos": np.array(
-                        [self._joint_state.pos[self._gripper_index]]
-                    ),
-                    "joint_vel": self._joint_state.vel,
-                    "joint_eff": self._joint_state.eff,
-                }
+
+            return JointObservations(
+                pos=self._joint_state.pos[: self._gripper_index],
+                vel=self._joint_state.vel,
+                eff=self._joint_state.eff,
+                gripper_pos=(
+                    None
+                    if self._gripper_index is None
+                    else np.array([self._joint_state.pos[self._gripper_index]])
+                ),
+                torques=prev_torques,
+            )
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """Exit the runtime context related to this object."""
