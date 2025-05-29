@@ -186,14 +186,15 @@ class MotorChainRobot(Robot):
             if not self.motor_chain.running:
                 logging.error("Motor chain is not running, exiting")
                 exit()
-            time.sleep(0.0008)
+            time.sleep(0.004)
 
             iteration_count += 1
             if elapsed_time >= 10.0:
                 control_frequency = iteration_count / elapsed_time
                 # Overwrite the current line with the new frequency information
                 logging.info(f"Grav Comp Control Frequency: {control_frequency:.2f} Hz")
-
+                if control_frequency < 100:
+                    logging.warning("Gravity compensation control loop is slow, current frequency: {control_frequency:.2f} Hz")
                 # Reset the counter and timer
                 last_time = current_time
                 iteration_count = 0
@@ -531,7 +532,7 @@ if __name__ == "__main__":
 
     if args.operation_mode == "gravity_comp":
         while True:
-            print(robot.get_observations())
+            # print(robot.get_observations())
             time.sleep(1)
     elif args.operation_mode == "test_gripper":
         for _ in range(30):

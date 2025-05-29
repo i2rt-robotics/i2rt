@@ -789,9 +789,10 @@ class DMChainCanInterface(MotorChain):
                 with self.command_lock:
                     motor_feedback = self._set_commands(self.commands)
                     errors = np.array([True if motor_feedback[i].error_code != "0x1" else False for i in range(len(motor_feedback))])
-                    if np.all(errors):
+                    if np.any(errors):
                         self.running = False
-                        raise Exception("All motors have errors, stopping control loop")
+                        logging.error("motor errors: ", errors)
+                        raise Exception("motors have errors, stopping control loop")
                     
                 with self.state_lock:
                     self.state = motor_feedback
