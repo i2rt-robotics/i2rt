@@ -75,7 +75,7 @@ class ClientRobot(Robot):
         Returns:
             Dict[str, np.ndarray]: The current observations of the leader robot.
         """
-        return self._client.get_observations().result()
+        return (self._client.get_observations().result()).asdict()
 
 
 @dataclass
