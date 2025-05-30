@@ -712,6 +712,7 @@ class DMChainCanInterface(MotorChain):
                 with self.state_lock:
                     self.state = motor_feedback
                     self._update_absolute_positions(motor_feedback)
+                time.sleep(0.0005)
             except Exception as e:
                 print(f"DM Error in control loop: {e}")
                 raise e
