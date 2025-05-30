@@ -625,7 +625,7 @@ if __name__ == "__main__":
 
     if args.operation_mode == "gravity_comp":
         while True:
-            print(robot.get_observations())
+            print(robot.get_observations().asdict())
             time.sleep(1)
     elif args.operation_mode == "test_gripper":
         for _ in range(30):
@@ -635,4 +635,4 @@ if __name__ == "__main__":
                     np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, gripper_pos])
                 )
                 time.sleep(4)
-                print(robot.get_observations())
+                print(robot.get_observations().asdict())
