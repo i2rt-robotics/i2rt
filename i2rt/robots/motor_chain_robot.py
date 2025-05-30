@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import threading
 import time
@@ -12,6 +13,7 @@ from i2rt.motor_drivers.dm_driver import (
     MotorInfo,
     ReceiveMode,
 )
+from i2rt.robots.motor_spec import MOTOR_SPECS
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import GripperForceLimiter, JointMapper
 from i2rt.utils.mujoco_utils import MuJoCoKDL
@@ -19,8 +21,6 @@ from i2rt.utils.mujoco_utils import MuJoCoKDL
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
 ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.xml")
-
-import logging
 
 
 @dataclass
@@ -49,14 +49,14 @@ class JointObservations:
     # Joint Velocities
     vel: np.ndarray
 
-    # Joint Efforts
+    # Joint Efforts (Since all motors are rotational, this is the torque)
     eff: np.ndarray
-
-    # Torques, if present, its length should be the same as the number of joints
-    torques: Optional[np.ndarray] = None
 
     # Gripper Position, if present, its length should be 1
     gripper_pos: Optional[np.ndarray] = None
+
+    # Joint Currents in Amps
+    currents: Optional[np.ndarray] = None
 
     def asdict(self) -> Dict[str, Any]:
         return {
@@ -68,8 +68,8 @@ class JointObservations:
             ),
             "vel": self.vel.flatten().tolist(),
             "eff": self.eff.flatten().tolist(),
-            "torques": (
-                None if self.torques is None else self.torques.flatten().tolist()
+            "currents": (
+                None if self.currents is None else self.currents.flatten().tolist()
             ),
         }
 
@@ -98,8 +98,6 @@ class JointCommands:
 
 class MotorChainRobot(Robot):
     """A generic Robot protocol."""
-
-    _last_torque: Optional[np.ndarray] = None
 
     def __init__(
         self,
@@ -245,14 +243,6 @@ class MotorChainRobot(Robot):
                 last_time = current_time
                 iteration_count = 0
 
-    def get_torques(self) -> Optional[np.ndarray]:
-        """Get the torques of the robot from previous update() call.
-
-        Returns:
-            np.ndarray: The torques of the robot.
-        """
-        return self._last_torque
-
     def update(self) -> None:
         """Update the robot.
 
@@ -266,8 +256,6 @@ class MotorChainRobot(Robot):
             motor_torques = np.clip(
                 motor_torques, -self._clip_motor_torque, self._clip_motor_torque
             )
-
-            self._last_torque = motor_torques
 
             if self._gripper_index is not None:
                 if self._limit_gripper_force > 0 and self._joint_state is not None:
@@ -321,6 +309,7 @@ class MotorChainRobot(Robot):
                 kp=joint_commands.kp,
                 kd=joint_commands.kd,
             )
+
             self._joint_state = self._motor_state_to_joint_state(motor_state)
 
     def _motor_state_to_joint_state(self, motor_state: List[MotorInfo]) -> JointStates:
@@ -447,12 +436,29 @@ class MotorChainRobot(Robot):
             JointObservations: The current observations of the robot.
         """
 
-        # Fetch torque values from previous update() call
-        prev_torques = (
-            None if self._last_torque is None else copy.deepcopy(self._last_torque)
-        )
-
         with self._state_lock:
+
+            has_current = False
+            currents = np.zeros(len(self.motor_chain))
+
+            if isinstance(self.motor_chain, DMChainCanInterface):
+                motor_types = [motor[1] for motor in self.motor_chain.motor_list]
+
+                for idx, motor_type in enumerate(motor_types):
+
+                    if (
+                        motor_type.upper() in MOTOR_SPECS
+                        and len(self._joint_state.eff) > idx
+                    ):
+                        motor_spec = MOTOR_SPECS[motor_type.upper()]
+                        currents[idx] = motor_spec.torque_to_current(
+                            self._joint_state.eff[idx]
+                        )
+                        has_current = True
+                    else:
+                        logging.warning(
+                            f"Unknown motor type: {motor_type} for joint #{idx + 1}, Current will be set to 0"
+                        )
 
             return JointObservations(
                 pos=self._joint_state.pos[: self._gripper_index],
@@ -463,7 +469,7 @@ class MotorChainRobot(Robot):
                     if self._gripper_index is None
                     else np.array([self._joint_state.pos[self._gripper_index]])
                 ),
-                torques=prev_torques,
+                currents=None if not has_current else currents,
             )
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
