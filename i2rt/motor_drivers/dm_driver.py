@@ -629,10 +629,13 @@ class DMSingleMotorCanInterface(CanInterface):
 
         motor_id_of_this_response = self.receive_mode.to_motor_id(message.arbitration_id)
         if error_hex != "0x1":
-            logging.error(
+            logging.warning(
                 f"motor id: {motor_id_of_this_response}, error: {error_message} at {self.name} and channel {self.bus.channel_info}"
             )
             if not ignore_error:
+                logging.error(
+                    f"motor id: {motor_id_of_this_response}, error: {error_message} at {self.name} and channel {self.bus.channel_info}"
+                )
                 raise RuntimeError(
                     f"Motor error detected: motor id: {motor_id_of_this_response}, error: {error_message}"
                 )
@@ -797,7 +800,7 @@ class DMChainCanInterface(MotorChain):
     def _motor_on(self) -> None:
         motor_feedback = []
         for motor_id, motor_type in self.motor_list:
-            print(motor_id, motor_type)
+            logging.info(f"Turning on motor_id: {motor_id}, motor_type: {motor_type}")
             time.sleep(0.001)
             motor_feedback.append(self.motor_interface.motor_on(motor_id, motor_type))
         self._update_absolute_positions(motor_feedback)
@@ -827,7 +830,7 @@ class DMChainCanInterface(MotorChain):
                     step_time = curr_time - last_step_time
                     last_step_time = curr_time
                     if step_time > 0.007:  # 7 ms
-                        logging.warning(
+                        logging.info(
                             f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop"
                         )
 
@@ -976,6 +979,10 @@ class MultiDMChainCanInterface(MotorChain):
 
 if __name__ == "__main__":
     import argparse
+
+    from i2rt.utils.utils import override_log_level
+
+    override_log_level(level=logging.INFO)
 
     args = argparse.ArgumentParser()
     args.add_argument("--channel", type=str, default="can0")
