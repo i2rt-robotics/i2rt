@@ -534,7 +534,7 @@ class DMSingleMotorCanInterface(CanInterface):
         current_state = self.set_control(id, MotorType.DM4310, 0, 0, 0, 0, 0)
         diff = abs(current_state.position)
         if diff < 0.01:
-            print(f"motor {motor_id} set zero position success, current position: {current_state.position}")
+            logging.warning(f"motor {motor_id} set zero position success, current position: {current_state.position}")
         # message = self._receive_message(timeout=0.5)
 
     def set_control(
@@ -827,7 +827,7 @@ class DMChainCanInterface(MotorChain):
                         # assume the same bus device is a passive input device (no commands to send) for now.
                         self.same_bus_device_states = self.same_bus_device_driver.read_states()
                         time.sleep(0.001)
-                time.sleep(0.001)  # this is necessary, else the locks will not be released
+                time.sleep(0.0005)  # this is necessary, else the locks will not be released
             except Exception as e:
                 print(f"DM Error in control loop: {e}")
                 raise e
