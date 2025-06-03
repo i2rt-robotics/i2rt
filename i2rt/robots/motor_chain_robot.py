@@ -548,6 +548,10 @@ if __name__ == "__main__":
     import argparse
     import time
 
+    from i2rt.utils.utils import override_log_level
+
+    override_log_level(level=logging.INFO)
+
     args = argparse.ArgumentParser()
     args.add_argument("--model", type=str, default="yam")
     args.add_argument("--channel", type=str, default="can0")

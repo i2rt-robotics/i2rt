@@ -53,3 +53,13 @@ class RateRecorder:
             # reset the iteration count
             self.iteration_count = 0
             self.start_time = time.time()
+
+
+def override_log_level(level: int = logging.INFO) -> None:
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
+    logging.basicConfig(level=level)
