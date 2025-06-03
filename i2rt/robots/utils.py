@@ -1,4 +1,5 @@
 import queue
+import time
 from functools import partial
 from typing import Callable, Dict, Tuple
 
@@ -27,6 +28,7 @@ class JointMapper:
     def to_robot_joint_pos_space(self, command_joint_pos: np.ndarray) -> np.ndarray:
         if self.empty:
             return command_joint_pos
+        command_joint_pos = np.asarray(command_joint_pos, order="C")
         result = command_joint_pos.copy()
         needs_remapping = command_joint_pos[self.joints_one_hot]
         needs_remapping = needs_remapping * self.joint_range + self.joint_limits[:, 0]
@@ -112,6 +114,7 @@ class GripperForceLimiter:
         max_force: float,
         gripper_type: str,
         kp: float,
+        average_torque_window: float = 0.1,  # in seconds
         debug: bool = False,
     ):
         self.max_force = max_force
@@ -119,7 +122,8 @@ class GripperForceLimiter:
         self._is_clogged = False
         self._gripper_adjusted_qpos = None
         self._kp = kp
-        self._past_gripper_effort_queue = queue.Queue(maxsize=50)
+        self._past_gripper_effort_queue = queue.Queue(maxsize=1000)
+        self.average_torque_window = average_torque_window
         self.debug = debug
         if self.gripper_type == "arx_92mm_linear":
             self.clog_force_threshold = 0.5
@@ -148,7 +152,12 @@ class GripperForceLimiter:
 
     def compute_target_gripper_torque(self, gripper_state: Dict[str, float]) -> float:
         current_speed = gripper_state["current_qvel"]
-        average_effort = np.abs(np.mean(self._past_gripper_effort_queue.queue))
+        history_ts, history_effort = zip(*self._past_gripper_effort_queue.queue, strict=False)
+        history_ts = np.array(history_ts)
+        history_effort = np.array(history_effort)
+        valid_idx = history_ts > time.time() - self.average_torque_window
+        average_effort = np.abs(np.mean(history_effort[valid_idx]))
+
         if self.debug:
             print(f"average_effort: {average_effort}")
 
@@ -158,9 +167,8 @@ class GripperForceLimiter:
             # 0 close 1 open
             if (normalized_current_qpos < normalized_target_qpos) or average_effort < 0.2:  # want to open
                 self._is_clogged = False
-        else:
-            if average_effort > self.clog_force_threshold and np.abs(current_speed) < self.clog_speed_threshold:
-                self._is_clogged = True
+        elif average_effort > self.clog_force_threshold and np.abs(current_speed) < self.clog_speed_threshold:
+            self._is_clogged = True
 
         if self._is_clogged:
             target_eff = self.gripper_force_torque_map(current_angle=gripper_state["current_qpos"])
@@ -172,7 +180,8 @@ class GripperForceLimiter:
     def update(self, gripper_state: Dict[str, float]) -> None:
         if self._past_gripper_effort_queue.full():
             self._past_gripper_effort_queue.get()
-        self._past_gripper_effort_queue.put(gripper_state["current_eff"])
+        current_ts = time.time()
+        self._past_gripper_effort_queue.put((current_ts, gripper_state["current_eff"]))
         target_eff = self.compute_target_gripper_torque(gripper_state)
 
         if target_eff is not None:

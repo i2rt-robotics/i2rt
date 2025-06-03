@@ -5,11 +5,12 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Callable, List, Optional, Protocol, Tuple
 
 import can
 import numpy as np
+
+from i2rt.utils.utils import RateRecorder
 
 log_level = os.getenv("LOGLEVEL", "ERROR").upper()
 
@@ -44,6 +45,7 @@ class MotorType:
     DM4310V = "DM4310V"
     DM4340 = "DM4340"
     DMH6215 = "DMH6215"
+    DMH6215MIT = "DMH6215MIT"
     DM3507 = "DM3507"
 
     @classmethod
@@ -89,6 +91,15 @@ class MotorType:
                 # max kd 5
             )
         elif motor_type == cls.DMH6215:
+            return MotorConstants(
+                POSITION_MAX=12.5,
+                POSITION_MIN=-12.5,
+                VELOCITY_MAX=45,
+                VELOCITY_MIN=-45,
+                TORQUE_MAX=10,
+                TORQUE_MIN=-10,
+            )
+        elif motor_type == cls.DMH6215MIT:
             return MotorConstants(
                 POSITION_MAX=12.5,
                 POSITION_MIN=-12.5,
@@ -146,7 +157,7 @@ def split_int16_to_uint8(data: int) -> Tuple[int, int]:
     return high_byte, low_byte
 
 
-class AutoNameEnum(Enum):
+class AutoNameEnum(enum.Enum):
     def _generate_next_value_(name: str, start: int, count: int, last_values: List[str]) -> str:
         return name
 
@@ -176,7 +187,8 @@ class MotorInfo:
     eff: float = 0
     pos: float = 0
     voltage: float = -1
-    temp: float = -1
+    temp_mos: float = -1
+    temp_rotor: float = -1
 
 
 @dataclass
@@ -478,14 +490,16 @@ class DMSingleMotorCanInterface(CanInterface):
         message = self._send_message_get_response(id, motor_id, data)
 
         # dummy motor type just check motor status
-        motor_info = self.parse_recv_message(message, MotorType.DM4310)
+        motor_info = self.parse_recv_message(message, MotorType.DM4310, ignore_error=True)
         if int(motor_info.error_code, 16) != MotorErrorCode.normal:
             logging.info(f"motor {motor_id} error: {motor_info.error_message}")
             self.clean_error(motor_id=motor_id)
             self.try_receive_message()
             logging.info(f"motor {motor_id} error cleaned")
             # enable again
+
             message = self._send_message_get_response(id, motor_id, data)
+
         else:
             logging.info(f"motor {motor_id} is already on")
         logging.getLogger().setLevel(current_level)
@@ -534,7 +548,7 @@ class DMSingleMotorCanInterface(CanInterface):
         current_state = self.set_control(id, MotorType.DM4310, 0, 0, 0, 0, 0)
         diff = abs(current_state.position)
         if diff < 0.01:
-            logging.warning(f"motor {motor_id} set zero position success, current position: {current_state.position}")
+            logging.info(f"motor {motor_id} set zero position success, current position: {current_state.position}")
         # message = self._receive_message(timeout=0.5)
 
     def set_control(
@@ -595,7 +609,9 @@ class DMSingleMotorCanInterface(CanInterface):
         motor_info = self.parse_recv_message(message, motor_type)
         return motor_info
 
-    def parse_recv_message(self, message: can.Message, motor_type: str) -> FeedbackFrameInfo:
+    def parse_recv_message(
+        self, message: can.Message, motor_type: str, ignore_error: bool = False
+    ) -> FeedbackFrameInfo:
         """Parse the received message to extract motor information.
 
         Args:
@@ -613,8 +629,13 @@ class DMSingleMotorCanInterface(CanInterface):
 
         motor_id_of_this_response = self.receive_mode.to_motor_id(message.arbitration_id)
         if error_hex != "0x1":
-            # print motor id and error
-            logging.warning(f"motor id: {motor_id_of_this_response}, error: {error_message}")
+            logging.error(
+                f"motor id: {motor_id_of_this_response}, error: {error_message} at {self.name} and channel {self.bus.channel_info}"
+            )
+            if not ignore_error:
+                raise RuntimeError(
+                    f"Motor error detected: motor id: {motor_id_of_this_response}, error: {error_message}"
+                )
         p_int = (data[1] << 8) | data[2]
         v_int = (data[3] << 4) | (data[4] >> 4)
         t_int = ((data[4] & 0xF) << 8) | data[5]
@@ -681,7 +702,6 @@ class DMChainCanInterface(MotorChain):
         motor_chain_name: str = "default_motor_chain",
         receive_mode: ReceiveMode = ReceiveMode.p16,
         control_mode: ControlMode = ControlMode.MIT,
-        # assume this driver shares the same bus interface with the motor interface
         get_same_bus_device_driver: Optional[Callable] = None,
         use_buffered_reader: bool = False,
     ):
@@ -692,7 +712,8 @@ class DMChainCanInterface(MotorChain):
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
-        print(channel, bitrate)
+        self.channel = channel
+        logging.info(f"Channel: {channel}, Bitrate: {bitrate}")
         if "can" in channel:
             self.motor_interface = DMSingleMotorCanInterface(
                 channel=channel,
@@ -726,6 +747,9 @@ class DMChainCanInterface(MotorChain):
         self.start_thread_flag = start_thread
         if start_thread:
             self.start_thread()
+
+    def __repr__(self) -> str:
+        return f"DMChainCanInterface(channel={self.channel})"
 
     def _update_absolute_positions(self, motor_feedback: List[MotorInfo]) -> None:
         init_mode = False
@@ -779,7 +803,7 @@ class DMChainCanInterface(MotorChain):
         self._update_absolute_positions(motor_feedback)
         self.state = motor_feedback
         self.running = True
-        print("starting separate thread for control loop")
+        logging.info("starting separate thread for control loop")
 
     def start_thread(self) -> None:
         # clean error again for motor with timeout enabled
@@ -789,48 +813,52 @@ class DMChainCanInterface(MotorChain):
         time.sleep(0.1)
         while self.state is None:
             time.sleep(0.1)
-            print("waiting for the first state")
+            logging.info("waiting for the first state")
 
     def _set_torques_and_update_state(self) -> None:
         last_step_time = time.time()
-
-        while self.running:
-            try:
-                # Maintain desired control frequency.
-                while time.time() - last_step_time < CONTROL_PERIOD - 0.001:
-                    time.sleep(0.001)
-                curr_time = time.time()
-                step_time = curr_time - last_step_time
-                last_step_time = curr_time
-                if step_time > 0.007:  # 7 ms
-                    logging.warning(
-                        f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop"
-                    )
-
-                # Update state.
-                with self.command_lock:
-                    motor_feedback = self._set_commands(self.commands)
-                    errors = np.array(
-                        [True if motor_feedback[i].error_code != "0x1" else False for i in range(len(motor_feedback))]
-                    )
-                    if np.any(errors):
-                        self.running = False
-                        logging.error(f"motor errors: {errors}")
-                        raise Exception("motors have errors, stopping control loop")
-
-                with self.state_lock:
-                    self.state = motor_feedback
-                    self._update_absolute_positions(motor_feedback)
-                if self.same_bus_device_driver is not None:
-                    time.sleep(0.01)  # TODO: check if this is necessary
-                    with self.same_bus_device_lock:
-                        # assume the same bus device is a passive input device (no commands to send) for now.
-                        self.same_bus_device_states = self.same_bus_device_driver.read_states()
+        with RateRecorder() as rate_recorder:
+            while self.running:
+                try:
+                    # Maintain desired control frequency.
+                    while time.time() - last_step_time < CONTROL_PERIOD - 0.001:
                         time.sleep(0.001)
-                time.sleep(0.0005)  # this is necessary, else the locks will not be released
-            except Exception as e:
-                print(f"DM Error in control loop: {e}")
-                raise e
+                    curr_time = time.time()
+                    step_time = curr_time - last_step_time
+                    last_step_time = curr_time
+                    if step_time > 0.007:  # 7 ms
+                        logging.warning(
+                            f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop"
+                        )
+
+                    # Update state.
+                    with self.command_lock:
+                        motor_feedback = self._set_commands(self.commands)
+                        errors = np.array(
+                            [
+                                True if motor_feedback[i].error_code != "0x1" else False
+                                for i in range(len(motor_feedback))
+                            ]
+                        )
+                        if np.any(errors):
+                            self.running = False
+                            logging.error(f"motor errors: {errors}")
+                            raise Exception("motors have errors, stopping control loop")
+
+                    with self.state_lock:
+                        self.state = motor_feedback
+                        self._update_absolute_positions(motor_feedback)
+                    if self.same_bus_device_driver is not None:
+                        time.sleep(0.01)  # TODO: check if this is necessary
+                        with self.same_bus_device_lock:
+                            # assume the same bus device is a passive input device (no commands to send) for now.
+                            self.same_bus_device_states = self.same_bus_device_driver.read_states()
+                            time.sleep(0.001)
+                    time.sleep(0.0005)  # this is necessary, else the locks will not be released
+                    rate_recorder.track()
+                except Exception as e:
+                    print(f"DM Error in control loop: {e}")
+                    raise e
 
     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
         motor_feedback = []
@@ -853,7 +881,7 @@ class DMChainCanInterface(MotorChain):
                     torque=torque,
                 )
             except Exception as e:
-                print(f"{idx}th motor failed with info {motor_info}")
+                logging.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
                 raise e
 
             motor_feedback.append(fd_back)
@@ -871,7 +899,8 @@ class DMChainCanInterface(MotorChain):
                         vel=state.velocity * self.motor_direction[idx],
                         eff=state.torque * self.motor_direction[idx],
                         pos=self._joint_position_real_to_sim_idx(self.absolute_positions[idx], idx),
-                        temp=state.temperature_rotor,
+                        temp_rotor=state.temperature_rotor,
+                        temp_mos=state.temperature_mos,
                     )
                 )
         return motor_infos
@@ -950,6 +979,8 @@ if __name__ == "__main__":
 
     args = argparse.ArgumentParser()
     args.add_argument("--channel", type=str, default="can0")
+    args.add_argument("--print_state", action="store_true")
+
     args = args.parse_args()
     channel = args.channel
     motor_chain_name = "yam_real"
@@ -973,7 +1004,7 @@ if __name__ == "__main__":
         receive_mode=ReceiveMode.p16,
     )
     while True:
-        # for _ in range(10):
         motor_chain.set_commands(np.zeros(len(motor_list)))
-        # print(motor_chain.read_states())
-        time.sleep(0.001)
+        if args.print_state:
+            print(motor_chain.read_states())
+        time.sleep(0.1)

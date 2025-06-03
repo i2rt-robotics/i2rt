@@ -10,11 +10,14 @@ requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "dm-env",
-    "mink",
     "mujoco==3.2.5",
     "numpy",
     "portal",
+    "pygame",
     "python-can",
+    "qpsolvers[quadprog]",
+    "ruckig",
+    "threadpoolctl",
     "tyro",
 ]
 
@@ -56,7 +59,6 @@ lint.ignore = [
     "PLR0913",  # Too many arguments.
     "PLC0414",  # Import alias does not rename variable. (this is used for exporting names)
     "PLC1901",  # Use falsey strings.
-    "PLR5501",  # Use `elif` instead of `else if`.
     "PLR0911",  # Too many return statements.
     "PLR0912",  # Too many branches.
     "PLW0603",  # Global statement updates are discouraged.

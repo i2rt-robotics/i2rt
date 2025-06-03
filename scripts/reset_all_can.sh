@@ -1,11 +1,17 @@
 #!/bin/bash
 
+if [ "$(id -u)" != "0" ]; then
+    SUDO="sudo"
+else
+    SUDO=""
+fi
+
 # Function to reset a CAN interface
 reset_can_interface() {
     local iface=$1
     echo "Resetting CAN interface: $iface"
-    sudo ip link set "$iface" down
-    sudo ip link set "$iface" up type can bitrate 1000000
+    $SUDO ip link set "$iface" down
+    $SUDO ip link set "$iface" up type can bitrate 1000000
 }
 
 # Get all CAN interfaces

@@ -1,9 +1,12 @@
 # Modified from https://github.com/jimmyyhwu/tidybot2
 import os
 
+from i2rt.robots.robot import Robot, RobotType
+
 os.environ["CTR_TARGET"] = "Hardware"  # pylint: disable=wrong-import-position
 
 import atexit
+import logging
 import math
 import os
 import queue
@@ -14,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from dm_env.specs import Array
 from ruckig import ControlInterface, InputParameter, OutputParameter, Result, Ruckig
 from threadpoolctl import threadpool_limits
 
@@ -116,8 +120,8 @@ class VehicleMotorController:
         self.motor_directions = motor_directions
         self.kd = np.array(
             [
-                0.5,
-                0.5,
+                2,
+                2,
             ]
             * self.num_casters
         )
@@ -188,11 +192,13 @@ class FrameType(Enum):
     LOCAL = "local"
 
 
-class Vehicle:
+class Vehicle(Robot):
     def __init__(
         self,
         max_vel: Tuple[float, float, float] = (0.5, 0.5, 1.57),
         max_accel: Tuple[float, float, float] = (0.25, 0.25, 0.79),
+        channel: str = "can_flow_base",
+        auto_start: bool = True,
     ):
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
@@ -205,7 +211,7 @@ class Vehicle:
         steering_direction = [1, 1, 1, 1]
         self.num_casters = len(steering_offset)
 
-        self.caster_module_controller = VehicleMotorController(steering_offset, steering_direction)
+        self.caster_module_controller = VehicleMotorController(steering_offset, steering_direction, channel)
 
         # Joint space
         num_motors = 2 * NUM_CASTERS
@@ -213,33 +219,33 @@ class Vehicle:
         self.dq = np.zeros(num_motors)
 
         # Operational space (global frame)
-        num_dofs = 3  # (x, y, theta)
-        self.x = np.zeros(num_dofs)
-        self.dx = np.zeros(num_dofs)
+        self.num_dofs = 3  # (x, y, theta)
+        self.x = np.zeros(self.num_dofs)
+        self.dx = np.zeros(self.num_dofs)
 
         # C matrix relating operational space velocities to joint velocities
-        self.C = np.zeros((num_motors, num_dofs))
+        self.C = np.zeros((num_motors, self.num_dofs))
         self.C_steer = self.C[::2]
         self.C_drive = self.C[1::2]
 
         # C_p matrix relating operational space velocities to wheel velocities at the contact points
-        self.C_p = np.zeros((num_motors, num_dofs))
+        self.C_p = np.zeros((num_motors, self.num_dofs))
         self.C_p_steer = self.C_p[::2]
         self.C_p_drive = self.C_p[1::2]
         self.C_p_steer[:, :2] = [1.0, 0.0]
         self.C_p_drive[:, :2] = [0.0, 1.0]
 
         # C_qp^# matrix relating joint velocities to operational space velocities
-        self.C_pinv = np.zeros((num_motors, num_dofs))
-        self.CpT_Cqinv = np.zeros((num_dofs, num_motors))
+        self.C_pinv = np.zeros((num_motors, self.num_dofs))
+        self.CpT_Cqinv = np.zeros((self.num_dofs, num_motors))
         self.CpT_Cqinv_steer = self.CpT_Cqinv[:, ::2]
         self.CpT_Cqinv_drive = self.CpT_Cqinv[:, 1::2]
 
         # OTG (online trajectory generation)
         # Note: It would be better to couple x and y using polar coordinates
-        self.otg = Ruckig(num_dofs, CONTROL_PERIOD)
-        self.otg_inp = InputParameter(num_dofs)
-        self.otg_out = OutputParameter(num_dofs)
+        self.otg = Ruckig(self.num_dofs, CONTROL_PERIOD)
+        self.otg_inp = InputParameter(self.num_dofs)
+        self.otg_out = OutputParameter(self.num_dofs)
         self.otg_res = Result.Working
         self.otg_inp.max_velocity = self.max_vel
         self.otg_inp.max_acceleration = self.max_accel
@@ -248,6 +254,8 @@ class Vehicle:
         self.command_queue = queue.Queue(1)
         self.control_loop_thread = threading.Thread(target=self.control_loop, daemon=True)
         self.control_loop_running = False
+        if auto_start:
+            self.start_control()
 
     def update_state(self) -> None:
         # Joint positions and velocities
@@ -338,8 +346,8 @@ class Vehicle:
             curr_time = time.time()
             step_time = curr_time - last_step_time
             last_step_time = curr_time
-            if step_time > 0.01:  # 5 ms
-                print(f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
+            if step_time > 0.01:  # 10 ms
+                logging.warning(f"Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
 
             # Update state
             self.update_state()
@@ -431,6 +439,24 @@ class Vehicle:
     def set_target_position(self, position: Any) -> None:
         self._enqueue_command(CommandType.POSITION, position)
 
+    def command_target_vel(self, joint_vel: np.ndarray) -> None:
+        self.set_target_velocity(joint_vel)
+
+    def get_observations(self) -> Dict[str, np.ndarray]:
+        return self.caster_module_controller.get_state()
+
+    def get_robot_type(self) -> RobotType:
+        return RobotType.MOBILE_BASE
+
+    def joint_state_spec(self) -> Array:
+        return Array(
+            shape=(3,),
+            dtype=np.float32,
+        )
+
+    def num_dofs(self) -> int:
+        return self.num_dofs
+
 
 if __name__ == "__main__":
     import os
@@ -440,8 +466,7 @@ if __name__ == "__main__":
 
     import pygame
 
-    vehicle = Vehicle(max_vel=(1, 1, 1), max_accel=(1, 1, 1))
-    vehicle.start_control()
+    vehicle = Vehicle(max_vel=(0.2, 0.2, 0.3), max_accel=(1, 1, 1))
     # Initialize pygame and joystick
     pygame.init()
     pygame.joystick.init()
@@ -471,13 +496,12 @@ if __name__ == "__main__":
             start = joy.get_button(7)  # Example button
             x = joy.get_axis(1)  # Left stick Y-axis
             y = joy.get_axis(0)  # Left stick X-axis
-            th = joy.get_axis(3)  # Right stick X-axis
+            th = joy.get_axis(2)  # Right stick X-axis
 
             user_cmd = np.array([-x, y, -th])
             # if < 0.05 force to zero
             user_cmd[np.abs(user_cmd) < 0.05] = 0
             print(f"user_cmd: {user_cmd}")
-            # user_cmd = np.array([0.4,0,0])
             vehicle.set_target_velocity(user_cmd, frame="local")
 
             time.sleep(0.02)

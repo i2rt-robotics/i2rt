@@ -22,12 +22,16 @@ YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
 ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.xml")
 
 import logging
+
+
 @dataclass
 class JointStates:
     names: List[str]
     pos: np.ndarray
     vel: np.ndarray
     eff: np.ndarray
+    temp_mos: np.ndarray  # MOS temperature (float): Motor MOS temperature.
+    temp_rotor: np.ndarray  # ROTOR temperature (float): Motor ROTOR temperature.
 
     def asdict(self) -> Dict[str, Any]:
         return {
@@ -78,8 +82,13 @@ class MotorChainRobot(Robot):
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
         gripper_type: str = "yam_small",
+        temp_record_flag: bool = False,  # whether record the motor's temperature
     ) -> None:
+        self.temp_record_flag = temp_record_flag
         if gripper_index is not None:
+            assert (
+                gripper_index == len(motor_chain) - 1
+            ), "Gripper index should be the last one, but got {gripper_index}"
             assert gripper_limits is not None, "Gripper limits are required if gripper index is provided."
 
         if joint_limits is not None:
@@ -132,10 +141,7 @@ class MotorChainRobot(Robot):
             if isinstance(kd, float)
             else np.array(kd)
         )
-        if gripper_index is not None:
-            assert (
-                gripper_index == len(motor_chain) - 1
-            ), f"Gripper index should be the last one, but got {gripper_index}"
+
         if xml_path is not None:
             self.xml_path = os.path.expanduser(xml_path)
             self.kdl = MuJoCoKDL(self.xml_path)
@@ -153,7 +159,7 @@ class MotorChainRobot(Robot):
             # wait to recive joint data
             time.sleep(0.05)
             self._joint_state = self._motor_state_to_joint_state(self.motor_chain.read_states())
-        
+
         self._stop_event = threading.Event()  # Add a stop event
         self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
         self._server_thread.start()
@@ -194,7 +200,9 @@ class MotorChainRobot(Robot):
                 # Overwrite the current line with the new frequency information
                 logging.info(f"Grav Comp Control Frequency: {control_frequency:.2f} Hz")
                 if control_frequency < 100:
-                    logging.warning("Gravity compensation control loop is slow, current frequency: {control_frequency:.2f} Hz")
+                    logging.warning(
+                        "Gravity compensation control loop is slow, current frequency: {control_frequency:.2f} Hz"
+                    )
                 # Reset the counter and timer
                 last_time = current_time
                 iteration_count = 0
@@ -272,7 +280,16 @@ class MotorChainRobot(Robot):
         vel = np.array([motor.vel for motor in motor_state])
         vel = self.remapper.to_command_joint_vel_space(vel)
         eff = np.array([motor.eff for motor in motor_state])
-        return JointStates(names=names, pos=pos, vel=vel, eff=eff)
+        temp_mos = np.array([motor.temp_mos for motor in motor_state])
+        temp_rotor = np.array([motor.temp_rotor for motor in motor_state])
+        return JointStates(
+            names=names,
+            pos=pos,
+            vel=vel,
+            eff=eff,
+            temp_mos=temp_mos,
+            temp_rotor=temp_rotor,
+        )
 
     def _compute_gravity_compensation(self, joint_state: Optional[Dict[str, np.ndarray]]) -> np.ndarray:
         if joint_state is None or not self.use_gravity_comp:
@@ -310,6 +327,13 @@ class MotorChainRobot(Robot):
             return self._joint_state.pos
 
     def _clip_robot_joint_pos_command(self, pos: np.ndarray) -> np.ndarray:
+        """Clip the robot joint pos command to the joint limits. Do not clip the gripper pos.
+        Args:
+            pos (np.ndarray): The joint pos command to clip.
+        Returns:
+            np.ndarray: The clipped joint pos command.
+        """
+
         if self._joint_limits is not None:
             if self._gripper_index is not None:
                 pos[: self._gripper_index] = np.clip(
@@ -370,18 +394,22 @@ class MotorChainRobot(Robot):
         """
         with self._state_lock:
             if self._gripper_index is None:
-                return {
+                result = {
                     "joint_pos": self._joint_state.pos,
                     "joint_vel": self._joint_state.vel,
                     "joint_eff": self._joint_state.eff,
                 }
             else:
-                return {
+                result = {
                     "joint_pos": self._joint_state.pos[: self._gripper_index],
                     "gripper_pos": np.array([self._joint_state.pos[self._gripper_index]]),
                     "joint_vel": self._joint_state.vel,
                     "joint_eff": self._joint_state.eff,
                 }
+            if self.temp_record_flag:
+                result["temp_mos"] = self._joint_state.temp_mos
+                result["temp_rotor"] = self._joint_state.temp_rotor
+            return result
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """Exit the runtime context related to this object."""
@@ -408,9 +436,9 @@ class MotorChainRobot(Robot):
         print("Robot closed with all torques set to zero.")
 
 
-def get_yam_robot(channel: str = "can0", 
-                  model_path: str = YAM_XML_PATH, 
-                  motor_timeout_enabled: bool = True) -> MotorChainRobot:
+def get_yam_robot(
+    channel: str = "can0", model_path: str = YAM_XML_PATH, motor_timeout_enabled: bool = True
+) -> MotorChainRobot:
     motor_list = [
         [0x01, "DM4340"],
         [0x02, "DM4340"],
@@ -421,7 +449,9 @@ def get_yam_robot(channel: str = "can0",
         [0x07, "DM4310"],
     ]
     motor_offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    joint_limits = np.array([[-2.617, 3.13], [0, 3.65], [0.0, 3.13], [-1.57, 1.57], [-1.57, 1.57], [-2.09, 2.09]])
     motor_directions = [1, 1, 1, 1, 1, 1, 1]
+
     motor_chain = DMChainCanInterface(
         motor_list,
         motor_offsets,
@@ -432,7 +462,8 @@ def get_yam_robot(channel: str = "can0",
         start_thread=motor_timeout_enabled,
     )
     motor_states = motor_chain.read_states()
-    
+    motor_chain.close()
+
     current_pos = [m.pos for m in motor_states]
     logging.info(f"current_pos: {current_pos}")
 
@@ -440,18 +471,18 @@ def get_yam_robot(channel: str = "can0",
         motor_position = motor_state.pos
         # if not within -pi to pi, set to the nearest equivalent position
         if motor_position < -np.pi:
-            logging.info(f'motor {idx} is at {motor_position}, adding {2 * np.pi}')
+            logging.info(f"motor {idx} is at {motor_position}, adding {2 * np.pi}")
             extra_offset = -2 * np.pi
         elif motor_position > np.pi:
-            logging.info(f'motor {idx} is at {motor_position}, subtracting {2 * np.pi}')
+            logging.info(f"motor {idx} is at {motor_position}, subtracting {2 * np.pi}")
             extra_offset = +2 * np.pi
         else:
             extra_offset = 0.0
         motor_offsets[idx] += extra_offset
-    motor_chain.close()
+
     time.sleep(0.5)
     logging.info(f"adjusted motor_offsets: {motor_offsets}")
-    
+    # logger.setLevel(current_log_level)
     motor_chain = DMChainCanInterface(
         motor_list,
         motor_offsets,
@@ -460,7 +491,7 @@ def get_yam_robot(channel: str = "can0",
         motor_chain_name="yam_real",
         receive_mode=ReceiveMode.p16,
         start_thread=motor_timeout_enabled,
-        )
+    )
     motor_states = motor_chain.read_states()
     logging.info(f"YAN initial motor_states: {motor_states}")
     return MotorChainRobot(
@@ -474,6 +505,7 @@ def get_yam_robot(channel: str = "can0",
         kd=np.array([5, 5, 5, 1.5, 1.5, 1.5, 0.5]),
         gripper_type="yam_small",
         limit_gripper_force=50.0,
+        joint_limits=joint_limits,
     )
 
 
@@ -520,7 +552,7 @@ if __name__ == "__main__":
     args.add_argument("--model", type=str, default="yam")
     args.add_argument("--channel", type=str, default="can0")
     args.add_argument("--operation_mode", type=str, default="gravity_comp")
-    args.add_argument("--motor_timeout_disabled", action='store_true')
+    args.add_argument("--motor_timeout_disabled", action="store_true")
     args = args.parse_args()
 
     if args.model == "arx":
