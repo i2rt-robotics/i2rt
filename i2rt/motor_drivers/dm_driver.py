@@ -394,7 +394,7 @@ class CanInterface:
         while (time.time() - start_time) < timeout:
             if self.use_buffered_reader:
                 # Use BufferedReader to get the message
-                message = self.buffered_reader.get_message(timeout=0.0008)
+                message = self.buffered_reader.get_message(timeout=0.002)
             else:
                 message = self.bus.recv(timeout=0.002)
             if message:
@@ -424,6 +424,11 @@ class PassiveEncoderReader:
             encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E)
         )
         pos, vel, button_state = self._parse_encoder_message(message)
+        pos_range = [-0.7, 0.7]
+        pos = np.clip(pos, pos_range[0], pos_range[1])
+        # normalize pos to 1 - 0
+        delta = np.abs(0.0 - pos)
+        pos = delta / 0.7
         result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
         return result
 
@@ -709,9 +714,9 @@ class DMChainCanInterface(MotorChain):
         use_buffered_reader: bool = False,
     ):
         assert len(motor_list) > 0
-        assert (
-            len(motor_list) == len(motor_offset) == len(motor_direction)
-        ), f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        assert len(motor_list) == len(motor_offset) == len(motor_direction), (
+            f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        )
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
@@ -852,11 +857,11 @@ class DMChainCanInterface(MotorChain):
                         self.state = motor_feedback
                         self._update_absolute_positions(motor_feedback)
                     if self.same_bus_device_driver is not None:
-                        time.sleep(0.01)  # TODO: check if this is necessary
+                        time.sleep(0.001)  # TODO: check if this is necessary
                         with self.same_bus_device_lock:
                             # assume the same bus device is a passive input device (no commands to send) for now.
                             self.same_bus_device_states = self.same_bus_device_driver.read_states()
-                            time.sleep(0.001)
+                        time.sleep(0.001)
                     time.sleep(0.0005)  # this is necessary, else the locks will not be released
                     rate_recorder.track()
                 except Exception as e:

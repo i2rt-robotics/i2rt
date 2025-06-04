@@ -43,7 +43,7 @@ sh scripts/reset_all_can.sh
 
 ## Test YAM Zero Gravity mode
 
-This enables you to launch the robot in zero gravity mode: 
+This enables you to launch the robot in zero gravity mode:
 ```bash
 python i2rt/robots/motor_chain_robot.py --model yam --channel can0 --operation_mode gravity_comp
 ```

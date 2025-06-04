@@ -86,16 +86,16 @@ class MotorChainRobot(Robot):
     ) -> None:
         self.temp_record_flag = temp_record_flag
         if gripper_index is not None:
-            assert (
-                gripper_index == len(motor_chain) - 1
-            ), "Gripper index should be the last one, but got {gripper_index}"
+            assert gripper_index == len(motor_chain) - 1, (
+                "Gripper index should be the last one, but got {gripper_index}"
+            )
             assert gripper_limits is not None, "Gripper limits are required if gripper index is provided."
 
         if joint_limits is not None:
             joint_limits = np.array(joint_limits)
-            assert np.all(
-                joint_limits[:, 0] < joint_limits[:, 1]
-            ), "Lower joint limits must be smaller than upper limits"
+            assert np.all(joint_limits[:, 0] < joint_limits[:, 1]), (
+                "Lower joint limits must be smaller than upper limits"
+            )
         self._last_gripper_command_qpos = None
         self._joint_limits = joint_limits
         assert clip_motor_torque >= 0.0
@@ -493,7 +493,7 @@ def get_yam_robot(
         start_thread=motor_timeout_enabled,
     )
     motor_states = motor_chain.read_states()
-    logging.info(f"YAN initial motor_states: {motor_states}")
+    logging.info(f"YAM initial motor_states: {motor_states}")
     return MotorChainRobot(
         motor_chain,
         xml_path=model_path,
