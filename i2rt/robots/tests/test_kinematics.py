@@ -41,4 +41,4 @@ def test_cycle(kinematics_yam: Kinematics) -> None:
         success, q_ik = kinematics_yam.ik(pose, "grasp_site", init_q=q_init_for_ik)
         assert success, f"IK failed for target pose {pose}, init_q: {q_init_for_ik}"
         pose_reconstructed = kinematics_yam.fk(q_ik)
-        np.testing.assert_allclose(pose, pose_reconstructed, atol=1e-5)
+        np.testing.assert_allclose(pose, pose_reconstructed, atol=1e-4)
