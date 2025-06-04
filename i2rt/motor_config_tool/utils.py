@@ -170,11 +170,10 @@ def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_nam
             message = can_interface._send_message_get_response(
                 0x7FF, [motor_id, 0x00, 0x55, reg_id] + list(byte_list), max_retry=20
             )
-            result =  convert_func(message.data)
+            result = convert_func(message.data)
             return result
         except Exception as e:
             can_interface.try_receive_message(motor_id)
-
 
 
 def save_to_memory(can_interface: RawCanInterface, motor_id: int, reg_name: str) -> can.Message:

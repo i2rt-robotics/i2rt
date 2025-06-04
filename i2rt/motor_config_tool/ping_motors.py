@@ -1,5 +1,5 @@
-from utils import *
 import argparse
+
 from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface, MotorType
 
 args = argparse.ArgumentParser()
@@ -27,7 +27,7 @@ for motor_id in motor_ids:
         motor_control_interface.motor_off(motor_id)
     except Exception as e:
         print(f"motor {motor_id} error: {e}")
-    
+
 
 motor_control_interface.close()
 

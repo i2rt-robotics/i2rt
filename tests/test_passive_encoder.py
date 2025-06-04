@@ -42,7 +42,7 @@ motor_chain = DMChainCanInterface(
 )
 
 
-for _ in range(10000):
+while True:
     motor_states = motor_chain.read_states()
     encoder_states = motor_chain.get_same_bus_device_states()
     print(motor_states)
