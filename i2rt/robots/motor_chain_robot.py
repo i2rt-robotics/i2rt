@@ -190,8 +190,7 @@ class MotorChainRobot(Robot):
 
             self.update()
             if not self.motor_chain.running:
-                logging.error("Motor chain is not running, exiting")
-                exit()
+                raise RuntimeError("motor_chain_robot's motor chain is not running, exiting the robot server")
             time.sleep(0.004)
 
             iteration_count += 1

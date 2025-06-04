@@ -459,7 +459,7 @@ class DMSingleMotorCanInterface(CanInterface):
 
     def __init__(
         self,
-        control_mode: ControlMode = ControlMode.MIT,
+        control_mode: str = ControlMode.MIT,
         channel: str = "PCAN_USBBUS1",
         bustype: str = "pcan",
         bitrate: int = 1000000,
