@@ -9,21 +9,21 @@ readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
-    "dm-env",
-    "mujoco==3.2.5",
-    "numpy",
-    "portal",
-    "pygame",
-    "python-can",
-    "qpsolvers[quadprog]",
-    "ruckig",
-    "threadpoolctl",
-    "tyro",
+    "dm-env==1.6",
+    "mujoco==3.3.2",
+    "numpy==2.2.6",
+    "portal==3.7.3",
+    "pygame==2.6.1",
+    "python-can==4.5.0",
+    "qpsolvers[quadprog]==4.7.1",
+    "ruckig==0.15.3",
+    "threadpoolctl==3.6.0",
+    "tyro==0.9.24",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
+    "pytest==8.4.0",
 ]
 
 [tool.flit.module]
