@@ -374,11 +374,13 @@ class CanInterface:
             can.Message: The received message, or None if no message is received.
         """
         try:
-            return self._receive_message(motor_id, timeout)
+            return self._receive_message(motor_id, timeout, supress_warning=True)
         except AssertionError:
             return None
 
-    def _receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.009) -> Optional[can.Message]:
+    def _receive_message(
+        self, motor_id: Optional[int] = None, timeout: float = 0.009, supress_warning: bool = False
+    ) -> Optional[can.Message]:
         """Receive a message from the CAN bus.
 
         Args:
@@ -403,11 +405,12 @@ class CanInterface:
                 message = self.bus.recv(timeout=0.0008)
                 if message:
                     return message
-        logging.warning(
-            "\033[91m"
-            + f"Failed to receive message, {self.name} motor id {motor_id} motor timeout. Check if the motor is powered on or if the motor ID exists."
-            + "\033[0m"
-        )
+        if not supress_warning:
+            logging.warning(
+                "\033[91m"
+                + f"Failed to receive message, {self.name} motor id {motor_id} motor timeout. Check if the motor is powered on or if the motor ID exists."
+                + "\033[0m"
+            )
 
 
 class PassiveEncoderReader:
@@ -486,8 +489,6 @@ class DMSingleMotorCanInterface(CanInterface):
         """
         current_level = logging.getLogger().getEffectiveLevel()
         logging.getLogger().setLevel(logging.ERROR)
-        for _ in range(2):
-            self.try_receive_message()
 
         id = motor_id  # self._get_frame_id(motor_id)
         data = [0xFF] * 7 + [0xFC]
@@ -497,14 +498,15 @@ class DMSingleMotorCanInterface(CanInterface):
         # dummy motor type just check motor status
         motor_info = self.parse_recv_message(message, MotorType.DM4310, ignore_error=True)
         if int(motor_info.error_code, 16) != MotorErrorCode.normal:
-            logging.info(f"motor {motor_id} error: {motor_info.error_message}")
-            self.clean_error(motor_id=motor_id)
-            self.try_receive_message()
-            logging.info(f"motor {motor_id} error cleaned")
-            # enable again
+            while int(motor_info.error_code, 16) != MotorErrorCode.normal:
+                logging.info(f"motor {motor_id} error: {motor_info.error_message}")
+                self.clean_error(motor_id=motor_id)
+                self.try_receive_message()
+                logging.info(f"motor {motor_id} error cleaned")
+                # enable again
 
-            message = self._send_message_get_response(id, motor_id, data)
-
+                message = self._send_message_get_response(id, motor_id, data)
+                motor_info = self.parse_recv_message(message, motor_type, ignore_error=True)
         else:
             logging.info(f"motor {motor_id} is already on")
         logging.getLogger().setLevel(current_level)
@@ -804,9 +806,11 @@ class DMChainCanInterface(MotorChain):
 
     def _motor_on(self) -> None:
         motor_feedback = []
+        for _ in range(7):
+            self.motor_interface.try_receive_message(timeout=0.001)
         for motor_id, motor_type in self.motor_list:
             logging.info(f"Turning on motor_id: {motor_id}, motor_type: {motor_type}")
-            time.sleep(0.001)
+            time.sleep(0.003)
             motor_feedback.append(self.motor_interface.motor_on(motor_id, motor_type))
         self._update_absolute_positions(motor_feedback)
         self.state = motor_feedback
