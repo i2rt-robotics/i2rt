@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import threading
 import time
@@ -8,20 +9,12 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from i2rt.motor_drivers.dm_driver import (
-    DMChainCanInterface,
     MotorChain,
     MotorInfo,
-    ReceiveMode,
 )
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import GripperForceLimiter, JointMapper
+from i2rt.robots.utils import GripperForceLimiter, GripperType, JointMapper
 from i2rt.utils.mujoco_utils import MuJoCoKDL
-
-I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
-ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx_r5/arx.xml")
-
-import logging
 
 
 @dataclass
@@ -81,21 +74,54 @@ class MotorChainRobot(Robot):
         gripper_limits: Optional[np.ndarray] = None,  # [closed, open]
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
-        gripper_type: str = "yam_small",
+        gripper_type: GripperType = GripperType.YAM_COMPACT_SMALL,
         temp_record_flag: bool = False,  # whether record the motor's temperature
+        enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
+        # below are calibration parameters
+        test_torque: float = 0.4,  # test torque for gripper detection (Nm)
+        test_duration: float = 2.0,  # max test duration for each direction (s)
+        position_threshold: float = 0.01,  # minimum position change to consider motor still moving (rad)
+        check_interval: float = 0.05,  # time interval between checks (s)
     ) -> None:
         self.temp_record_flag = temp_record_flag
         if gripper_index is not None:
-            assert gripper_index == len(motor_chain) - 1, (
-                "Gripper index should be the last one, but got {gripper_index}"
+            assert (
+                gripper_index == len(motor_chain) - 1
+            ), "Gripper index should be the last one, but got {gripper_index}"
+
+            # Auto-detect gripper limits if enabled and gripper_limits is None
+            print(
+                f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
             )
-            assert gripper_limits is not None, "Gripper limits are required if gripper index is provided."
+            if gripper_limits is None and enable_gripper_calibration:
+                from i2rt.robots.utils import detect_gripper_limits
+
+                logger = logging.getLogger(__name__)
+                logger.info("Auto-detecting gripper limits...")
+                detected_limits = detect_gripper_limits(
+                    motor_chain=motor_chain,
+                    gripper_index=gripper_index,
+                    test_torque=test_torque,
+                    max_duration=test_duration,
+                    position_threshold=position_threshold,
+                    check_interval=check_interval,
+                )
+                gripper_limits = np.array(detected_limits)
+                logger.info(f"Gripper limits auto-detected: {gripper_limits}")
+            elif gripper_limits is None:
+                raise ValueError(
+                    "Gripper limits are required if gripper index is provided and auto-calibration is disabled."
+                )
+            else:
+                # Use the provided gripper_limits
+                logger = logging.getLogger(__name__)
+                logger.info(f"Using provided gripper limits: {gripper_limits}")
 
         if joint_limits is not None:
             joint_limits = np.array(joint_limits)
-            assert np.all(joint_limits[:, 0] < joint_limits[:, 1]), (
-                "Lower joint limits must be smaller than upper limits"
-            )
+            assert np.all(
+                joint_limits[:, 0] < joint_limits[:, 1]
+            ), "Lower joint limits must be smaller than upper limits"
         self._last_gripper_command_qpos = None
         self._joint_limits = joint_limits
         assert clip_motor_torque >= 0.0
@@ -434,136 +460,35 @@ class MotorChainRobot(Robot):
         self.motor_chain.close()
         print("Robot closed with all torques set to zero.")
 
-
-def get_yam_robot(
-    channel: str = "can0", model_path: str = YAM_XML_PATH, motor_timeout_enabled: bool = True
-) -> MotorChainRobot:
-    motor_list = [
-        [0x01, "DM4340"],
-        [0x02, "DM4340"],
-        [0x03, "DM4340"],
-        [0x04, "DM4310"],
-        [0x05, "DM4310"],
-        [0x06, "DM4310"],
-        [0x07, "DM4310"],
-    ]
-    motor_offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    joint_limits = np.array([[-2.617, 3.13], [0, 3.65], [0.0, 3.13], [-1.57, 1.57], [-1.57, 1.57], [-2.09, 2.09]])
-    motor_directions = [1, 1, 1, 1, 1, 1, 1]
-
-    motor_chain = DMChainCanInterface(
-        motor_list,
-        motor_offsets,
-        motor_directions,
-        channel,
-        motor_chain_name="yam_real",
-        receive_mode=ReceiveMode.p16,
-        start_thread=motor_timeout_enabled,
-    )
-    motor_states = motor_chain.read_states()
-    motor_chain.close()
-
-    current_pos = [m.pos for m in motor_states]
-    logging.info(f"current_pos: {current_pos}")
-
-    for idx, motor_state in enumerate(motor_states):
-        motor_position = motor_state.pos
-        # if not within -pi to pi, set to the nearest equivalent position
-        if motor_position < -np.pi:
-            logging.info(f"motor {idx} is at {motor_position}, adding {2 * np.pi}")
-            extra_offset = -2 * np.pi
-        elif motor_position > np.pi:
-            logging.info(f"motor {idx} is at {motor_position}, subtracting {2 * np.pi}")
-            extra_offset = +2 * np.pi
-        else:
-            extra_offset = 0.0
-        motor_offsets[idx] += extra_offset
-
-    time.sleep(0.5)
-    logging.info(f"adjusted motor_offsets: {motor_offsets}")
-    # logger.setLevel(current_log_level)
-    motor_chain = DMChainCanInterface(
-        motor_list,
-        motor_offsets,
-        motor_directions,
-        channel,
-        motor_chain_name="yam_real",
-        receive_mode=ReceiveMode.p16,
-        start_thread=motor_timeout_enabled,
-    )
-    motor_states = motor_chain.read_states()
-    logging.info(f"YAM initial motor_states: {motor_states}")
-    return MotorChainRobot(
-        motor_chain,
-        xml_path=model_path,
-        use_gravity_comp=True,
-        gravity_comp_factor=1.3,
-        gripper_index=6,
-        gripper_limits=np.array([0.0, -2.7]),
-        kp=np.array([80, 80, 80, 40, 10, 10, 20]),
-        kd=np.array([5, 5, 5, 1.5, 1.5, 1.5, 0.5]),
-        gripper_type="yam_small",
-        limit_gripper_force=50.0,
-        joint_limits=joint_limits,
-    )
-
-
-def get_arx_robot(channel: str = "can0", model_path: str = ARX_XML_PATH) -> MotorChainRobot:
-    motor_list = [
-        [0x01, "DM4340"],
-        [0x02, "DM4340"],
-        [0x04, "DM4340"],
-        [0x05, "DM4310"],
-        [0x06, "DM4310"],
-        [0x07, "DM4310"],
-        [0x08, "DM4310"],
-    ]
-    motor_offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    motor_directions = [1, 1, 1, 1, 1, 1, 1]
-    motor_chain = DMChainCanInterface(
-        motor_list,
-        motor_offsets,
-        motor_directions,
-        channel,
-        motor_chain_name="arx_real",
-        receive_mode=ReceiveMode.p16,
-        start_thread=False,
-    )
-    return MotorChainRobot(
-        motor_chain,
-        xml_path=model_path,
-        use_gravity_comp=True,
-        gravity_comp_factor=1.3,
-        gripper_index=6,
-        gripper_limits=np.array([0.0, 4.93]),
-        kp=np.array([80, 80, 80, 40, 10, 10, 20]),
-        kd=np.array([5, 5, 5, 1.5, 1.5, 1.5, 0.5]),
-        limit_gripper_force=20.0,
-        gripper_type="arx_92mm_linear",
-    )
+    def update_kp_kd(self, kp: np.ndarray, kd: np.ndarray) -> None:
+        assert kp.shape == self._kp.shape == kd.shape
+        self._kp = kp
+        self._kd = kd
 
 
 if __name__ == "__main__":
     import argparse
     import time
 
+    from i2rt.robots.get_robot import get_yam_robot
     from i2rt.utils.utils import override_log_level
 
     override_log_level(level=logging.INFO)
 
     args = argparse.ArgumentParser()
-    args.add_argument("--model", type=str, default="yam")
+    args.add_argument("--gripper_type", type=str, default="yam_compact_small")
     args.add_argument("--channel", type=str, default="can0")
     args.add_argument("--operation_mode", type=str, default="gravity_comp")
-    args.add_argument("--motor_timeout_disabled", action="store_true")
+
     args = args.parse_args()
 
-    if args.model == "arx":
-        robot = get_arx_robot(args.channel)
-    elif args.model == "yam":
-        robot = get_yam_robot(args.channel, motor_timeout_enabled=not args.motor_timeout_disabled)
-    else:
-        raise ValueError(f"Unknown model: {args.model}")
+    gripper_type = GripperType.from_string_name(args.gripper_type)
+    assert (
+        gripper_type != GripperType.YAM_TEACHING_HANDLE
+    ), "YAM_TEACHING_HANDLE is not supported in motor_chain_robot.py"
+
+    print(f"Initializing yam with gripper type: {gripper_type}")
+    robot = get_yam_robot(args.channel, gripper_type=gripper_type)
 
     if args.operation_mode == "gravity_comp":
         while True:
