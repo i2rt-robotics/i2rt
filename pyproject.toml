@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "dm-env==1.6",
-    "mujoco==3.3.2",
+    "mujoco==3.3.3",
     "numpy==2.2.6",
     "portal==3.7.3",
     "pygame==2.6.1",

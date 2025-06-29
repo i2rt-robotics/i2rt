@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
+from i2rt.robots.get_robot import YAM_XML_PATH
 from i2rt.robots.kinematics import Kinematics
-from i2rt.robots.motor_chain_robot import YAM_XML_PATH
 
 
 @pytest.fixture

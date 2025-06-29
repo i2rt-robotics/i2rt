@@ -3,7 +3,7 @@ import time
 
 
 class RateRecorder:
-    def __init__(self, report_interval: float = 10):
+    def __init__(self, name: str | None = None, report_interval: float = 10):
         """
         Initialize the rate recorder.
         :param report_interval: Interval in seconds at which the rate should be reported.
@@ -13,6 +13,7 @@ class RateRecorder:
         self.last_report_time = None
         self.iteration_count = 0
         self.message = ""
+        self.name = name
 
     def __enter__(self):
         return self.start()
@@ -34,7 +35,7 @@ class RateRecorder:
         elapsed_time = time.time() - self.start_time
         rate = self.iteration_count / elapsed_time if elapsed_time > 0 else 0
         logging.info(
-            f"Total rate: {rate:.2f} iterations per second over {elapsed_time:.2f} seconds. Used message: {self.message}"
+            f"{self.name} Total rate: {rate:.2f} iterations per second over {elapsed_time:.2f} seconds. User message: {self.message}"
         )
 
     def track(self, message: str = "") -> None:

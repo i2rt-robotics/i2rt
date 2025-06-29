@@ -182,6 +182,7 @@ class MotorInfo:
     """
 
     id: int
+    error_code: int
     target_torque: int = 0
     vel: float = 0.0
     eff: float = 0
@@ -306,7 +307,7 @@ class CanInterface:
     def __init__(
         self,
         channel: str = "PCAN_USBBUS1",
-        bustype: str = "pcan",
+        bustype: str = "socketcan",
         bitrate: int = 1000000,
         name: str = "default_can_interface",
         receive_mode: ReceiveMode = ReceiveMode.p16,
@@ -345,7 +346,7 @@ class CanInterface:
         for _ in range(max_retry):
             try:
                 self.bus.send(message)
-                response = self._receive_message(motor_id)
+                response = self._receive_message(motor_id, timeout=0.2)
 
                 if expected_id is None:
                     expected_id = self.receive_mode.get_receive_id(motor_id)
@@ -359,7 +360,7 @@ class CanInterface:
                     + f"CAN Error {self.name}: Failed to communicate with motor {id} over can bus. Retrying..."
                     + "\033[0m"
                 )
-                time.sleep(0.001)
+            time.sleep(0.001)
         raise AssertionError(
             f"fail to communicate with the motor {id} on {self.name} at can channel {self.bus.channel_info}"
         )
@@ -416,7 +417,7 @@ class CanInterface:
 class PassiveEncoderReader:
     def __init__(self, can_interface: CanInterface, receive_mode: ReceiveMode = ReceiveMode.plus_one):
         self.can_interface = can_interface
-        assert self.can_interface.use_buffered_reader, "Passive encoder reader must use buffered reader"
+        # assert self.can_interface.use_buffered_reader, "Passive encoder reader must use buffered reader"
 
         self.receive_mode = receive_mode
 
@@ -424,7 +425,7 @@ class PassiveEncoderReader:
         # this encoder's trigger message is 0x02
         data = [0xFF, 0x02]
         message = self.can_interface._send_message_get_response(
-            encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E)
+            encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E), max_retry=15
         )
         pos, vel, button_state = self._parse_encoder_message(message)
         pos_range = [-0.7, 0.7]
@@ -610,7 +611,7 @@ class DMSingleMotorCanInterface(CanInterface):
             data[0:4] = can_data[0:4]
 
         # Send the CAN message
-        message = self._send_message_get_response(frame_id, motor_id, data)
+        message = self._send_message_get_response(frame_id, motor_id, data, max_retry=15)
 
         # Parse the received message to extract motor information
         motor_info = self.parse_recv_message(message, motor_type)
@@ -708,17 +709,20 @@ class DMChainCanInterface(MotorChain):
         motor_direction: np.ndarray,
         channel: str = "PCAN_USBBUS1",
         bitrate: int = 1000000,
-        start_thread: bool = True,
+        start_thread: bool = True,  # If true, will start the internal motor reading loop
         motor_chain_name: str = "default_motor_chain",
         receive_mode: ReceiveMode = ReceiveMode.p16,
         control_mode: ControlMode = ControlMode.MIT,
         get_same_bus_device_driver: Optional[Callable] = None,
-        use_buffered_reader: bool = False,
+        use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
     ):
+        assert (
+            not use_buffered_reader
+        ), "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
         assert len(motor_list) > 0
-        assert len(motor_list) == len(motor_offset) == len(motor_direction), (
-            f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
-        )
+        assert (
+            len(motor_list) == len(motor_offset) == len(motor_direction)
+        ), f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
@@ -742,8 +746,6 @@ class DMChainCanInterface(MotorChain):
             )
         self.state = None
         self.state_lock = threading.Lock()
-        self.commands = [MotorCmd() for _ in range(len(motor_list))]
-        self.command_lock = threading.Lock()
 
         self.same_bus_device_states = None
         self.same_bus_device_lock = threading.Lock()
@@ -754,6 +756,13 @@ class DMChainCanInterface(MotorChain):
 
         self.absolute_positions = None
         self._motor_on()
+        starting_command = []
+        for motor_state in self.state:
+            starting_command.append(MotorCmd(torque=motor_state.torque))
+        logging.info(f"Initializing motorchain with starting command: {starting_command}")
+        self.commands = starting_command
+        self.command_lock = threading.Lock()
+
         self.start_thread_flag = start_thread
         if start_thread:
             self.start_thread()
@@ -829,7 +838,7 @@ class DMChainCanInterface(MotorChain):
 
     def _set_torques_and_update_state(self) -> None:
         last_step_time = time.time()
-        with RateRecorder() as rate_recorder:
+        with RateRecorder(name=self) as rate_recorder:
             while self.running:
                 try:
                     # Maintain desired control frequency.
@@ -861,11 +870,10 @@ class DMChainCanInterface(MotorChain):
                         self.state = motor_feedback
                         self._update_absolute_positions(motor_feedback)
                     if self.same_bus_device_driver is not None:
-                        time.sleep(0.001)  # TODO: check if this is necessary
+                        time.sleep(0.001)
                         with self.same_bus_device_lock:
                             # assume the same bus device is a passive input device (no commands to send) for now.
                             self.same_bus_device_states = self.same_bus_device_driver.read_states()
-                        time.sleep(0.001)
                     time.sleep(0.0005)  # this is necessary, else the locks will not be released
                     rate_recorder.track()
                 except Exception as e:
@@ -907,6 +915,7 @@ class DMChainCanInterface(MotorChain):
                 motor_infos.append(
                     MotorInfo(
                         id=state.id,
+                        error_code=state.error_code,
                         target_torque=torques[idx] if torques is not None else 0.0,
                         vel=state.velocity * self.motor_direction[idx],
                         eff=state.torque * self.motor_direction[idx],
