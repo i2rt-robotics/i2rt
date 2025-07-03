@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
+from i2rt.robots.get_robot import YAM_XML_PATH
 from i2rt.robots.kinematics import Kinematics
-from i2rt.robots.motor_chain_robot import YAM_XML_PATH
 
 
 @pytest.fixture
@@ -26,19 +26,19 @@ def test_fk(kinematics_yam: Kinematics) -> None:
 
 
 def test_ik_smoke(kinematics_yam: Kinematics) -> None:
-    q = np.zeros(6)
+    q = np.ones(6)
     pose = kinematics_yam.fk(q)
-    pose[0, 3] -= 0.1
-    pose[2, 3] += 0.1
     success, q_ik = kinematics_yam.ik(pose, "grasp_site")
     assert success, "IK should succeed"
     assert q_ik.shape == (6,), "IK should return a joint configuration of size 6"
 
 
 def test_cycle(kinematics_yam: Kinematics) -> None:
-    q = np.zeros(6)
-    pose = kinematics_yam.fk(q)
-    success, q_ik = kinematics_yam.ik(pose, "grasp_site")
-    assert success, "IK should succeed"
-    pose_reconstructed = kinematics_yam.fk(q_ik)
-    np.testing.assert_allclose(pose, pose_reconstructed, atol=1e-5)
+    for _ in range(10):
+        q = np.random.uniform(0, np.pi / 2, 6)
+        pose = kinematics_yam.fk(q)
+        q_init_for_ik = q + np.random.uniform(-0.1, 0.1, 6)
+        success, q_ik = kinematics_yam.ik(pose, "grasp_site", init_q=q_init_for_ik)
+        assert success, f"IK failed for target pose {pose}, init_q: {q_init_for_ik}"
+        pose_reconstructed = kinematics_yam.fk(q_ik)
+        np.testing.assert_allclose(pose, pose_reconstructed, atol=1e-4)

@@ -6,7 +6,8 @@ import numpy as np
 import portal
 import tyro
 
-from i2rt.robots.motor_chain_robot import ARX_XML_PATH, YAM_XML_PATH, get_arx_robot, get_yam_robot
+from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
 
 DEFAULT_ROBOT_PORT = 11333
@@ -78,54 +79,96 @@ class ClientRobot(Robot):
         return (self._client.get_observations().result()).asdict()
 
 
+class YAMLeaderRobot:
+    def __init__(self, robot: MotorChainRobot):
+        self._robot = robot
+        self._motor_chain = robot.motor_chain
+
+    def get_info(self) -> np.ndarray:
+        qpos = self._robot.get_observations()["joint_pos"]
+        encoder_obs = self._motor_chain.get_same_bus_device_states()
+        time.sleep(0.01)
+        gripper_cmd = 1 - encoder_obs[0].position
+        qpos_with_gripper = np.concatenate([qpos, [gripper_cmd]])
+        return qpos_with_gripper, encoder_obs[0].io_inputs
+
+    def command_joint_pos(self, joint_pos: np.ndarray) -> None:
+        assert joint_pos.shape[0] == 6
+        self._robot.command_joint_pos(joint_pos)
+
+    def update_kp_kd(self, kp: np.ndarray, kd: np.ndarray) -> None:
+        self._robot.update_kp_kd(kp, kd)
+
+
 @dataclass
 class Args:
-    robot: Literal["yam", "arx"] = "yam"
+    gripper: Literal["yam_compact_small", "yam_lw_gripper", "yam_teaching_handle"] = "yam_teaching_handle"
     mode: Literal["follower", "leader", "visualizer"] = "follower"
     server_host: str = "localhost"
     server_port: int = DEFAULT_ROBOT_PORT
     can_channel: str = "can0"
+    bilateral_kp: float = 0.0
 
 
 def main(args: Args) -> None:
-    if args.robot == "yam":
-        xml_path = YAM_XML_PATH
-        if args.mode != "visualizer":
-            robot = get_yam_robot(channel=args.can_channel)
-    elif args.robot == "arx":
-        xml_path = ARX_XML_PATH
-        if args.mode != "visualizer":
-            robot = get_arx_robot(channel=args.can_channel)
-    else:
-        raise ValueError(f"Invalid robot: {args.robot}")
+    from i2rt.robots.utils import GripperType
+
+    gripper_type = GripperType.from_string_name(args.gripper)
+
+    if args.mode != "visualizer":
+        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type)
 
     if args.mode == "follower":
         server_robot = ServerRobot(robot, DEFAULT_ROBOT_PORT)
         server_robot.serve()
     elif args.mode == "leader":
+        robot = YAMLeaderRobot(robot)
+        robot_current_kp = robot._robot._kp
         client_robot = ClientRobot(DEFAULT_ROBOT_PORT, host=args.server_host)
 
         # sync the robot state
-        current_joint_pos = robot.get_joint_pos()
+        current_joint_pos, current_button = robot.get_info()
         current_follower_joint_pos = client_robot.get_joint_pos()
         print(f"Current leader joint pos: {current_joint_pos}")
         print(f"Current follower joint pos: {current_follower_joint_pos}")
-        for i in range(100):
-            current_joint_pos = robot.get_joint_pos()
-            follower_command_joint_pos = current_joint_pos * i / 100 + current_follower_joint_pos * (1 - i / 100)
-            follower_command_joint_pos[-1] = 0.0
-            client_robot.command_joint_pos(follower_command_joint_pos)
-            time.sleep(0.03)
 
+        def slow_move(joint_pos: np.ndarray, duration: float = 1.0) -> None:
+            for i in range(100):
+                current_joint_pos = joint_pos
+                follower_command_joint_pos = current_joint_pos * i / 100 + current_follower_joint_pos * (1 - i / 100)
+                client_robot.command_joint_pos(follower_command_joint_pos)
+                time.sleep(0.03)
+
+        synchronized = False
         while True:
-            current_joint_pos = robot.get_joint_pos()
-            current_joint_pos[-1] = 0.0
-            client_robot.command_joint_pos(current_joint_pos)
-            time.sleep(0.03)
+            current_joint_pos, current_button = robot.get_info()
+            if current_button[0] > 0.5:
+                if not synchronized:
+                    robot.update_kp_kd(kp=robot_current_kp * args.bilateral_kp, kd=np.ones(6) * 0.0)
+                    robot.command_joint_pos(current_joint_pos[:6])
+                    slow_move(current_joint_pos)
+                else:
+                    print("clear bilateral pd")
+                    robot.update_kp_kd(kp=np.ones(6) * 0.0, kd=np.ones(6) * 0.0)
+                    robot.command_joint_pos(current_follower_joint_pos[:6])
+                synchronized = not synchronized
+                while current_button[0] > 0.5:
+                    time.sleep(0.03)
+                    current_joint_pos, current_button = robot.get_info()
+
+            current_follower_joint_pos = client_robot.get_joint_pos()
+
+            if synchronized:
+                client_robot.command_joint_pos(current_joint_pos)
+                # this will set the bilateral force in joint space proportional to the bilateral kp
+                robot.command_joint_pos(current_follower_joint_pos[:6])
+
+            time.sleep(0.01)
     elif args.mode == "visualizer":
         import mujoco
 
         client_robot = ClientRobot(DEFAULT_ROBOT_PORT, host=args.server_host)
+        xml_path = gripper_type.get_xml_path()
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
 
