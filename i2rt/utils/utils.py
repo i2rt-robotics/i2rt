@@ -12,7 +12,6 @@ class RateRecorder:
         self.start_time = None
         self.last_report_time = None
         self.iteration_count = 0
-        self.message = ""
         self.name = name
 
     def __enter__(self):
@@ -34,9 +33,7 @@ class RateRecorder:
         assert self.start_time is not None, "RateRecorder must be started before reporting."
         elapsed_time = time.time() - self.start_time
         rate = self.iteration_count / elapsed_time if elapsed_time > 0 else 0
-        logging.info(
-            f"{self.name} Total rate: {rate:.2f} iterations per second over {elapsed_time:.2f} seconds. User message: {self.message}"
-        )
+        logging.info(f"{self.name} Total rate: {rate:.2f} iterations per second over {elapsed_time:.2f} seconds.")
 
     def track(self, message: str = "") -> None:
         """

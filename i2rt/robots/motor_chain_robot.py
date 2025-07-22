@@ -74,7 +74,7 @@ class MotorChainRobot(Robot):
         gripper_limits: Optional[np.ndarray] = None,  # [closed, open]
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
-        gripper_type: GripperType = GripperType.YAM_COMPACT_SMALL,
+        gripper_type: GripperType = GripperType.CRANK_4310,
         temp_record_flag: bool = False,  # whether record the motor's temperature
         enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
         # below are calibration parameters
@@ -85,9 +85,9 @@ class MotorChainRobot(Robot):
     ) -> None:
         self.temp_record_flag = temp_record_flag
         if gripper_index is not None:
-            assert (
-                gripper_index == len(motor_chain) - 1
-            ), "Gripper index should be the last one, but got {gripper_index}"
+            assert gripper_index == len(motor_chain) - 1, (
+                "Gripper index should be the last one, but got {gripper_index}"
+            )
 
             # Auto-detect gripper limits if enabled and gripper_limits is None
             print(
@@ -119,9 +119,9 @@ class MotorChainRobot(Robot):
 
         if joint_limits is not None:
             joint_limits = np.array(joint_limits)
-            assert np.all(
-                joint_limits[:, 0] < joint_limits[:, 1]
-            ), "Lower joint limits must be smaller than upper limits"
+            assert np.all(joint_limits[:, 0] < joint_limits[:, 1]), (
+                "Lower joint limits must be smaller than upper limits"
+            )
         self._last_gripper_command_qpos = None
         self._joint_limits = joint_limits
         assert clip_motor_torque >= 0.0
@@ -476,16 +476,16 @@ if __name__ == "__main__":
     override_log_level(level=logging.INFO)
 
     args = argparse.ArgumentParser()
-    args.add_argument("--gripper_type", type=str, default="yam_compact_small")
+    args.add_argument("--gripper_type", type=str, default="crank_4310")
     args.add_argument("--channel", type=str, default="can0")
     args.add_argument("--operation_mode", type=str, default="gravity_comp")
 
     args = args.parse_args()
 
     gripper_type = GripperType.from_string_name(args.gripper_type)
-    assert (
-        gripper_type != GripperType.YAM_TEACHING_HANDLE
-    ), "YAM_TEACHING_HANDLE is not supported in motor_chain_robot.py"
+    assert gripper_type != GripperType.YAM_TEACHING_HANDLE, (
+        "YAM_TEACHING_HANDLE is not supported in motor_chain_robot.py"
+    )
 
     print(f"Initializing yam with gripper type: {gripper_type}")
     robot = get_yam_robot(args.channel, gripper_type=gripper_type)

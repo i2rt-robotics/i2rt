@@ -21,6 +21,9 @@ logging.basicConfig(level=log_level)
 CONTROL_FREQ = 250
 CONTROL_PERIOD = 1.0 / CONTROL_FREQ  # 4 ms
 
+EXPECTED_CONTROL_PERIOD = 0.007
+REPORT_INTERVAL = 30.0
+
 
 @dataclass
 class MotorConstants:
@@ -716,13 +719,13 @@ class DMChainCanInterface(MotorChain):
         get_same_bus_device_driver: Optional[Callable] = None,
         use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
     ):
-        assert (
-            not use_buffered_reader
-        ), "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
+        assert not use_buffered_reader, (
+            "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
+        )
         assert len(motor_list) > 0
-        assert (
-            len(motor_list) == len(motor_offset) == len(motor_direction)
-        ), f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        assert len(motor_list) == len(motor_offset) == len(motor_direction), (
+            f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        )
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
@@ -748,6 +751,7 @@ class DMChainCanInterface(MotorChain):
         self.state_lock = threading.Lock()
 
         self.same_bus_device_states = None
+
         self.same_bus_device_lock = threading.Lock()
         if get_same_bus_device_driver is not None:
             self.same_bus_device_driver = get_same_bus_device_driver(self.motor_interface)
@@ -837,30 +841,49 @@ class DMChainCanInterface(MotorChain):
             logging.info("waiting for the first state")
 
     def _set_torques_and_update_state(self) -> None:
+        """
+        Control loop for updating motor torques and states at a fixed frequency.
+        If step_time > EXPECTED_CONTROL_PERIODs, it will report the number of step_time > EXPECTED_CONTROL_PERIODs and mean step_time every REPORT_INTERVAL seconds.
+        """
         last_step_time = time.time()
+        step_time_exceed_count = 0
+        step_time_sum = 0.0
+        step_time_count = 0
+        report_start_time = time.time()
         with RateRecorder(name=self) as rate_recorder:
             while self.running:
                 try:
-                    # Maintain desired control frequency.
+                    # Maintain control frequency
                     while time.time() - last_step_time < CONTROL_PERIOD - 0.001:
                         time.sleep(0.001)
                     curr_time = time.time()
                     step_time = curr_time - last_step_time
                     last_step_time = curr_time
-                    if step_time > 0.007:  # 7 ms
+
+                    # Statistics
+                    step_time_sum += step_time
+                    step_time_count += 1
+                    if step_time > EXPECTED_CONTROL_PERIOD:
+                        step_time_exceed_count += 1
                         logging.info(
                             f"Warning: Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop"
                         )
 
-                    # Update state.
+                    # If step_time > EXPECTED_CONTROL_PERIOD, report every REPORT_INTERVAL seconds
+                    if step_time_exceed_count > 0 and curr_time - report_start_time >= REPORT_INTERVAL:
+                        mean_step_time = step_time_sum / step_time_count if step_time_count > 0 else 0.0
+                        logging.info(
+                            f"[{self} {REPORT_INTERVAL}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s"
+                        )
+                        step_time_exceed_count = 0
+                        step_time_sum = 0.0
+                        step_time_count = 0
+                        report_start_time = curr_time
+
+                    # Update state
                     with self.command_lock:
                         motor_feedback = self._set_commands(self.commands)
-                        errors = np.array(
-                            [
-                                True if motor_feedback[i].error_code != "0x1" else False
-                                for i in range(len(motor_feedback))
-                            ]
-                        )
+                        errors = np.array([motor_feedback[i].error_code != "0x1" for i in range(len(motor_feedback))])
                         if np.any(errors):
                             self.running = False
                             logging.error(f"motor errors: {errors}")

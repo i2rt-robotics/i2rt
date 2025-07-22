@@ -19,6 +19,7 @@ dependencies = [
     "ruckig==0.15.3",
     "threadpoolctl==3.6.0",
     "tyro==0.9.24",
+    "requests (>=2.32.4,<3.0.0)",
 ]
 
 [project.optional-dependencies]

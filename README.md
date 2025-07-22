@@ -44,14 +44,14 @@ sh scripts/reset_all_can.sh
 
 ## Gripper type
 
-Currently YAM supports three different grippers: 
+Currently YAM supports three different grippers:
 ![YAM supported Grippers](./assets/photos/yam_three_grippers.png)
 
 | Gripper Name        | Description |
 |---------------------|-------------|
-| `yam_compact_small` | Zero-linkage crank gripper, optimized for minimizing gripper width. |
-| `yam_lw_gripper`    | Linear gripper with smaller DM3507 motor. Lightweight, but requires calibration or starting with the gripper in the closed configuration. |
-| `yam_teaching_handle` | Used for the leader arm setup. Includes a trigger to control the gripper and two customizable buttons that can be mapped to different functions. |
+| `crank_4310`        | Zero-linkage crank gripper, optimized for minimizing gripper width. |
+| `linear_3507`       | Linear gripper with smaller DM3507 motor. Lightweight, but requires calibration or starting with the gripper in the closed configuration. |
+| `yam_teaching_handle`| Used for the leader arm setup. Includes a trigger to control the gripper and two customizable buttons that can be mapped to different functions. |
 
 The linear gripper requires an additional calibration step because its motor must rotate more than 2π radians to complete the full stroke.
 
@@ -177,6 +177,7 @@ python i2rt/flow_base/flow_base_controller.py
 ### Getting started
 ```python
 from i2rt.flow_base.flow_base_controller import Vehicle
+import time
 
 # Get a robot instance
 vehicle = Vehicle()

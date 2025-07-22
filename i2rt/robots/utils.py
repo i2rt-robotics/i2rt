@@ -17,55 +17,60 @@ YAM_TEACHING_HANDLE_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_teachin
 
 
 class GripperType(enum.Enum):
-    YAM_COMPACT_SMALL = "yam_compact_small"
-    YAM_LW_GRIPPER = "yam_lw_gripper"
+    CRANK_4310 = "crank_4310"  # a 4310 motor with a crank
+    LINEAR_3507 = "linear_3507"  # a 3507 motor with a linear actuator
+    LINEAR_4310 = "linear_4310"  # a 4310 motor with a linear actuator
 
     # technically not a gripper
     YAM_TEACHING_HANDLE = "yam_teaching_handle"
 
     @classmethod
     def from_string_name(cls, name: str) -> "GripperType":
-        if name == "yam_compact_small":
-            return cls.YAM_COMPACT_SMALL
-        elif name == "yam_lw_gripper":
-            return cls.YAM_LW_GRIPPER
+        if name == "crank_4310":
+            return cls.CRANK_4310
+        elif name == "linear_3507":
+            return cls.LINEAR_3507
+        elif name == "linear_4310":
+            return cls.LINEAR_4310
         elif name == "yam_teaching_handle":
             return cls.YAM_TEACHING_HANDLE
         else:
             raise ValueError(
-                f"Unknown gripper type: {name}, gripper has to be one of the following: {cls.YAM_COMPACT_SMALL}, {cls.YAM_LW_GRIPPER}, {cls.YAM_TEACHING_HANDLE}"
+                f"Unknown gripper type: {name}, gripper has to be one of the following: {cls.CRANK_4310}, {cls.LINEAR_3507}, {cls.YAM_TEACHING_HANDLE}"
             )
 
     def get_gripper_limits(self) -> Optional[tuple[float, float]]:
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self == GripperType.CRANK_4310:
             return 0.0, -2.7
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self in [GripperType.LINEAR_3507, GripperType.LINEAR_4310]:
             return None
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return None
 
     def get_gripper_needs_calibration(self) -> bool:
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self == GripperType.CRANK_4310:
             return False
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self in [GripperType.LINEAR_3507, GripperType.LINEAR_4310]:
             return True
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return False
 
     def get_xml_path(self) -> str:
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self == GripperType.CRANK_4310:
             return YAM_XML_PATH
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self == GripperType.LINEAR_3507:
             return YAM_XML_LW_GRIPPER_PATH
+        elif self == GripperType.LINEAR_4310:
+            raise NotImplementedError("Linear 4310 gripper is not supported yet")
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return YAM_TEACHING_HANDLE_PATH
         else:
             raise ValueError(f"Unknown gripper type: {self}")
 
     def get_motor_kp_kd(self) -> tuple[float, float]:
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self in [GripperType.CRANK_4310, GripperType.LINEAR_4310]:
             return 20, 0.5
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self in [GripperType.LINEAR_3507]:
             return 10, 0.3
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return -1.0, -1.0  # no kp or kd for teaching handle
@@ -73,9 +78,9 @@ class GripperType(enum.Enum):
             raise ValueError(f"Unknown gripper type: {self}")
 
     def get_motor_type(self) -> str:
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self in [GripperType.CRANK_4310, GripperType.LINEAR_4310]:
             return "DM4310"
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self in [GripperType.LINEAR_3507]:
             return "DM3507"
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return ""  # or raise NotImplementedError
@@ -89,7 +94,7 @@ class GripperType(enum.Enum):
         sign: float,
         gripper_force_torque_map: callable,
         """
-        if self == GripperType.YAM_COMPACT_SMALL:
+        if self == GripperType.CRANK_4310:
             return (
                 0.5,
                 0.2,
@@ -102,7 +107,7 @@ class GripperType(enum.Enum):
                     gripper_stroke=0.071,  # unit in meter
                 ),
             )
-        elif self == GripperType.YAM_LW_GRIPPER:
+        elif self == GripperType.LINEAR_3507:
             return (
                 0.5,
                 0.3,
@@ -113,6 +118,8 @@ class GripperType(enum.Enum):
                     gripper_stroke=0.096,
                 ),
             )
+        elif self == GripperType.LINEAR_4310:
+            raise NotImplementedError("Linear 4310 gripper is not supported yet")
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return -1.0, -1.0, -1.0, None
 
@@ -243,30 +250,6 @@ class GripperForceLimiter:
             _gripper_force_torque_map,
             gripper_force=self.max_force,
         )
-        # if self.gripper_type == GripperType.YAM_SMALL:
-        #     self.clog_force_threshold = 0.5
-        #     self.clog_speed_threshold = 0.2
-        #     self.sign = 1.0
-        #     self.gripper_force_torque_map = partial(
-        #         linear_gripper_force_torque_map,
-        #         motor_stroke=4.93,
-        #         gripper_stroke=0.092,
-        #         gripper_force=self.max_force,
-        #     )
-        # elif self.gripper_type == "yam_small":
-        #     self.clog_force_threshold = 0.5
-        #     self.clog_speed_threshold = 0.3
-        #     self.sign = 1.0
-        #     self.gripper_force_torque_map = partial(
-        #         zero_linkage_crank_gripper_force_torque_map,
-        #         motor_reading_to_crank_angle=lambda x: (-x + 0.174),
-        #         gripper_close_angle=8 / 180.0 * np.pi,
-        #         gripper_open_angle=170 / 180.0 * np.pi,
-        #         gripper_stroke=0.071,  # unit in meter
-        #         gripper_force=self.max_force,
-        #     )
-        # else:
-        #     raise ValueError(f"Unknown gripper type: {self.gripper_type}")
 
     def compute_target_gripper_torque(self, gripper_state: Dict[str, float]) -> float:
         current_speed = gripper_state["current_qvel"]
