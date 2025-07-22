@@ -58,8 +58,10 @@ The linear gripper requires an additional calibration step because its motor mus
 ## Test YAM Zero Gravity mode
 
 This enables you to launch the robot in zero gravity mode:
+
 ```bash
 python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type $YOUR_GRIPPER_TYPE
+python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type yam_teaching_handle does not work.
 ```
 
 ## YAM Robot Arm Usage
@@ -96,7 +98,7 @@ python scripts/minimum_gello.py --mode visualizer
 
 ### Running the arm on controlling it leader follower style
 This requires one follower arm and one leader arm with the yam_teaching_handle gripper
-
+You should note that the CAN channel is not fixed. You need to pay attention to the correspondence between your CAN channel and follower arm as well as leader arm. The following examples are for reference only.
 To launch the follower robot run
 ```bash
 python scripts/minimum_gello.py --gripper $YOUR_FOLLOWER_ARM_GRIPPER --mode follower --can-channel can0 --bilateral_kp 0.2
