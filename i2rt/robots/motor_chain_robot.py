@@ -483,9 +483,6 @@ if __name__ == "__main__":
     args = args.parse_args()
 
     gripper_type = GripperType.from_string_name(args.gripper_type)
-    assert gripper_type != GripperType.YAM_TEACHING_HANDLE, (
-        "YAM_TEACHING_HANDLE is not supported in motor_chain_robot.py"
-    )
 
     print(f"Initializing yam with gripper type: {gripper_type}")
     robot = get_yam_robot(args.channel, gripper_type=gripper_type)

@@ -61,7 +61,6 @@ This enables you to launch the robot in zero gravity mode:
 
 ```bash
 python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type $YOUR_GRIPPER_TYPE
-python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type yam_teaching_handle does not work.
 ```
 
 ## YAM Robot Arm Usage
