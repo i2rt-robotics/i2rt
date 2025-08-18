@@ -18,6 +18,10 @@ class MuJoCoKDL:
         # Disable all joint limit
         self.model.jnt_limited[:] = 0
 
+    @property
+    def joint_limits(self):
+        return self.model.jnt_range
+
     def compute_inverse_dynamics(self, q: np.ndarray, qdot: np.ndarray, qdotdot: np.ndarray) -> np.ndarray:
         assert len(q) == len(qdot) == len(qdotdot)
         length = len(q)

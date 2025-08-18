@@ -1,0 +1,12 @@
+# Flow Base CAN
+# Auto load gs_usb driver
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="606f", RUN+="/sbin/modprobe gs_usb"
+
+# Bind device to gs_usb driver
+ACTION=="add|change", SUBSYSTEMS=="usb", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", \
+RUN+="/bin/sh -c 'echo 1d50 606f > /sys/bus/usb/drivers/gs_usb/new_id'"
+
+# Configure CAN interface when detected
+SUBSYSTEM=="net", ENV{INTERFACE}=="can0|FlowBaseCAN*", ATTRS{bInterfaceNumber}=="00", \
+RUN+="/sbin/ip link set $name type can bitrate 1000000", \
+RUN+="/sbin/ip link set $name up"

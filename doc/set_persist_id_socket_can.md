@@ -56,11 +56,11 @@ $ ip link show
 2: enp5s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
     link/ether d8:43:ae:b7:43:0b brd ff:ff:ff:ff:ff:ff
 5: tailscale0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1280 qdisc fq_codel state UNKNOWN mode DEFAULT group default qlen 500
-    link/none 
+    link/none
 6: can_right: <NOARP,UP,LOWER_UP,ECHO> mtu 16 qdisc pfifo_fast state UP mode DEFAULT group default qlen 10
-    link/can 
+    link/can
 7: can_left: <NOARP,UP,LOWER_UP,ECHO> mtu 16 qdisc pfifo_fast state UP mode DEFAULT group default qlen 10
-    link/can 
+    link/can
 ```
 
 You should see that the CAN device is named `can_right`/`can_left`.
