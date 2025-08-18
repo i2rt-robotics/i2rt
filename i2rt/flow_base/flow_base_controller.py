@@ -457,52 +457,64 @@ class Vehicle(Robot):
     def num_dofs(self) -> int:
         return self.num_dofs
 
+    def running(self) -> bool:
+        return self.caster_module_controller.motor_interface.running
+
 
 if __name__ == "__main__":
     import os
-
-    os.environ["SDL_VIDEODRIVER"] = "dummy"  # Force headless mode
     import time
+    import argparse
+    from i2rt.utils.gamepad_utils import Gamepad
 
-    import pygame
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--channel", type=str, default="can0")
 
-    vehicle = Vehicle(max_vel=(0.2, 0.2, 0.3), max_accel=(1, 1, 1))
     # Initialize pygame and joystick
     pygame.init()
     pygame.joystick.init()
+    CALIBRATION_RETRY_DELAY = 1
+    DEADZONE = 0.05
+    args = parser.parse_args()
 
-    if pygame.joystick.get_count() == 0:
-        print("No joystick/gamepad connected!")
-        exit()
-    else:
-        print(f"Detected {pygame.joystick.get_count()} joystick(s).")
+    max_vel = np.array([0.4, 0.4, 1.2])
+    max_accel = np.array([0.5, 0.5, 1])
 
-    # Initialize the joystick
-    joy = pygame.joystick.Joystick(0)
-    joy.init()
+    vehicle = Vehicle(max_vel=max_vel, max_accel=max_accel, channel=args.channel)
 
     print(f"Joystick Name: {joy.get_name()}")
     print(f"Number of Axes: {joy.get_numaxes()}")
     print(f"Number of Buttons: {joy.get_numbuttons()}")
 
-    # Main loop to read joystick inputs
+    # Check all x, y, th are 0 at the beginning, if not ask user to check joystick
+    while True:
+        # Pump events to update joystick state
+        pygame.event.pump()
+        four_axis = [joy.get_axis(1), joy.get_axis(0), joy.get_axis(2), joy.get_axis(3)]
+        if all(np.abs(axis) < DEADZONE for axis in four_axis):
+            logging.info("Joystick is at rest, please check joystick")
+            break
+        else:
+            logging.warning(f"four_axis: {four_axis}")
+            logging.warning("Joystick's rest position is not at the center, please check joystick")
+            time.sleep(CALIBRATION_RETRY_DELAY)
 
+    # Main loop to read joystick inputs
+    gamepad = Gamepad()
+
+    count = 0
     try:
         while True:
-            # for _ in range(100):
-            pygame.event.pump()
-
-            # Read inputs
-            start = joy.get_button(7)  # Example button
-            x = joy.get_axis(1)  # Left stick Y-axis
-            y = joy.get_axis(0)  # Left stick X-axis
-            th = joy.get_axis(2)  # Right stick X-axis
-
-            user_cmd = np.array([-x, y, -th])
-            # if < 0.05 force to zero
-            user_cmd[np.abs(user_cmd) < 0.05] = 0
-            print(f"user_cmd: {user_cmd}")
-            vehicle.set_target_velocity(user_cmd, frame="local")
+            user_cmd = gamepad.get_user_cmd()
+            if not vehicle.running():
+                print("Motor interface is not running, exiting...")
+                print(f"Please check the E stop or the motor connection. ")
+                break
+            if count % 20 == 0:
+                # print up 1 float point
+                print(f"user_cmd: {user_cmd[0]:.1f}, {user_cmd[1]:.1f}, {user_cmd[2]:.1f}")
+            count += 1
+            vehicle.set_target_velocity(user_cmd*max_vel, frame="local")
 
             time.sleep(0.02)
     except KeyboardInterrupt:

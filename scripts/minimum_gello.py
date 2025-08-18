@@ -102,7 +102,7 @@ class YAMLeaderRobot:
 
 @dataclass
 class Args:
-    gripper: Literal["yam_compact_small", "yam_lw_gripper", "yam_teaching_handle"] = "yam_teaching_handle"
+    gripper: Literal["crank_4310", "linear_3507", "yam_teaching_handle"] = "yam_teaching_handle"
     mode: Literal["follower", "leader", "visualizer"] = "follower"
     server_host: str = "localhost"
     server_port: int = DEFAULT_ROBOT_PORT
@@ -166,6 +166,7 @@ def main(args: Args) -> None:
             time.sleep(0.01)
     elif args.mode == "visualizer":
         import mujoco
+        import mujoco.viewer
 
         client_robot = ClientRobot(DEFAULT_ROBOT_PORT, host=args.server_host)
         xml_path = gripper_type.get_xml_path()
