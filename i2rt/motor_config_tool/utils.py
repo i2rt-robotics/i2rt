@@ -113,11 +113,16 @@ def float32_to_bytes(value: float) -> bytearray:
 
 
 register_addr_map = {
+    "KT_value": (1, bytes_to_float32),
+    "OT_value": (2, bytes_to_float32),
     "master_id": (7, bytes_to_uint32),
     "id": (8, bytes_to_uint32),
     "timeout": (9, bytes_to_uint32),
+    "inertia": (12, bytes_to_float32),
     "sw_ver": (14, bytes_to_uint32),
+    "flux": (19, bytes_to_float32),
     "gear_ratio": (20, bytes_to_float32),
+    "gear_eff": (30, bytes_to_float32),
 }
 
 register_info_map = {"control_mode": {1: "MIT", 2: "pos_speed", 3: "speed", 4: "torque_pos"}}

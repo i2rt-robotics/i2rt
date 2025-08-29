@@ -77,8 +77,9 @@ class MotorChainRobot(Robot):
         gripper_type: GripperType = GripperType.CRANK_4310,
         temp_record_flag: bool = False,  # whether record the motor's temperature
         enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
+        zero_gravity_mode:bool = True,
         # below are calibration parameters
-        test_torque: float = 0.4,  # test torque for gripper detection (Nm)
+        test_torque: float = 0.5,  # test torque for gripper detection (Nm)
         test_duration: float = 2.0,  # max test duration for each direction (s)
         position_threshold: float = 0.01,  # minimum position change to consider motor still moving (rad)
         check_interval: float = 0.05,  # time interval between checks (s)
@@ -118,7 +119,7 @@ class MotorChainRobot(Robot):
                 logger.info(f"Using provided gripper limits: {gripper_limits}")
 
 
-        self._last_gripper_command_qpos = None
+        self._last_gripper_command_qpos = 1 # initialize as fully open
         assert clip_motor_torque >= 0.0
         self._clip_motor_torque = clip_motor_torque
         self.motor_chain = motor_chain
@@ -129,7 +130,7 @@ class MotorChainRobot(Robot):
         self._gripper_index = gripper_index
         self.remapper = JointMapper({}, len(motor_chain))  # so it works without gripper
         self._gripper_limits = gripper_limits
-        self._gripper_adjusted_qpos = None
+
         if self._gripper_index is not None:
             self._gripper_force_limiter = GripperForceLimiter(
                 max_force=limit_gripper_force, gripper_type=gripper_type, kp=kp[gripper_index]
@@ -181,9 +182,6 @@ class MotorChainRobot(Robot):
                 "Lower joint limits must be smaller than upper limits"
             )
             self._joint_limits = joint_limits
-
-        self._commands = JointCommands.init_all_zero(len(motor_chain))
-
         self._command_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._joint_state: Optional[JointStates] = None
@@ -191,6 +189,7 @@ class MotorChainRobot(Robot):
             # wait to recive joint data
             time.sleep(0.05)
             self._joint_state = self._motor_state_to_joint_state(self.motor_chain.read_states())
+        self._commands = JointCommands.init_all_zero(len(motor_chain))
         # For SWE-454, check if the current qpos is in the joint limits
         self._check_current_qpos_in_joint_limits()
 
@@ -198,6 +197,9 @@ class MotorChainRobot(Robot):
         self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
         self._server_thread.start()
 
+        if not zero_gravity_mode:
+            # set current qpos as target pos with the default PD parameters
+            self.command_joint_pos(self._joint_state.pos)
     def __repr__(self) -> str:
         return f"MotorChainRobot(motor_chain={self.motor_chain})"
 
@@ -240,6 +242,8 @@ class MotorChainRobot(Robot):
                     violation_details.append(f"Joint {i}: {pos:.4f} > {upper:.4f} (upper limit)")
 
             violation_msg = "; ".join(violation_details)
+            # turn off the main motor control thread as well.
+            self.motor_chain.running = False
             raise RuntimeError(f"{self}: Joint limit violation detected: {violation_msg}, the root reason should be zero position offset. possible solution: 1. move the arm to zero position and power cycle the robot. 2. Recalibrate the motor zero position.")
 
     def get_robot_info(self) -> Dict[str, Any]:
@@ -456,7 +460,7 @@ class MotorChainRobot(Robot):
             self._commands.kd = kd
 
     def zero_torque_mode(self) -> None:
-        print("in zero_torque_mode", self)
+        logging.info(f"Entering zero_torque_mode for {self}")
         with self._command_lock:
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._kp = np.zeros(len(self.motor_chain))
@@ -556,3 +560,8 @@ if __name__ == "__main__":
                 robot.command_joint_pos(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, gripper_pos]))
                 time.sleep(4)
                 print(robot.get_observations())
+    elif args.operation_mode == "stay_current_qpos":
+        current_qpos = robot.get_joint_pos()
+        robot.command_joint_pos(current_qpos)
+        while True:
+            time.sleep(1)

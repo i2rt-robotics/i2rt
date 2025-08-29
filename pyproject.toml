@@ -11,7 +11,7 @@ dynamic = ["description"]
 dependencies = [
     "dm-env==1.6",
     "evdev==1.9.2 ; sys_platform == 'linux'",
-    "mujoco==3.3.3",
+    "mujoco==3.3.5",
     "numpy==2.2.6",
     "portal==3.7.3",
     "pygame==2.6.1",

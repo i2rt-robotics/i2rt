@@ -23,6 +23,7 @@ def get_encoder_chain(can_interface: CanInterface) -> EncoderChain:
 def get_yam_robot(
     channel: str = "can0",
     gripper_type: GripperType = GripperType.CRANK_4310,
+    zero_gravity_mode:bool = True,
 ) -> MotorChainRobot:
     with_gripper = True
     with_teaching_handle = False
@@ -41,6 +42,9 @@ def get_yam_robot(
     ]
     motor_offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     joint_limits = np.array([[-2.617, 3.13], [0, 3.65], [0.0, 3.13], [-1.57, 1.57], [-1.57, 1.57], [-2.09, 2.09]])
+    joint_limits[:,0] += -0.15 # add some buffer to the joint limits
+    joint_limits[:,1] += 0.15
+
     motor_directions = [1, 1, 1, 1, 1, 1]
     kp = np.array([80, 80, 80, 40, 10, 10])
     kd = np.array([5, 5, 5, 1.5, 1.5, 1.5])
@@ -110,6 +114,7 @@ def get_yam_robot(
         joint_limits=joint_limits,
         kp=kp,
         kd=kd,
+        zero_gravity_mode=zero_gravity_mode,
     )
 
     if with_gripper:

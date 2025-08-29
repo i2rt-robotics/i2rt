@@ -13,6 +13,7 @@ from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
 YAM_XML_LW_GRIPPER_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_lw_gripper.xml")
+YAM_XML_LINEAR_4310_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_4310_linear.xml")
 YAM_TEACHING_HANDLE_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_teaching_handle.xml")
 
 
@@ -36,7 +37,7 @@ class GripperType(enum.Enum):
             return cls.YAM_TEACHING_HANDLE
         else:
             raise ValueError(
-                f"Unknown gripper type: {name}, gripper has to be one of the following: {cls.CRANK_4310}, {cls.LINEAR_3507}, {cls.YAM_TEACHING_HANDLE}"
+                f"Unknown gripper type: {name}, gripper has to be one of the following: {cls.CRANK_4310.value}, {cls.LINEAR_3507.value}, {cls.LINEAR_4310.value}, {cls.YAM_TEACHING_HANDLE.value}"
             )
 
     def get_gripper_limits(self) -> Optional[tuple[float, float]]:
@@ -61,7 +62,7 @@ class GripperType(enum.Enum):
         elif self == GripperType.LINEAR_3507:
             return YAM_XML_LW_GRIPPER_PATH
         elif self == GripperType.LINEAR_4310:
-            raise NotImplementedError("Linear 4310 gripper is not supported yet")
+            return YAM_XML_LINEAR_4310_PATH
         elif self == GripperType.YAM_TEACHING_HANDLE:
             return YAM_TEACHING_HANDLE_PATH
         else:
@@ -296,7 +297,6 @@ class GripperForceLimiter:
 
         if target_eff is not None:
             command_sign = np.sign(gripper_state["target_qpos"] - gripper_state["current_qpos"]) * self.sign
-
             current_zero_eff_pos = (
                 gripper_state["last_command_qpos"] - command_sign * np.abs(gripper_state["current_eff"]) / self._kp
             )
@@ -309,6 +309,8 @@ class GripperForceLimiter:
                 print(f"target_gripper_raw_pos: {target_gripper_raw_pos}")
             # Update gripper target position
             a = 0.1
+            if self._gripper_adjusted_qpos is None: #initialize it to the target position
+                self._gripper_adjusted_qpos = target_gripper_raw_pos
             self._gripper_adjusted_qpos = (1 - a) * self._gripper_adjusted_qpos + a * target_gripper_raw_pos
             return self._gripper_adjusted_qpos
         else:

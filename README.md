@@ -44,13 +44,14 @@ sh scripts/reset_all_can.sh
 
 ## Gripper type
 
-Currently YAM supports three different grippers:
+Currently YAM supports Four different grippers:
 ![YAM supported Grippers](./assets/photos/yam_three_grippers.png)
 
 | Gripper Name        | Description |
 |---------------------|-------------|
 | `crank_4310`        | Zero-linkage crank gripper, optimized for minimizing gripper width. |
 | `linear_3507`       | Linear gripper with smaller DM3507 motor. Lightweight, but requires calibration or starting with the gripper in the closed configuration. |
+| `linear_4310`       | Linear gripper with the standard DM4310 motor (not shown on photo above). Slightly heavier but can provide a bit more gripping force. |
 | `yam_teaching_handle`| Used for the leader arm setup. Includes a trigger to control the gripper and two customizable buttons that can be mapped to different functions. |
 
 The linear gripper requires an additional calibration step because its motor must rotate more than 2π radians to complete the full stroke.
@@ -69,7 +70,7 @@ Default timeout is enabled for YAM motors. Please refer to [YAM configuration](#
 from i2rt.robots.motor_chain_robot import get_yam_robot
 
 # Get a robot instance
-robot = get_yam_robot(channel="can0")
+robot = get_yam_robot(channel="can0", zero_gravity_mode=True)
 
 # Get the current joint positions
 joint_pos = robot.get_joint_pos()
@@ -145,7 +146,7 @@ However, we understand that this feature may not always be desirable, especially
 
 To remove the timeout feature, run the following command.
 ```bash
-python i2rt/motor_config_tool/remove_timeout.py --channel can0
+python i2rt/motor_config_tool/set_timeout.py --channel can0
 ```
 
 To set the timeout feature, run the following command.
@@ -160,10 +161,22 @@ python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
 After moving the timeout, you can initialize the YAM arm with the same following command.
 ```python
 from i2rt.robots.motor_chain_robot import get_yam_robot
-
 # Get a robot instance
 robot = get_yam_robot(channel="can0")
 ```
+
+One important way to reduce the risk of the arm going out of control is to avoid entering zero-gravity mode.
+
+By default, the arm initializes in zero-gravity mode. As mentioned earlier, if the arm does not have a timeout but the gravity compensation loop fails, the motor controller will continue applying a constant torque. This can lead to unexpected and potentially unsafe behavior.
+
+To prevent this, you should always set a PD target. With a PD target, the motor controller ensures the arm reaches a stable state rather than drifting under uncontrolled torque.
+
+You can disable the default zero-gravity initialization like this:
+```python
+robot = get_yam_robot(channel="can0", zero_gravity_mode=False)
+```
+
+In this mode, the current joint positions (`qpos`) are used as the PD target, keeping the arm stable in its initial state.
 
 ## Flow Base Usage
 
