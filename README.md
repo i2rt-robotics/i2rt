@@ -40,6 +40,15 @@ We have provided a convenience script to reset all CAN devices. Simply run
 sh scripts/reset_all_can.sh
 ```
 
+If you want the CAN interface to be automatically enabled on startup, you can run:
+```bash
+sudo sh devices/install_devices.sh
+```
+This script installs a udev rule that will automatically bring up all CAN devices whose names start with can*.
+
+⚠️ Note: If you later set persistent CAN IDs with different names, you may need to adjust the udev rule accordingly.
+
+
 ### See [set_persist_id_socket_can.md](doc/set_persist_id_socket_can.md) if you want to set persistent CAN device names
 
 ## Gripper type
