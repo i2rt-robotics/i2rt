@@ -34,7 +34,7 @@
               <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" actuatorfrcrange="-10 10"/>
               <geom pos="3.64861e-05 0.00025665 0.0353526" quat="9.38184e-07 -0.707105 -0.707108 9.38187e-07" type="mesh" rgba="1 0.6 0 1" mesh="link_5_collision"/>
               <body name="link_6" pos="0 0.0353 0.0395" quat="1 -1 0 0">
-                <inertial pos="-5.10177e-05 -0.00269952 0.0581778" quat="0.98383 0.174699 0.0 0.0" mass="0.50366" diaginertia="0.000956992 0.000799286 0.000469547"/>
+                <inertial pos="-5.10177e-05 -0.00269952 0.0581778" quat="0.98383 0.174699 0.0 0.0" mass="0.66366" diaginertia="0.000956992 0.000799286 0.000469547"/>
                 <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
                 <geom pos="-5.10177e-05 -0.00269952 0.0481778" quat="1 -1 -1 -1" type="mesh" rgba="1 0.6 0 1" mesh="link_6_collision"/>
                 <site name="tcp_site" pos="0 0 0" quat="1 0 0 -1" size="0.005" rgba="1 0 0 1"/>
