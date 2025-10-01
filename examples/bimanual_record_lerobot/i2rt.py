@@ -44,6 +44,7 @@ class PortalLeaderTeleop(Teleoperator):
         self._clients: Dict[Tuple[str, int], portal.Client] = {}
         self._arm_dofs: Dict[str, int] = {}
         self._action_keys: List[str] = []
+        self._ema_state: Dict[str, np.ndarray] = {}  # Initialize EMA state
         self._configured: bool = False
         self._calibrated: bool = False
 
@@ -84,7 +85,13 @@ class PortalLeaderTeleop(Teleoperator):
     def connect(self) -> None:
         for arm in self.cfg.arms:
             cli = self._client(arm.host, arm.port)
-            self._arm_dofs[arm.prefix] = int(cli.num_dofs().result())
+            try:
+                dofs = int(cli.num_dofs().result())
+                self._arm_dofs[arm.prefix] = dofs
+                print(f"✓ Connected to {arm.prefix} arm: {dofs} DOFs")
+            except Exception as e:
+                print(f"✗ Failed to connect to {arm.prefix} arm: {e}")
+                raise
 
     def disconnect(self) -> None:
         self._clients.clear()
@@ -133,19 +140,9 @@ class I2RTRobot(Robot):
 
     # ---------- abstract API required by base Robot ----------
     def configure(self, **kwargs) -> None:
-        """
-        Prepare the device/software for use (doesn't have to connect).
-        If you already do all wiring in `connect()`, keep this lightweight.
-        """
-        # put any non-IO setup here (e.g., building schemas from config)
         self._configured = True
 
     def calibrate(self, **kwargs) -> None:
-        """
-        Calibrate the robot if needed. If no calibration is required,
-        mark as calibrated so `is_calibrated()` returns True.
-        """
-        # no-op calibration by default; replace with real routine if you have one
         self._calibrated = True
 
     def is_calibrated(self) -> bool:
@@ -182,18 +179,34 @@ class I2RTRobot(Robot):
 
         # Connect to each follower and discover DOFs
         for ep in self.config.followers:
-            client = PortalFollowerClient(ep.host, ep.port)
-            dofs = client.num_dofs()
-            self._followers[ep.name] = client
-            self._follower_dofs[ep.name] = dofs
+            print(f"Connecting to follower {ep.name} at {ep.host}:{ep.port}")
+            try:
+                client = PortalFollowerClient(ep.host, ep.port)
+                dofs = client.num_dofs()
+                self._followers[ep.name] = client
+                self._follower_dofs[ep.name] = dofs
+                print(f"✓ Connected to {ep.name}: {dofs} DOFs")
+            except Exception as e:
+                print(f"✗ Failed to connect to {ep.name}: {e}")
 
         # Build flat motor key list (e.g., "right.j0.pos", ...)
         keys: List[str] = []
         for ep in self.config.followers:
             prefix = getattr(ep, "prefix", None) or ep.name
-            for j in range(self._follower_dofs[ep.name]):
-                keys.append(f"{prefix}.j{j}.pos")
+            dofs = self._follower_dofs[ep.name]
+            print(f"Building motor keys for {ep.name}: {dofs} DOFs, prefix={prefix}")
+            
+            if dofs == 0:
+                print(f"  - WARNING: {ep.name} has 0 DOFs, using default 7 DOFs")
+                dofs = 7  # Default to 7 DOFs for testing
+            
+            for j in range(dofs):
+                key = f"{prefix}.j{j}.pos"
+                keys.append(key)
+                print(f"  - Added key: {key}")
         self._motor_keys = keys
+        print(f"Total motor keys: {len(self._motor_keys)}")
+        print(f"Motor keys: {self._motor_keys}")
 
         # Cameras
         for cam in self.cameras.values():
@@ -223,7 +236,15 @@ class I2RTRobot(Robot):
         return {name: np.asarray(vals, dtype=np.float32) for name, vals in per_follow.items()}
 
     def _read_all_joint_pos(self) -> Dict[str, np.ndarray]:
-        return {ep.name: self._followers[ep.name].get_joint_pos() for ep in self.config.followers}
+        result = {}
+        for ep in self.config.followers:
+            if ep.name in self._followers:
+                result[ep.name] = self._followers[ep.name].get_joint_pos()
+            else:
+                # Return zeros for not connected follower
+                dofs = self._follower_dofs.get(ep.name, 7)
+                result[ep.name] = np.zeros(dofs, dtype=np.float32)
+        return result
 
     # ---------- I/O ----------
     def get_observation(self) -> Dict[str, np.ndarray]:
@@ -236,11 +257,11 @@ class I2RTRobot(Robot):
             q = np.asarray(all_q[ep.name], dtype=np.float32).ravel()
             for j, v in enumerate(q):
                 obs[f"{prefix}.j{j}.pos"] = float(v)
-
+        
         # Cameras
         for cam_key, cam in self.cameras.items():
             obs[cam_key] = cam.async_read()
-
+        
         return obs
 
     def send_action(self, action: Dict[str, Any]) -> Dict[str, Any]:

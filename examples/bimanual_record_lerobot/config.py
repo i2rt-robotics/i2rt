@@ -12,12 +12,12 @@ HOST: str = "127.0.0.1"
 # ---------------- Recording ----------------
 @dataclass
 class RecordingConfig:
-    num_episodes: int = 2
+    num_episodes: int = 1
     task_description: str = "Teleop leader - Followers"
     hf_repo_id: str = "zetanschy/i2rt_test"
     fps: int = 30
-    episode_time_sec: int = 30
-    reset_time_sec: int = 10
+    episode_time_sec: int = 5
+    reset_time_sec: int = 2
     use_videos: bool = True
 
 # ---------------- Followers (observations) ----------------
@@ -40,9 +40,9 @@ class I2RTFollowerConfig(RobotConfig):
 
     cameras: Dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "teleop_left":  RealSenseCameraConfig(serial_number_or_name="AAA", **CAMERA_SETTINGS),
-            "teleop_right": RealSenseCameraConfig(serial_number_or_name="BBB", **CAMERA_SETTINGS),
-            "torso":        RealSenseCameraConfig(serial_number_or_name="CCC", **CAMERA_SETTINGS),
+            "teleop_left":  RealSenseCameraConfig(serial_number_or_name="148522073102", **CAMERA_SETTINGS),
+            "teleop_right": RealSenseCameraConfig(serial_number_or_name="151222074096", **CAMERA_SETTINGS),
+            "torso":        RealSenseCameraConfig(serial_number_or_name="148122071428", **CAMERA_SETTINGS),
         }
     )
 
