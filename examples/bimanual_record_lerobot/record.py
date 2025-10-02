@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+import sys
+import tty
+import termios
 
 # ---- LeRobot imports ----
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -11,7 +14,6 @@ from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.processor import make_default_processors
 from lerobot.scripts.lerobot_record import record_loop
 from lerobot.utils.constants import OBS_STR
-from lerobot.utils.control_utils import init_keyboard_listener
 from lerobot.utils.utils import log_say
 from lerobot.utils.visualization_utils import init_rerun
 
@@ -28,8 +30,59 @@ def _clear_local_lerobot_cache(repo_id: str) -> None:
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
 
+def create_events_dict() -> dict:
+    """Create a simple events dictionary for recording control."""
+    return {
+        "stop_recording": False,
+        "rerecord_episode": False,
+        "exit_early": False,
+        "pause": False,
+        "resume": False
+    }
+
+def get_key():
+    """Get a single key press from the user."""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
+
+def get_arrow_key():
+    """Get arrow key or other special key press."""
+    key = get_key()
+    if key == '\x1b':  # ESC sequence
+        next_key = get_key()
+        if next_key == '[':
+            arrow = get_key()
+            if arrow == 'A':
+                return 'up'
+            elif arrow == 'B':
+                return 'down'
+            elif arrow == 'C':
+                return 'right'
+            elif arrow == 'D':
+                return 'left'
+    elif key == ' ':
+        return 'space'
+    elif key == '\r' or key == '\n':
+        return 'enter'
+    elif key == 'q':
+        return 'quit'
+    elif key == 's':
+        return 'start'
+    elif key == 'r':
+        return 'rerecord'
+    elif key == 'h':
+        return 'help'
+    return key
+
 # ==================== Main ====================
 def main():
+    # Use config for all settings
     recording_cfg = RecordingConfig()
     _clear_local_lerobot_cache(recording_cfg.hf_repo_id)
 
@@ -82,7 +135,7 @@ def main():
     )
 
     # ---- UI helpers ----
-    listener, events = init_keyboard_listener()
+    events = create_events_dict()
     init_rerun(session_name="i2rt_record")
     
     # Test data flow
@@ -112,13 +165,37 @@ def main():
     print(f"Direct observation sample: {dict(list(direct_obs.items())[:3])}")
 
     print("Starting record loop...")
+    print(f"Recording {recording_cfg.num_episodes} episodes of {recording_cfg.episode_time_sec}s each")
+    print("Commands: [S]tart, [Q]uit, [R]erecord, [H]elp")
+    
     recorded_episodes = 0
+    current_episode = 0
+    
     try:
         while recorded_episodes < recording_cfg.num_episodes and not events["stop_recording"]:
-            log_say(f"Recording episode {recorded_episodes}")
+            if recorded_episodes == 0:
+                print(f"\nReady to record episode {current_episode + 1}/{recording_cfg.num_episodes}")
+                print("Press [S] to start, [Q] to quit, [H] for help:")
+                while True:
+                    cmd = get_arrow_key()
+                    if cmd == "start" or cmd == "s":
+                        events["rerecord_episode"] = False
+                        break
+                    elif cmd == "quit" or cmd == "q":
+                        events["stop_recording"] = True
+                        break
+                    elif cmd == "help" or cmd == "h":
+                        print("Commands: [S]tart, [Q]uit, [R]erecord, [H]elp")
+                    else:
+                        print(f"Unknown key: {cmd}. Press [H] for help.")
+            
+            if events["stop_recording"]:
+                break
+                
+            log_say(f"Recording episode {current_episode + 1}")
 
             # Main record loop
-            print(f"Starting record loop for episode {recorded_episodes}...")
+            print(f"Starting record loop for episode {current_episode + 1}...")
             record_loop(
                 robot=robot,
                 events=events,
@@ -143,12 +220,6 @@ def main():
                 print(f"  - Observation keys: {[k for k in sample_frame.keys() if 'observation' in k]}")
                 print(f"  - Camera keys: {[k for k in sample_frame.keys() if any(cam in k for cam in ['teleop_left', 'teleop_right', 'torso'])]}")
                 print(f"  - Motor keys: {[k for k in sample_frame.keys() if '.j' in k]}")
-                
-                # Check if we have the test key
-                if 'aaaa' in sample_frame:
-                    print(f"  - Test key 'aaaa' found: {sample_frame['aaaa']}")
-                else:
-                    print("  - Test key 'aaaa' NOT found!")
                     
                 # Check a few sample values
                 print(f"  - Sample values:")
@@ -184,22 +255,32 @@ def main():
                 events["exit_early"] = False
                 dataset.clear_episode_buffer()
                 continue
-
-            # Save episode
-            print(f"Saving episode {recorded_episodes}...")
-            
-            # Debug: Check what's in the buffer before saving
-            print(f"Before save - Buffer length: {len(dataset.episode_buffer)}")
-            if len(dataset.episode_buffer) > 0:
-                print(f"Before save - Sample keys: {list(dataset.episode_buffer.keys())}")
             
             dataset.save_episode()
-            
-            # Debug: Check what's in the buffer after saving
-            print(f"After save - Buffer length: {len(dataset.episode_buffer)}")
-            
-            print(f"✓ Episode {recorded_episodes} saved successfully")
+            print(f"✓ Episode {current_episode+1} saved successfully")
             recorded_episodes += 1
+            current_episode += 1
+            
+            # Command handling after episode
+            if recorded_episodes < recording_cfg.num_episodes and not events["stop_recording"]:
+                print(f"\nEpisode {recorded_episodes} completed. Next: episode {recorded_episodes + 1}/{recording_cfg.num_episodes}")
+                print("Press [S] for next episode, [R] to rerecord, [Q] to quit, [H] for help:")
+                while True:
+                    cmd = get_arrow_key()
+                    if cmd == "start" or cmd == "s":
+                        break
+                    elif cmd == "rerecord" or cmd == "r":
+                        events["rerecord_episode"] = True
+                        recorded_episodes -= 1
+                        current_episode -= 1
+                        break
+                    elif cmd == "quit" or cmd == "q":
+                        events["stop_recording"] = True
+                        break
+                    elif cmd == "help" or cmd == "h":
+                        print("Commands: [S]tart next, [R]erecord, [Q]uit, [H]elp")
+                    else:
+                        print(f"Unknown key: {cmd}. Press [H] for help.")
 
     finally:
         # ---- Clean up ----
@@ -210,11 +291,6 @@ def main():
             pass
         try:
             robot.disconnect()
-        except Exception:
-            pass
-        try:
-            if listener is not None:
-                listener.stop()
         except Exception:
             pass
 
