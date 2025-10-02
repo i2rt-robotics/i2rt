@@ -2,6 +2,7 @@
 # minimum_gello.py — follower/leader/visualizer + optional leader-state telemetry server
 
 import time
+import threading
 from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
@@ -124,94 +125,81 @@ class Args:
     # If provided in leader mode, we start a read-only Portal server here.
     teleop_server_port: Optional[int] = None
 
-
 def main(args: Args) -> None:
     from i2rt.robots.utils import GripperType
 
     gripper_type = GripperType.from_string_name(args.gripper)
 
-    # Build a hardware-backed robot unless in remote visualizer
     if "remote" not in args.mode:
         robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type)
-
     if args.mode == "follower":
-        # Expose FOLLOWER over Portal (e.g., ports 1234/1235)
         server_robot = ServerRobot(robot, args.server_port)
         server_robot.serve()
-
     elif args.mode == "leader":
-        # Wrap hardware leader side and connect to follower server to drive it
-        leader = YAMLeaderRobot(robot)
-        robot_current_kp = leader._robot._kp
-        follower_cli = ClientRobot(args.server_port, host=args.server_host)
+        robot = YAMLeaderRobot(robot)
+        robot_current_kp = robot._robot._kp
+        client_robot = ClientRobot(args.server_port, host=args.server_host)
 
-        # Optional: expose LEADER (handle) joints for recorders (e.g., ports 2234/2235)
         if args.teleop_server_port is not None:
-            LeaderStateServer(leader, port=args.teleop_server_port, host=args.server_host).start()
+            leader_state_server = LeaderStateServer(robot, port=args.teleop_server_port, host=args.server_host)
+            # Start the server in a separate thread so it doesn't block
+            server_thread = threading.Thread(target=leader_state_server.start, daemon=True)
+            server_thread.start()
             print(f"[Leader] Telemetry server up on {args.server_host}:{args.teleop_server_port}")
 
-        # Sync and bilateral control loop
-        current_joint_pos, current_button = leader.get_info()
-        current_follower_joint_pos = follower_cli.get_joint_pos()
-        print(f"[Leader] Current leader qpos:   {current_joint_pos}")
-        print(f"[Leader] Current follower qpos: {current_follower_joint_pos}")
+        # sync the robot state
+        current_joint_pos, current_button = robot.get_info()
+        current_follower_joint_pos = client_robot.get_joint_pos()
+        print(f"Current leader joint pos: {current_joint_pos}")
+        print(f"Current follower joint pos: {current_follower_joint_pos}")
 
-        def slow_move(target_joint_pos: np.ndarray, duration: float = 3.0) -> None:
-            steps = 100
-            dt = duration / steps
-            start = follower_cli.get_joint_pos()
-            for i in range(steps + 1):
-                alpha = i / steps
-                cmd = target_joint_pos * alpha + start * (1.0 - alpha)
-                follower_cli.command_joint_pos(cmd)
-                time.sleep(dt)
+        def slow_move(joint_pos: np.ndarray, duration: float = 1.0) -> None:
+            for i in range(100):
+                current_joint_pos = joint_pos
+                follower_command_joint_pos = current_joint_pos * i / 100 + current_follower_joint_pos * (1 - i / 100)
+                client_robot.command_joint_pos(follower_command_joint_pos)
+                time.sleep(0.03)
 
         synchronized = False
         while True:
-            current_joint_pos, current_button = leader.get_info()
-
-            # Toggle synchronization on button press
+            current_joint_pos, current_button = robot.get_info()
             if current_button[0] > 0.5:
                 if not synchronized:
-                    # enable bilateral PD on leader side into follower
-                    leader.update_kp_kd(kp=robot_current_kp * args.bilateral_kp, kd=np.ones(6) * 0.0)
-                    leader.command_joint_pos(current_joint_pos[:6])
+                    robot.update_kp_kd(kp=robot_current_kp * args.bilateral_kp, kd=np.ones(6) * 0.0)
+                    robot.command_joint_pos(current_joint_pos[:6])
                     slow_move(current_joint_pos)
                 else:
-                    # clear bilateral PD
-                    print("[Leader] Clearing bilateral PD")
-                    leader.update_kp_kd(kp=np.ones(6) * 0.0, kd=np.ones(6) * 0.0)
-                    leader.command_joint_pos(current_follower_joint_pos[:6])
-
+                    print("clear bilateral pd")
+                    robot.update_kp_kd(kp=np.ones(6) * 0.0, kd=np.ones(6) * 0.0)
+                    robot.command_joint_pos(current_follower_joint_pos[:6])
                 synchronized = not synchronized
-                # debounce
                 while current_button[0] > 0.5:
                     time.sleep(0.03)
-                    current_joint_pos, current_button = leader.get_info()
+                    current_joint_pos, current_button = robot.get_info()
 
-            current_follower_joint_pos = follower_cli.get_joint_pos()
+            current_follower_joint_pos = client_robot.get_joint_pos()
 
             if synchronized:
-                # Drive follower with leader pose; reflect follower back to leader
-                follower_cli.command_joint_pos(current_joint_pos)
-                leader.command_joint_pos(current_follower_joint_pos[:6])
+                client_robot.command_joint_pos(current_joint_pos)
+                # this will set the bilateral force in joint space proportional to the bilateral kp
+                robot.command_joint_pos(current_follower_joint_pos[:6])
 
             time.sleep(0.01)
-
     elif "visualizer" in args.mode:
         import mujoco
         import mujoco.viewer
-        # local: use hardware-backed robot; remote: connect to server
         if args.mode == "visualizer_remote":
             robot = ClientRobot(args.server_port, host=args.server_host)
-
         xml_path = gripper_type.get_xml_path()
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
 
         dt: float = 0.01
         with mujoco.viewer.launch_passive(
-            model=model, data=data, show_left_ui=False, show_right_ui=False,
+            model=model,
+            data=data,
+            show_left_ui=False,
+            show_right_ui=False,
         ) as viewer:
             mujoco.mjv_defaultFreeCamera(model, viewer.cam)
             viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
@@ -221,15 +209,14 @@ def main(args: Args) -> None:
                 joint_pos = robot.get_joint_pos()
                 data.qpos[:] = joint_pos[: model.nq]
 
+                # sync the model state
                 mujoco.mj_kinematics(model, data)
                 viewer.sync()
-
                 time_until_next_step = dt - (time.time() - step_start)
                 if time_until_next_step > 0:
                     time.sleep(time_until_next_step)
     else:
         raise ValueError(f"Invalid mode: {args.mode}")
-
 
 if __name__ == "__main__":
     main(tyro.cli(Args))

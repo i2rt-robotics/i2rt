@@ -115,6 +115,19 @@ class PortalLeaderTeleop(Teleoperator):
                 act[f"{arm.prefix}.j{j}.pos"] = float(v)
         return act
     
+    def get_button_states(self) -> Dict[str, Any]:
+        """Get button state from leader (shared between both arms)."""
+        button_states = {}
+        try:
+            # Get button state from the first leader arm (shared button)
+            cli = self._client(self.cfg.arms[0].host, self.cfg.arms[0].port)
+            button_states["shared_button"] = cli.get_observations().result()["buttons"]
+            
+        except Exception as e:
+            print(f"Warning: Failed to get button state: {e}")
+            button_states["shared_button"] = None
+        return button_states
+    
 # ---- LeRobot adapter ----
 class I2RTRobot(Robot):
     """LeRobot-compatible adapter for portal-based I2RT followers."""
@@ -265,12 +278,9 @@ class I2RTRobot(Robot):
         return obs
 
     def send_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Position control: expects flat dict of '<name>.jK.pos': float."""
+        """Return actions without sending to followers (handled by external system)."""
         if not action:
             return action
 
-        per_follow = self._split_action_by_follower(action)
-        for ep in self.config.followers:
-            q_cmd = per_follow[ep.name]
-            self._followers[ep.name].command_joint_pos(q_cmd)
+        # Just return the actions - external system handles follower control
         return action

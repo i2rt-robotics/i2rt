@@ -16,7 +16,7 @@ class RecordingConfig:
     task_description: str = "Teleop leader - Followers"
     hf_repo_id: str = "zetanschy/i2rt_test"
     fps: int = 30
-    episode_time_sec: int = 5
+    episode_time_sec: int = 60
     reset_time_sec: int = 2
     use_videos: bool = True
 

@@ -153,6 +153,12 @@ def main():
     print(f"Robot motors features: {robot.motors_features}")
     print(f"Robot camera features: {robot.camera_features}")
     
+    # Get and print button state
+    print("Leader button state:")
+    button_states = teleop.get_button_states()
+    for button_name, button_state in button_states.items():
+        print(f"  {button_name}: {button_state[0]}")
+    
     # Test if robot methods work
     print("Testing robot methods directly...")
     print(f"Robot is_connected: {robot.is_connected}")
@@ -178,7 +184,8 @@ def main():
                 print("Press [S] to start, [Q] to quit, [H] for help:")
                 while True:
                     cmd = get_arrow_key()
-                    if cmd == "start" or cmd == "s":
+                    button_state = teleop.get_button_states()
+                    if cmd == "start" or cmd == "s" or button_state["shared_button"][0] > 0.5:
                         events["rerecord_episode"] = False
                         break
                     elif cmd == "quit" or cmd == "q":
@@ -267,7 +274,8 @@ def main():
                 print("Press [S] for next episode, [R] to rerecord, [Q] to quit, [H] for help:")
                 while True:
                     cmd = get_arrow_key()
-                    if cmd == "start" or cmd == "s":
+                    button_state = teleop.get_button_states()
+                    if cmd == "start" or cmd == "s" or button_state["shared_button"][0] > 0.5:
                         break
                     elif cmd == "rerecord" or cmd == "r":
                         events["rerecord_episode"] = True
