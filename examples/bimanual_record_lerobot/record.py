@@ -24,6 +24,8 @@ import os, shutil
 from pathlib import Path
 import threading
 import time
+import signal
+import atexit
 
 def _clear_local_lerobot_cache(repo_id: str) -> None:
     # expands to ~/.cache/huggingface/lerobot/<namespace>/<name>
@@ -31,6 +33,48 @@ def _clear_local_lerobot_cache(repo_id: str) -> None:
     cache_dir = cache_root / repo_id  # repo_id like "user/name"
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
+
+# Store original terminal settings
+_original_terminal_settings = None
+
+def save_terminal_settings():
+    """Save original terminal settings."""
+    global _original_terminal_settings
+    try:
+        fd = sys.stdin.fileno()
+        _original_terminal_settings = termios.tcgetattr(fd)
+    except Exception:
+        _original_terminal_settings = None
+
+def restore_terminal():
+    """Restore terminal to normal mode."""
+    global _original_terminal_settings
+    try:
+        if _original_terminal_settings is not None:
+            fd = sys.stdin.fileno()
+            termios.tcsetattr(fd, termios.TCSADRAIN, _original_terminal_settings)
+            print("\n🔄 Terminal restored to normal mode")
+        else:
+            # Fallback: try to reset to a known good state
+            fd = sys.stdin.fileno()
+            # Create a basic cooked mode configuration
+            new_settings = termios.tcgetattr(fd)
+            new_settings[3] = new_settings[3] | termios.ICANON | termios.ECHO
+            termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
+            print("\n🔄 Terminal restored to normal mode (fallback)")
+    except Exception as e:
+        print(f"\n⚠️ Could not restore terminal via termios: {e}")
+        # Last resort: try using stty command
+        try:
+            import subprocess
+            subprocess.run(['stty', 'sane'], check=True)
+            print("🔄 Terminal restored using 'stty sane'")
+        except Exception as stty_error:
+            print(f"⚠️ Could not restore terminal: {e}")
+            print("Try running 'reset' or 'stty sane' manually to fix the terminal")
+
+# Register terminal restoration for cleanup
+atexit.register(restore_terminal)
 
 def create_events_dict() -> dict:
     """Create a simple events dictionary for recording control."""
@@ -45,13 +89,28 @@ def create_events_dict() -> dict:
 
 def get_key():
     """Get a single key press from the user."""
+    global _original_terminal_settings
     fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
+    
+    # Use saved settings if available, otherwise get current settings
+    if _original_terminal_settings is not None:
+        old_settings = _original_terminal_settings
+    else:
+        old_settings = termios.tcgetattr(fd)
+    
     try:
         tty.setraw(sys.stdin.fileno())
         ch = sys.stdin.read(1)
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        # Always restore terminal settings
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            # If that fails, try to restore to a known good state
+            try:
+                termios.tcsetattr(fd, termios.TCSANOW, old_settings)
+            except Exception:
+                pass
     return ch
 
 def get_arrow_key():
@@ -115,6 +174,9 @@ def keyboard_monitor_thread(events):
 
 # ==================== Main ====================
 def main():
+    # Save original terminal settings before any modifications
+    save_terminal_settings()
+    
     # Use config for all settings
     recording_cfg = RecordingConfig()
     _clear_local_lerobot_cache(recording_cfg.hf_repo_id)
@@ -174,6 +236,15 @@ def main():
     # ---- Start keyboard monitor thread ----
     keyboard_thread = threading.Thread(target=keyboard_monitor_thread, args=(events,), daemon=True)
     keyboard_thread.start()
+    
+    # ---- Set up signal handlers for terminal restoration ----
+    def signal_handler(signum, frame):
+        print(f"\n🛑 Received signal {signum}. Restoring terminal...")
+        restore_terminal()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
     
     # Test data flow
     print("Testing data flow...")
@@ -331,6 +402,19 @@ def main():
     finally:
         # ---- Clean up ----
         log_say("Stop recording")
+        
+        # Restore terminal to normal mode
+        restore_terminal()
+        
+        # Stop keyboard thread
+        try:
+            events["stop_recording"] = True  # Signal thread to stop
+            if 'keyboard_thread' in locals():
+                keyboard_thread.join(timeout=1.0)  # Wait up to 1 second for thread to finish
+                print("🎹 Keyboard thread stopped")
+        except Exception as e:
+            print(f"⚠️ Error stopping keyboard thread: {e}")
+        
         try:
             teleop.disconnect()
         except Exception:
