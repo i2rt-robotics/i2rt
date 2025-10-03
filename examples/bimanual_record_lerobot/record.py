@@ -22,6 +22,8 @@ from config import I2RTFollowerConfig, i2rtLeaderConfig, RecordingConfig
 
 import os, shutil
 from pathlib import Path
+import threading
+import time
 
 def _clear_local_lerobot_cache(repo_id: str) -> None:
     # expands to ~/.cache/huggingface/lerobot/<namespace>/<name>
@@ -37,7 +39,8 @@ def create_events_dict() -> dict:
         "rerecord_episode": False,
         "exit_early": False,
         "pause": False,
-        "resume": False
+        "resume": False,
+        "start_requested": False
     }
 
 def get_key():
@@ -79,6 +82,36 @@ def get_arrow_key():
     elif key == 'h':
         return 'help'
     return key
+
+def keyboard_monitor_thread(events):
+    """Monitor keyboard input in a separate thread."""
+    print("🎹 Keyboard monitor started. Press 'Q' to quit, 'R' to exit episode early, 'H' for help")
+    
+    while not events["stop_recording"]:
+        try:
+            cmd = get_arrow_key()
+            
+            if cmd == "quit" or cmd == "q":
+                print("\n🛑 Quit requested via keyboard!")
+                events["stop_recording"] = True
+                break
+            elif cmd == "help" or cmd == "h":
+                print("\n📖 Commands: [Q]uit anytime, [R]exit episode early, [S]tart next episode, [H]elp")
+            elif cmd == "rerecord" or cmd == "r":
+                print("\n⏹️ Exit episode early requested via keyboard!")
+                events["exit_early"] = True
+            elif cmd == "start" or cmd == "s":
+                print("\n▶️ Start requested via keyboard!")
+                events["start_requested"] = True
+            else:
+                # Ignore other keys during recording
+                pass
+                
+        except Exception as e:
+            print(f"⚠️ Keyboard monitor error: {e}")
+            break
+    
+    print("🎹 Keyboard monitor stopped")
 
 # ==================== Main ====================
 def main():
@@ -131,12 +164,16 @@ def main():
         robot_type=robot.name,
         use_videos=recording_cfg.use_videos,
         image_writer_threads=4,
-        batch_encoding_size=1,
+        batch_encoding_size=recording_cfg.batch_encoding_size,
     )
 
     # ---- UI helpers ----
     events = create_events_dict()
     init_rerun(session_name="i2rt_record")
+    
+    # ---- Start keyboard monitor thread ----
+    keyboard_thread = threading.Thread(target=keyboard_monitor_thread, args=(events,), daemon=True)
+    keyboard_thread.start()
     
     # Test data flow
     print("Testing data flow...")
@@ -172,29 +209,26 @@ def main():
 
     print("Starting record loop...")
     print(f"Recording {recording_cfg.num_episodes} episodes of {recording_cfg.episode_time_sec}s each")
-    print("Commands: [S]tart, [Q]uit, [R]erecord, [H]elp")
+    print("🎹 Keyboard commands: [Q]uit anytime, [R]exit episode early, [S]tart next episode, [H]elp")
     
     recorded_episodes = 0
     current_episode = 0
+    waiting_for_start = True
     
     try:
         while recorded_episodes < recording_cfg.num_episodes and not events["stop_recording"]:
-            if recorded_episodes == 0:
+            if waiting_for_start:
                 print(f"\nReady to record episode {current_episode + 1}/{recording_cfg.num_episodes}")
                 print("Press [S] to start, [Q] to quit, [H] for help:")
-                while True:
-                    cmd = get_arrow_key()
-                    button_state = teleop.get_button_states()
-                    if cmd == "start" or cmd == "s" or button_state["shared_button"][0] > 0.5:
+                # Wait for start command from keyboard thread
+                while waiting_for_start and not events["stop_recording"]:
+                    time.sleep(0.1)  # Small delay to prevent busy waiting
+                    # Check if start was requested
+                    if events.get("start_requested", False):
+                        events["start_requested"] = False
                         events["rerecord_episode"] = False
+                        waiting_for_start = False
                         break
-                    elif cmd == "quit" or cmd == "q":
-                        events["stop_recording"] = True
-                        break
-                    elif cmd == "help" or cmd == "h":
-                        print("Commands: [S]tart, [Q]uit, [R]erecord, [H]elp")
-                    else:
-                        print(f"Unknown key: {cmd}. Press [H] for help.")
             
             if events["stop_recording"]:
                 break
@@ -203,6 +237,11 @@ def main():
 
             # Main record loop
             print(f"Starting record loop for episode {current_episode + 1}...")
+            print("💡 Press 'R' during recording to exit this episode early")
+            
+            # Reset exit_early flag before recording
+            events["exit_early"] = False
+            
             record_loop(
                 robot=robot,
                 events=events,
@@ -216,6 +255,11 @@ def main():
                 robot_action_processor=robot_action_processor,
                 robot_observation_processor=robot_observation_processor,
             )
+            
+            # Check if episode was exited early
+            if events.get("exit_early", False):
+                print("⏹️ Episode recording ended early!")
+                events["exit_early"] = False
             
             # Debug: Check what's in the episode buffer
             print(f"Episode buffer info after recording:")
@@ -268,27 +312,21 @@ def main():
             recorded_episodes += 1
             current_episode += 1
             
+            # Reset for next episode
+            waiting_for_start = True
+            
             # Command handling after episode
             if recorded_episodes < recording_cfg.num_episodes and not events["stop_recording"]:
                 print(f"\nEpisode {recorded_episodes} completed. Next: episode {recorded_episodes + 1}/{recording_cfg.num_episodes}")
-                print("Press [S] for next episode, [R] to rerecord, [Q] to quit, [H] for help:")
-                while True:
-                    cmd = get_arrow_key()
-                    button_state = teleop.get_button_states()
-                    if cmd == "start" or cmd == "s" or button_state["shared_button"][0] > 0.5:
+                print("Press [S] for next episode, [Q] to quit, [H] for help:")
+                # Wait for next command from keyboard thread
+                while waiting_for_start and not events["stop_recording"]:
+                    time.sleep(0.1)  # Small delay to prevent busy waiting
+                    # Check if start was requested
+                    if events.get("start_requested", False):
+                        events["start_requested"] = False
+                        waiting_for_start = False
                         break
-                    elif cmd == "rerecord" or cmd == "r":
-                        events["rerecord_episode"] = True
-                        recorded_episodes -= 1
-                        current_episode -= 1
-                        break
-                    elif cmd == "quit" or cmd == "q":
-                        events["stop_recording"] = True
-                        break
-                    elif cmd == "help" or cmd == "h":
-                        print("Commands: [S]tart next, [R]erecord, [Q]uit, [H]elp")
-                    else:
-                        print(f"Unknown key: {cmd}. Press [H] for help.")
 
     finally:
         # ---- Clean up ----
