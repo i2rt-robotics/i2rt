@@ -144,7 +144,7 @@ def get_arrow_key():
 
 def keyboard_monitor_thread(events):
     """Monitor keyboard input in a separate thread."""
-    print("🎹 Keyboard monitor started. Press 'Q' to quit, 'R' to exit episode early, 'H' for help")
+    print("🎹 Keyboard monitor started. Press 'Q' to quit, 'E' to exit episode early, 'R' to rerecord episode, 'H' for help")
     
     while not events["stop_recording"]:
         try:
@@ -155,10 +155,16 @@ def keyboard_monitor_thread(events):
                 events["stop_recording"] = True
                 break
             elif cmd == "help" or cmd == "h":
-                print("\n📖 Commands: [Q]uit anytime, [R]exit episode early, [S]tart next episode, [H]elp")
-            elif cmd == "rerecord" or cmd == "r":
+                print("\n📖 Commands: [Q]uit anytime, [E]exit episode early, [R]erecord episode, [S]tart next episode, [H]elp")
+            elif cmd == "exit" or cmd == "e":
                 print("\n⏹️ Exit episode early requested via keyboard!")
                 events["exit_early"] = True
+            elif cmd == "rerecord" or cmd == "r":
+                print("\n🔄 Rerecord episode requested via keyboard!")
+                events["exit_early"] = True
+                events["rerecord_episode"] = True
+                events["start_requested"] = False  # Reset start flag for confirmation
+
             elif cmd == "start" or cmd == "s":
                 print("\n▶️ Start requested via keyboard!")
                 events["start_requested"] = True
@@ -280,7 +286,7 @@ def main():
 
     print("Starting record loop...")
     print(f"Recording {recording_cfg.num_episodes} episodes of {recording_cfg.episode_time_sec}s each")
-    print("🎹 Keyboard commands: [Q]uit anytime, [R]exit episode early, [S]tart next episode, [H]elp")
+    print("🎹 Keyboard commands: [Q]uit anytime, [E]exit episode early, [R]erecord episode, [S]tart next episode, [H]elp")
     
     recorded_episodes = 0
     current_episode = 0
@@ -308,7 +314,7 @@ def main():
 
             # Main record loop
             print(f"Starting record loop for episode {current_episode + 1}...")
-            print("💡 Press 'R' during recording to exit this episode early")
+            print("💡 Press 'E' during recording to exit this episode early and 'R' to rerecord this episode")
             
             # Reset exit_early flag before recording
             events["exit_early"] = False
@@ -376,6 +382,21 @@ def main():
                 events["rerecord_episode"] = False
                 events["exit_early"] = False
                 dataset.clear_episode_buffer()
+                
+                # Show confirmation message and wait for start
+                print(f"\nReady to re-record episode {current_episode + 1}/{recording_cfg.num_episodes}")
+                print("Press [S] to start re-recording, [Q] to quit, [H] for help:")
+                waiting_for_rerecord_start = True
+                while waiting_for_rerecord_start and not events["stop_recording"]:
+                    time.sleep(0.1)  # Small delay to prevent busy waiting
+                    # Check if start was requested
+                    if events.get("start_requested", False):
+                        events["start_requested"] = False
+                        waiting_for_rerecord_start = False
+                        break
+                
+                if events["stop_recording"]:
+                    break
                 continue
             
             dataset.save_episode()
