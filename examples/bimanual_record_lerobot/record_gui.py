@@ -12,6 +12,7 @@ import threading
 import time
 import signal
 import atexit
+import subprocess
 
 # PyQt imports
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -166,14 +167,41 @@ class RecordingGUI(QMainWindow):
         self.processors = None
         self.is_recording = False
         self.is_connected = False
+        self.bimanual_process = None
         
         self.init_ui()
         self.setup_connections()
+        
+        # Register cleanup function
+        atexit.register(self.cleanup)
+        
+        # Register signal handler for Ctrl+C
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
         
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("I2RT Recording Control")
         self.setGeometry(100, 100, 800, 600)
+
+        #Buttons style
+        style_button = """
+            QPushButton { 
+                background-color: #2196F3; 
+                color: white; 
+                font-weight: bold; 
+                padding: 10px; 
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover:enabled { 
+                background-color: #1976D2; 
+            }
+            QPushButton:disabled { 
+                background-color: #cccccc; 
+                color: #666666; 
+            }
+        """
         
         # Central widget
         central_widget = QWidget()
@@ -226,35 +254,31 @@ class RecordingGUI(QMainWindow):
         control_layout = QGridLayout(control_group)
         
         # Connection buttons
-        self.connect_btn = QPushButton("Connect")
-        self.connect_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 10px; }")
+        self.connect_btn = QPushButton("Start Teleop")
+        self.connect_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.connect_btn, 0, 0)
         
-        self.disconnect_btn = QPushButton("Disconnect")
+        self.disconnect_btn = QPushButton("Finish Teleop")
         self.disconnect_btn.setEnabled(False)
-        self.disconnect_btn.setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; padding: 10px; }")
+        self.disconnect_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.disconnect_btn, 0, 1)
         
         # Recording buttons
         self.start_episode_btn = QPushButton("Start Episode")
         self.start_episode_btn.setEnabled(False)
-        self.start_episode_btn.setStyleSheet("QPushButton { background-color: #2196F3; color: white; font-weight: bold; padding: 10px; }")
+        self.start_episode_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.start_episode_btn, 1, 0)
         
-        self.exit_early_btn = QPushButton("Finish Episode")
+        self.exit_early_btn = QPushButton("Finish && Save Episode")
         self.exit_early_btn.setEnabled(False)
-        self.exit_early_btn.setStyleSheet("QPushButton { background-color: #FF9800; color: white; font-weight: bold; padding: 10px; }")
+        self.exit_early_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.exit_early_btn, 1, 1)
         
         self.rerecord_btn = QPushButton("Rerecord Episode")
         self.rerecord_btn.setEnabled(False)
-        self.rerecord_btn.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; font-weight: bold; padding: 10px; }")
+        self.rerecord_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.rerecord_btn, 2, 0)
         
-        self.stop_recording_btn = QPushButton("Stop & Save All")
-        self.stop_recording_btn.setEnabled(False)
-        self.stop_recording_btn.setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; padding: 10px; }")
-        control_layout.addWidget(self.stop_recording_btn, 2, 1)
         
         # Log group
         log_group = QGroupBox("Log")
@@ -281,7 +305,6 @@ class RecordingGUI(QMainWindow):
         self.start_episode_btn.clicked.connect(self.start_episode)
         self.exit_early_btn.clicked.connect(self.exit_early)
         self.rerecord_btn.clicked.connect(self.rerecord_episode)
-        self.stop_recording_btn.clicked.connect(self.stop_recording)
         
     def log_message(self, message):
         """Add message to log."""
@@ -291,6 +314,29 @@ class RecordingGUI(QMainWindow):
         
     def connect_robot(self):
         """Connect to robot and teleop."""
+        try:
+            # Launch bimanual.py in a separate process
+            self.log_message("Launching bimanual.py...")
+            bimanual_script_path = os.path.join(os.path.dirname(__file__), "bimanual.py")
+            self.bimanual_process = subprocess.Popen([sys.executable, bimanual_script_path])
+            self.log_message(f"Bimanual process started with PID: {self.bimanual_process.pid}")
+            
+            # Wait for bimanual to initialize (non-blocking)
+            self.log_message("Waiting for bimanual to initialize...")
+            self.status_label.setText("Initializing bimanual...")
+            
+            # Use a timer to wait for initialization
+            self.init_timer = QTimer()
+            self.init_timer.timeout.connect(self.continue_connection)
+            self.init_timer.setSingleShot(True)
+            self.init_timer.start(3000)  # Wait 3 seconds
+            
+        except Exception as e:
+            self.log_message(f"Connection error: {str(e)}")
+            QMessageBox.critical(self, "Connection Error", f"Failed to connect: {str(e)}")
+    
+    def continue_connection(self):
+        """Continue with robot/teleop connection after bimanual initialization."""
         try:
             self.log_message("Connecting to robot and teleop...")
             self.status_label.setText("Connecting...")
@@ -335,13 +381,12 @@ class RecordingGUI(QMainWindow):
             
             # Update UI
             self.is_connected = True
-            self.status_label.setText("Connected")
+            self.status_label.setText("Teleop Started")
             self.status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: green; padding: 10px;")
             
             self.connect_btn.setEnabled(False)
             self.disconnect_btn.setEnabled(True)
             self.start_episode_btn.setEnabled(True)
-            self.stop_recording_btn.setEnabled(True)
             
             if self.recording_cfg.num_episodes > 0:
                 self.progress_label.setText(f"Episodes: 0/{self.recording_cfg.num_episodes}")
@@ -370,8 +415,36 @@ class RecordingGUI(QMainWindow):
         try:
             self.log_message("Disconnecting...")
             
+            # Cancel initialization timer if running
+            if hasattr(self, 'init_timer') and self.init_timer.isActive():
+                self.init_timer.stop()
+                self.log_message("Cancelled bimanual initialization")
+            
             if self.recording_worker and self.recording_worker.isRunning():
-                self.stop_recording()
+                self.events["stop_recording"] = True
+                self.recording_worker.wait(3000)  # Wait up to 3 seconds
+            
+            # Terminate bimanual process if running
+            if self.bimanual_process:
+                self.log_message("Terminating bimanual process...")
+                try:
+                    self.bimanual_process.terminate()
+                    # Wait up to 10 seconds for graceful termination (bimanual needs time to clean up child processes)
+                    self.bimanual_process.wait(timeout=10)
+                    self.log_message("Bimanual process terminated successfully")
+                except subprocess.TimeoutExpired:
+                    self.log_message("Force killing bimanual process...")
+                    self.bimanual_process.kill()
+                    self.bimanual_process.wait()
+                    self.log_message("Bimanual process killed")
+                except Exception as e:
+                    self.log_message(f"Error terminating bimanual process: {e}")
+                finally:
+                    self.bimanual_process = None
+                
+                # Additional cleanup: kill any remaining gello processes
+                self.log_message("Cleaning up any remaining gello processes...")
+                self.cleanup_gello_processes()
                 
             if self.teleop:
                 self.teleop.disconnect()
@@ -387,7 +460,6 @@ class RecordingGUI(QMainWindow):
             self.start_episode_btn.setEnabled(False)
             self.exit_early_btn.setEnabled(False)
             self.rerecord_btn.setEnabled(False)
-            self.stop_recording_btn.setEnabled(False)
             
             self.log_message("Disconnected successfully")
             
@@ -432,15 +504,6 @@ class RecordingGUI(QMainWindow):
         self.events["exit_early"] = True
         self.log_message("Rerecord episode requested")
         
-    def stop_recording(self):
-        """Stop the recording session and save all episodes."""
-        self.events["stop_recording"] = True
-        self.log_message("Stop recording requested - all episodes will be saved")
-        
-        if self.recording_worker and self.recording_worker.isRunning():
-            self.recording_worker.wait(3000)  # Wait up to 3 seconds
-            
-        self.reset_ui()
         
     def on_recording_started(self):
         """Called when recording starts."""
@@ -519,10 +582,86 @@ class RecordingGUI(QMainWindow):
                 event.ignore()
                 return
             else:
-                self.stop_recording()
+                self.events["stop_recording"] = True
+                if self.recording_worker and self.recording_worker.isRunning():
+                    self.recording_worker.wait(3000)
         
         self.disconnect_robot()
         event.accept()
+    
+    def cleanup(self):
+        """Cleanup function called on exit."""
+        if self.bimanual_process:
+            try:
+                print("Terminating bimanual process...")
+                self.bimanual_process.terminate()
+                # Wait longer for bimanual to clean up its child processes
+                self.bimanual_process.wait(timeout=10)
+                print("Bimanual process terminated successfully")
+            except subprocess.TimeoutExpired:
+                print("Force killing bimanual process...")
+                try:
+                    self.bimanual_process.kill()
+                    self.bimanual_process.wait()
+                    print("Bimanual process killed")
+                except:
+                    pass
+            except Exception as e:
+                print(f"Error terminating bimanual process: {e}")
+                try:
+                    self.bimanual_process.kill()
+                except:
+                    pass
+        
+        # Always clean up gello processes on exit
+        print("Cleaning up gello processes...")
+        try:
+            result = subprocess.run(['pgrep', '-f', 'record_gello.py'], capture_output=True, text=True)
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid:
+                        try:
+                            print(f"Killing gello process {pid}")
+                            subprocess.run(['kill', '-TERM', pid], check=True)
+                        except subprocess.CalledProcessError:
+                            try:
+                                subprocess.run(['kill', '-KILL', pid], check=True)
+                            except:
+                                pass
+                print(f"Cleaned up {len(pids)} gello processes")
+        except Exception as e:
+            print(f"Error cleaning up gello processes: {e}")
+    
+    def cleanup_gello_processes(self):
+        """Clean up any remaining gello processes"""
+        try:
+            # Kill record_gello.py processes
+            result = subprocess.run(['pgrep', '-f', 'record_gello.py'], capture_output=True, text=True)
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid:
+                        try:
+                            self.log_message(f"Killing gello process {pid}")
+                            subprocess.run(['kill', '-TERM', pid], check=True)
+                        except subprocess.CalledProcessError:
+                            try:
+                                self.log_message(f"Force killing gello process {pid}")
+                                subprocess.run(['kill', '-KILL', pid], check=True)
+                            except:
+                                pass
+                self.log_message(f"Cleaned up {len(pids)} gello processes")
+            else:
+                self.log_message("No gello processes found")
+        except Exception as e:
+            self.log_message(f"Error cleaning up gello processes: {e}")
+    
+    def signal_handler(self, signum, frame):
+        """Handle Ctrl+C and other termination signals"""
+        print(f"\nReceived signal {signum}, cleaning up...")
+        self.cleanup()
+        sys.exit(0)
 
 def main():
     """Main function."""
