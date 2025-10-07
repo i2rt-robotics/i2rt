@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from lerobot.robots import RobotConfig
 from lerobot.cameras.realsense import RealSenseCameraConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
 from lerobot.cameras import CameraConfig
 from lerobot.teleoperators import TeleoperatorConfig
 
@@ -19,7 +20,7 @@ class RecordingConfig:
     episode_time_sec: int = 180
     reset_time_sec: int = 2
     use_videos: bool = True
-    batch_encoding_size: int = 1
+    batch_encoding_size: int = 3
 
 # ---------------- Followers (observations) ----------------
 @dataclass
@@ -44,6 +45,7 @@ class I2RTFollowerConfig(RobotConfig):
             "teleop_left":  RealSenseCameraConfig(serial_number_or_name="148522073102", **CAMERA_SETTINGS),
             "teleop_right": RealSenseCameraConfig(serial_number_or_name="151222074096", **CAMERA_SETTINGS),
             "torso":        RealSenseCameraConfig(serial_number_or_name="148122071428", **CAMERA_SETTINGS),
+            #"torso":        OpenCVCameraConfig(index_or_path='/dev/video0', **CAMERA_SETTINGS),
         }
     )
 
