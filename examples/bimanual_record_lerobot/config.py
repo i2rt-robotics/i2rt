@@ -20,7 +20,7 @@ class RecordingConfig:
     episode_time_sec: int = 200
     reset_time_sec: int = 2
     use_videos: bool = True
-    batch_encoding_size: int = 3
+    batch_encoding_size: int = 1
 
 # ---------------- Followers (observations) ----------------
 @dataclass
