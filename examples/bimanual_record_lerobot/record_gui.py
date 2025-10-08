@@ -50,9 +50,12 @@ class RecordingWorker(QThread):
     """Worker thread for recording operations."""
     status_update = pyqtSignal(str)
     episode_complete = pyqtSignal(int, int)  # current, total
+    batch_complete = pyqtSignal()  # batch completed
     recording_started = pyqtSignal()
     recording_stopped = pyqtSignal()
     saving_started = pyqtSignal()
+    batch_saving_started = pyqtSignal()  # batch saving started
+    batch_saving_finished = pyqtSignal()  # batch saving finished
     saving_finished = pyqtSignal()
     session_finished = pyqtSignal(int, str)  # number of episodes recorded, repository path
     error_occurred = pyqtSignal(str)
@@ -70,6 +73,7 @@ class RecordingWorker(QThread):
         self.current_episode = 0
         self.waiting_for_start = True
         self.repo_path = recording_cfg.hf_repo_id
+        self.completed_batches = 0
         
     def run(self):
         """Main recording loop."""
@@ -129,14 +133,40 @@ class RecordingWorker(QThread):
                     self.waiting_for_start = True
                     continue
                 
-                # Save episode
-                self.saving_started.emit()
+                # Check if this episode will complete a batch
+                will_complete_batch = (self.recording_cfg.batch_encoding_size > 1 and 
+                                     (self.recorded_episodes + 1) % self.recording_cfg.batch_encoding_size == 0)
+                
+                # Show appropriate saving indicator immediately
+                if will_complete_batch:
+                    self.batch_saving_started.emit()  # Show batch saving immediately
+                else:
+                    self.saving_started.emit()  # Show episode config saving
+                
                 self.status_update.emit(f"Saving episode {self.current_episode+1}...")
                 self.dataset.save_episode()
-                self.saving_finished.emit()
+                
+                if not will_complete_batch:
+                    self.saving_finished.emit()  # Only emit finished if we showed episode saving
+                
                 self.status_update.emit(f"Episode {self.current_episode+1} saved successfully")
                 self.recorded_episodes += 1
                 self.current_episode += 1
+                
+                # Check if a batch was completed
+                if self.recording_cfg.batch_encoding_size > 1:
+                    if self.recorded_episodes % self.recording_cfg.batch_encoding_size == 0:
+                        self.completed_batches += 1
+                        self.status_update.emit(f"Batch {self.completed_batches} completed!")
+                        self.batch_complete.emit()  # Signal that batch is complete
+                        
+                        # Add a small delay to simulate batch encoding time, then emit finished signal
+                        import threading
+                        def finish_batch_saving():
+                            time.sleep(2)  # Give time for batch encoding
+                            self.batch_saving_finished.emit()
+                        threading.Thread(target=finish_batch_saving, daemon=True).start()
+                
                 self.episode_complete.emit(self.recorded_episodes, self.recording_cfg.num_episodes)
                 
                 # Reset for next episode
@@ -215,6 +245,11 @@ class RecordingGUI(QMainWindow):
         self.recording_indicator.setStyleSheet("font-size: 16px; font-weight: bold; color: red; padding: 5px;")
         status_layout.addWidget(self.recording_indicator)
         
+        # Recording timer
+        self.recording_timer = QTimer()
+        self.recording_timer.timeout.connect(self.update_recording_time)
+        self.recording_start_time = None
+        
         self.saving_indicator = QLabel("")
         self.saving_indicator.setStyleSheet("font-size: 14px; font-weight: bold; color: orange; padding: 5px;")
         self.saving_indicator.setVisible(False)  # Hidden by default
@@ -237,7 +272,7 @@ class RecordingGUI(QMainWindow):
         progress_group = QGroupBox("Progress")
         progress_layout = QVBoxLayout(progress_group)
         
-        self.progress_label = QLabel("Episodes: 0/0")
+        self.progress_label = QLabel("Episodes: 0 (Batch: 0)")
         progress_layout.addWidget(self.progress_label)
         
         self.progress_bar = QProgressBar()
@@ -386,11 +421,11 @@ class RecordingGUI(QMainWindow):
             self.start_episode_btn.setEnabled(True)
             
             if self.recording_cfg.num_episodes > 0:
-                self.progress_label.setText(f"Episodes: 0/{self.recording_cfg.num_episodes}")
-                self.progress_bar.setMaximum(self.recording_cfg.num_episodes)
+                self.progress_label.setText(f"Episodes: 0 (Batch: 0/{self.recording_cfg.batch_encoding_size})")
+                self.progress_bar.setMaximum(self.recording_cfg.batch_encoding_size)
             else:
-                self.progress_label.setText("Episodes: 0 (unlimited)")
-                self.progress_bar.setMaximum(0)  # Indeterminate progress
+                self.progress_label.setText(f"Episodes: 0 (Batch: 0/{self.recording_cfg.batch_encoding_size}) - unlimited")
+                self.progress_bar.setMaximum(self.recording_cfg.batch_encoding_size)
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(True)
             
@@ -410,6 +445,41 @@ class RecordingGUI(QMainWindow):
     def disconnect_robot(self):
         """Disconnect from robot and teleop."""
         try:
+            # Save any remaining episodes in the batch
+            if hasattr(self, 'dataset') and self.dataset and self.recording_cfg.batch_encoding_size > 1:
+                self.log_message("Saving remaining episodes in batch...")
+                # Clear any incomplete episode buffer
+                self.dataset.clear_episode_buffer(delete_images=len(self.dataset.meta.image_keys) > 0)
+                
+                # Force save any remaining episodes that haven't been batch encoded
+                if hasattr(self.recording_worker, 'recorded_episodes') and self.recording_worker.recorded_episodes > 0:
+                    episodes_since_last_encoding = self.recording_worker.recorded_episodes % self.recording_cfg.batch_encoding_size
+                    if episodes_since_last_encoding > 0:
+                        # Show saving indicator for remaining episodes
+                        self.saving_indicator.setText("💾 SAVING REMAINING EPISODES...")
+                        self.saving_indicator.setVisible(True)
+                        self.saving_progress.setVisible(True)
+                        self.log_message("💾 SAVING REMAINING EPISODES...")
+                        
+                        # Force UI update to show the indicator
+                        QApplication.processEvents()
+                        
+                        start_ep = self.recording_worker.recorded_episodes - episodes_since_last_encoding
+                        end_ep = self.recording_worker.recorded_episodes
+                        self.log_message(f"Encoding remaining {episodes_since_last_encoding} episodes ({start_ep} to {end_ep-1})")
+                        
+                        # Use QTimer to ensure the indicator stays visible during processing
+                        def hide_after_saving():
+                            self.dataset._batch_save_episode_video(start_ep, end_ep)
+                            self.saving_indicator.setVisible(False)
+                            self.saving_progress.setVisible(False)
+                            self.log_message("Remaining episodes saved successfully")
+                        
+                        # Start a timer to process the saving in the background
+                        QTimer.singleShot(100, hide_after_saving)
+                
+                self.log_message("Batch encoding completed")
+            
             self.log_message("Disconnecting...")
             
             # Cancel initialization timer if running
@@ -476,9 +546,12 @@ class RecordingGUI(QMainWindow):
             )
             self.recording_worker.status_update.connect(self.log_message)
             self.recording_worker.episode_complete.connect(self.update_progress)
+            self.recording_worker.batch_complete.connect(self.on_batch_complete)
             self.recording_worker.recording_started.connect(self.on_recording_started)
             self.recording_worker.recording_stopped.connect(self.on_recording_stopped)
             self.recording_worker.saving_started.connect(self.on_saving_started)
+            self.recording_worker.batch_saving_started.connect(self.on_batch_saving_started)
+            self.recording_worker.batch_saving_finished.connect(self.on_batch_saving_finished)
             self.recording_worker.saving_finished.connect(self.on_saving_finished)
             self.recording_worker.session_finished.connect(self.on_session_finished)
             self.recording_worker.error_occurred.connect(self.on_error)
@@ -505,7 +578,9 @@ class RecordingGUI(QMainWindow):
     def on_recording_started(self):
         """Called when recording starts."""
         self.is_recording = True
-        self.recording_indicator.setText("● RECORDING")
+        self.recording_start_time = time.time()
+        self.recording_timer.start(1000)  # Update every second
+        self.recording_indicator.setText("● RECORDING (00:00)")
         self.recording_indicator.setStyleSheet("font-size: 16px; font-weight: bold; color: green; padding: 5px;")
         self.exit_early_btn.setEnabled(True)
         self.rerecord_btn.setEnabled(True)
@@ -513,6 +588,8 @@ class RecordingGUI(QMainWindow):
     def on_recording_stopped(self):
         """Called when recording stops."""
         self.is_recording = False
+        self.recording_timer.stop()
+        self.recording_start_time = None
         self.recording_indicator.setText("● NOT RECORDING")
         self.recording_indicator.setStyleSheet("font-size: 16px; font-weight: bold; color: red; padding: 5px;")
         self.exit_early_btn.setEnabled(False)
@@ -521,13 +598,27 @@ class RecordingGUI(QMainWindow):
         
     def on_saving_started(self):
         """Called when episode saving starts."""
-        self.saving_indicator.setText("💾 SAVING...")
+        self.saving_indicator.setText("💾 SAVING EPISODE CONFIG...")
+        self.saving_indicator.setVisible(True)
+        self.saving_progress.setVisible(True)
+    
+    def on_batch_saving_started(self):
+        """Called when batch saving starts."""
+        self.saving_indicator.setText("💾 SAVING BATCH DATA...")
         self.saving_indicator.setVisible(True)
         self.saving_progress.setVisible(True)
         # Disable buttons during saving
         self.start_episode_btn.setEnabled(False)
         self.exit_early_btn.setEnabled(False)
         self.rerecord_btn.setEnabled(False)
+    
+    def on_batch_saving_finished(self):
+        """Called when batch saving finishes."""
+        self.saving_indicator.setVisible(False)
+        self.saving_progress.setVisible(False)
+        # Re-enable buttons after batch saving
+        if not self.is_recording:
+            self.start_episode_btn.setEnabled(self.is_connected)
         
     def on_saving_finished(self):
         """Called when episode saving finishes."""
@@ -539,16 +630,42 @@ class RecordingGUI(QMainWindow):
         
     def update_progress(self, current, total):
         """Update progress display."""
+        batch_size = self.recording_cfg.batch_encoding_size
+        current_batch_progress = current % batch_size
+        
         if total > 0:
-            self.progress_label.setText(f"Episodes: {current}/{total}")
-            self.progress_bar.setValue(current)
+            self.progress_label.setText(f"Episodes: {current} (Batch: {current_batch_progress}/{batch_size})")
         else:
-            self.progress_label.setText(f"Episodes: {current} (unlimited)")
-            self.progress_bar.setValue(0)  # Keep at 0 for unlimited
+            self.progress_label.setText(f"Episodes: {current} (Batch: {current_batch_progress}/{batch_size}) - unlimited")
+        
+        # Progress bar shows current batch progress
+        self.progress_bar.setValue(current_batch_progress)
+    
+    def on_batch_complete(self):
+        """Called when a batch is completed - reset progress bar."""
+        self.progress_bar.setValue(0)  # Reset to 0 for new batch
+    
+    def update_recording_time(self):
+        """Update the recording time display."""
+        if self.recording_start_time:
+            elapsed = time.time() - self.recording_start_time
+            minutes = int(elapsed // 60)
+            seconds = int(elapsed % 60)
+            self.recording_indicator.setText(f"● RECORDING ({minutes:02d}:{seconds:02d})")
             
     def on_session_finished(self, episodes_recorded, repo_path):
         """Called when recording session finishes."""
-        self.session_results.setText(f"[✓] Session Complete: {episodes_recorded} episodes recorded at '{self.recording_cfg.hf_repo_id}'")
+        # Calculate final batch count
+        batch_size = self.recording_cfg.batch_encoding_size
+        completed_batches = episodes_recorded // batch_size
+        remaining_episodes = episodes_recorded % batch_size
+        
+        if remaining_episodes > 0:
+            batch_info = f"{completed_batches} complete batches + {remaining_episodes} episodes in current batch"
+        else:
+            batch_info = f"{completed_batches} complete batches"
+            
+        self.session_results.setText(f"[✓] Session Complete: {episodes_recorded} episodes ({batch_info}) at '{self.recording_cfg.hf_repo_id}'")
         self.session_results.setVisible(True)
         self.log_message(f"[SUCCESS] Recording session completed! {episodes_recorded} episodes recorded successfully.")
         
@@ -561,6 +678,8 @@ class RecordingGUI(QMainWindow):
     def reset_ui(self):
         """Reset UI to initial state."""
         self.is_recording = False
+        self.recording_timer.stop()
+        self.recording_start_time = None
         self.recording_indicator.setText("● NOT RECORDING")
         self.recording_indicator.setStyleSheet("font-size: 16px; font-weight: bold; color: red; padding: 5px;")
         self.saving_indicator.setVisible(False)
