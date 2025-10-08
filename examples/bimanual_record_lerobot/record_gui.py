@@ -13,7 +13,7 @@ import time
 import signal
 import atexit
 import subprocess
-import datetime
+from datetime import datetime
 
 # PyQt imports
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -54,7 +54,7 @@ class RecordingWorker(QThread):
     recording_stopped = pyqtSignal()
     saving_started = pyqtSignal()
     saving_finished = pyqtSignal()
-    session_finished = pyqtSignal(int)  # number of episodes recorded
+    session_finished = pyqtSignal(int, str)  # number of episodes recorded, repository path
     error_occurred = pyqtSignal(str)
     
     def __init__(self, events, recording_cfg, robot, teleop, dataset, processors):
@@ -69,6 +69,7 @@ class RecordingWorker(QThread):
         self.recorded_episodes = 0
         self.current_episode = 0
         self.waiting_for_start = True
+        self.repo_path = recording_cfg.hf_repo_id
         
     def run(self):
         """Main recording loop."""
@@ -144,8 +145,8 @@ class RecordingWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Recording error: {str(e)}")
         finally:
-            self.status_update.emit(f"Recording session ended - {self.recorded_episodes} episodes recorded")
-            self.session_finished.emit(self.recorded_episodes)
+            self.status_update.emit(f"Recording session ended - {self.recorded_episodes} episodes recorded at {self.repo_path}")
+            self.session_finished.emit(self.recorded_episodes, self.repo_path)
 
 class RecordingGUI(QMainWindow):
     """Main GUI window for recording control."""
@@ -545,11 +546,11 @@ class RecordingGUI(QMainWindow):
             self.progress_label.setText(f"Episodes: {current} (unlimited)")
             self.progress_bar.setValue(0)  # Keep at 0 for unlimited
             
-    def on_session_finished(self, episodes_recorded):
+    def on_session_finished(self, episodes_recorded, repo_path):
         """Called when recording session finishes."""
-        self.session_results.setText(f"✅ Session Complete: {episodes_recorded} episodes recorded")
+        self.session_results.setText(f"[✓] Session Complete: {episodes_recorded} episodes recorded at '{self.recording_cfg.hf_repo_id}'")
         self.session_results.setVisible(True)
-        self.log_message(f"🎉 Recording session completed! {episodes_recorded} episodes recorded successfully.")
+        self.log_message(f"[SUCCESS] Recording session completed! {episodes_recorded} episodes recorded successfully.")
         
     def on_error(self, error_msg):
         """Handle errors."""
