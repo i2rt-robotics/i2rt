@@ -13,9 +13,9 @@ HOST: str = "127.0.0.1"
 # ---------------- Recording ----------------
 @dataclass
 class RecordingConfig:
-    num_episodes: int = 20
+    num_episodes: int = 50
     task_description: str = "Teleop leader - Followers"
-    hf_repo_id: str = "zetanschy/i2rt_test"
+    hf_repo_id: str = "task1"
     fps: int = 30
     episode_time_sec: int = 200
     reset_time_sec: int = 2

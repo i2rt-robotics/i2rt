@@ -13,6 +13,7 @@ import time
 import signal
 import atexit
 import subprocess
+import datetime
 
 # PyQt imports
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -33,13 +34,6 @@ from lerobot.utils.visualization_utils import init_rerun
 
 from i2rt import I2RTRobot, PortalLeaderTeleop
 from config import I2RTFollowerConfig, i2rtLeaderConfig, RecordingConfig
-
-def _clear_local_lerobot_cache(repo_id: str) -> None:
-    # expands to ~/.cache/huggingface/lerobot/<namespace>/<name>
-    cache_root = Path(os.path.expanduser("~")) / ".cache" / "huggingface" / "lerobot"
-    cache_dir = cache_root / repo_id  # repo_id like "user/name"
-    if cache_dir.exists():
-        shutil.rmtree(cache_dir)
 
 def create_events_dict() -> dict:
     """Create a simple events dictionary for recording control."""
@@ -343,8 +337,10 @@ class RecordingGUI(QMainWindow):
             
             # Initialize configuration
             self.recording_cfg = RecordingConfig()
-            _clear_local_lerobot_cache(self.recording_cfg.hf_repo_id)
-            
+            # Append UTC timestamp to make this trial unique: task1-YYYYMMDD-HHMMSS
+            ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            self.recording_cfg.hf_repo_id = f"{self.recording_cfg.hf_repo_id}/{ts}"
+
             # Build robot (followers)
             robot_cfg = I2RTFollowerConfig()
             self.robot = I2RTRobot(robot_cfg)
