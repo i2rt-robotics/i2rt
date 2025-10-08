@@ -15,7 +15,7 @@ HOST: str = "127.0.0.1"
 class RecordingConfig:
     num_episodes: int = 50
     task_description: str = "Teleop leader - Followers"
-    hf_repo_id: str = "task1"
+    hf_repo_id: str = "task1" #Task name
     fps: int = 30
     episode_time_sec: int = 200
     reset_time_sec: int = 2
