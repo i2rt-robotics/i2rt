@@ -382,6 +382,7 @@ class RecordingGUI(QMainWindow):
             self.recording_cfg = RecordingConfig()
             # Append UTC timestamp to make this trial unique: task1-YYYYMMDD-HHMMSS
             ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            #self.recording_cfg.hf_repo_id = f"{self.recording_cfg.hf_repo_id}-{ts}" # TODO: push to hub
             self.recording_cfg.hf_repo_id = f"{self.recording_cfg.hf_repo_id}/{ts}"
 
             # Build robot (followers)
@@ -486,6 +487,7 @@ class RecordingGUI(QMainWindow):
                         QTimer.singleShot(100, hide_after_saving)
                 
                 self.log_message("Batch encoding completed")
+                # self.dataset.push_to_hub(private=False) # TODO: push to hub
             
             self.log_message("Disconnecting...")
             
@@ -588,8 +590,8 @@ class RecordingGUI(QMainWindow):
             
             # Create new dataset with new timestamp
             ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            #new_repo_id = f"{self.recording_cfg.hf_repo_id.split('/')[0]}-{ts}"# TODO: push to hub
             new_repo_id = f"{self.recording_cfg.hf_repo_id.split('/')[0]}/{ts}"
-            
             # Dataset features
             action_features = hw_to_dataset_features(self.robot.action_features, "action")
             obs_features = hw_to_dataset_features(self.robot.observation_features, OBS_STR)
