@@ -343,8 +343,14 @@ class RecordingGUI(QMainWindow):
         self.log_text.ensureCursorVisible()
         
     def connect_robot(self):
-        """Connect to robot and teleop."""
+        """Connect to robot and teleop, or start new session if already connected."""
         try:
+            # If already connected, start a new session instead
+            if self.is_connected:
+                self.log_message("Starting new recording session...")
+                self.start_new_session()
+                return
+            
             # Launch bimanual.py in a separate process
             self.log_message("Launching bimanual.py...")
             bimanual_script_path = os.path.join(os.path.dirname(__file__), "bimanual.py")
@@ -574,6 +580,85 @@ class RecordingGUI(QMainWindow):
         self.events["exit_early"] = True
         self.log_message("Rerecord episode requested")
         
+    def start_new_session(self):
+        """Start a new recording session with a new dataset."""
+        try:
+            self.log_message("Creating new dataset...")
+            
+            # Create new dataset with new timestamp
+            ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            new_repo_id = f"{self.recording_cfg.hf_repo_id.split('/')[0]}/{ts}"
+            
+            # Dataset features
+            action_features = hw_to_dataset_features(self.robot.action_features, "action")
+            obs_features = hw_to_dataset_features(self.robot.observation_features, OBS_STR)
+            dataset_features = {**action_features, **obs_features}
+            
+            # Create new dataset
+            self.dataset = LeRobotDataset.create(
+                repo_id=new_repo_id,
+                fps=self.recording_cfg.fps,
+                features=dataset_features,
+                robot_type=self.robot.name,
+                use_videos=self.recording_cfg.use_videos,
+                image_writer_threads=4,
+                batch_encoding_size=self.recording_cfg.batch_encoding_size,
+            )
+            
+            # Update recording config with new repo ID
+            self.recording_cfg.hf_repo_id = new_repo_id
+            
+            # Reset recording state
+            self.reset_recording_state()
+            
+            # Hide session results
+            self.session_results.setVisible(False)
+            
+            self.log_message(f"New session started! Dataset: {new_repo_id}")
+            self.log_message("Ready to record! Press 'Start Episode' to begin.")
+            
+        except Exception as e:
+            self.log_message(f"Error starting new session: {str(e)}")
+            QMessageBox.critical(self, "New Session Error", f"Failed to start new session: {str(e)}")
+        
+    def reset_recording_state(self):
+        """Reset recording state for a new session while keeping teleop connected."""
+        # Reset recording indicators
+        self.is_recording = False
+        self.recording_timer.stop()
+        self.recording_start_time = None
+        self.recording_indicator.setText("● NOT RECORDING")
+        self.recording_indicator.setStyleSheet("font-size: 16px; font-weight: bold; color: red; padding: 5px;")
+        
+        # Hide saving indicators
+        self.saving_indicator.setVisible(False)
+        self.saving_progress.setVisible(False)
+        
+        # Reset progress
+        self.progress_label.setText(f"Episodes: 0 (Batch: 0/{self.recording_cfg.batch_encoding_size})")
+        self.progress_bar.setValue(0)
+        
+        # Enable buttons for new session
+        self.start_episode_btn.setEnabled(True)
+        self.exit_early_btn.setEnabled(False)
+        self.rerecord_btn.setEnabled(False)
+        
+        # Reset recording worker
+        if self.recording_worker and self.recording_worker.isRunning():
+            self.events["stop_recording"] = True
+            self.recording_worker.wait(3000)
+        self.recording_worker = None
+        
+        # Reset events
+        self.events = {
+            "start_requested": False,
+            "exit_early": False,
+            "rerecord_episode": False,
+            "stop_recording": False,
+        }
+        
+        self.log_message("Ready for new recording session! Press 'Start Episode' to begin.")
+        
         
     def on_recording_started(self):
         """Called when recording starts."""
@@ -668,6 +753,9 @@ class RecordingGUI(QMainWindow):
         self.session_results.setText(f"[✓] Session Complete: {episodes_recorded} episodes ({batch_info}) at '{self.recording_cfg.hf_repo_id}'")
         self.session_results.setVisible(True)
         self.log_message(f"[SUCCESS] Recording session completed! {episodes_recorded} episodes recorded successfully.")
+        
+        # Reset UI for new session - keep teleop connected but reset recording state
+        self.reset_recording_state()
         
     def on_error(self, error_msg):
         """Handle errors."""
