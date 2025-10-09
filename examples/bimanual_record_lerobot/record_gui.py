@@ -282,6 +282,7 @@ class RecordingGUI(QMainWindow):
         # Control buttons group
         control_group = QGroupBox("Recording Controls")
         control_layout = QGridLayout(control_group)
+        control_layout.setSpacing(20)  # Add spacing between buttons
         
         # Connection buttons
         self.connect_btn = QPushButton("Start Teleop")
