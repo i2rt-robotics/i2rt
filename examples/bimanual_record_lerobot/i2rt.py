@@ -284,3 +284,15 @@ class I2RTRobot(Robot):
 
         # Just return the actions - external system handles follower control
         return action
+    
+    def execute_inference_action(self, action: Dict[str, Any]) -> None:
+        """Execute an inference action on the robot."""
+        if not action:
+            return
+            
+        per_follower_actions = self._split_action_by_follower(action)
+        
+        for ep in self.config.followers:
+            if ep.name in self._followers and ep.name in per_follower_actions:
+                joint_positions = per_follower_actions[ep.name]
+                self._followers[ep.name].command_joint_pos(joint_positions)
