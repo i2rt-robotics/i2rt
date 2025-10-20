@@ -7,7 +7,7 @@ Please refer to the original repository for detailed instructions on installatio
 
 This fork adds:
 
-- **LeRobot Integration**: Data collection support in `examples/bimanual_lerobot/`
+- **LeRobot Integration**: Data collection and inference support in `examples/bimanual_record_lerobot/`
   - See: [LeRobot Teleop and Record Guide](https://github.com/robot-com-projects/robot-os/blob/main/docs/04_TeleopAndRecord.md)
   - See: [LeRobot GUI Recording Documentation](https://github.com/robot-com-projects/robot-os/blob/main/docs/Record_README.md)
 
