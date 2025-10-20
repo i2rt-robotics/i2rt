@@ -31,8 +31,8 @@ def log_actions_two_plots(u_pred: np.ndarray, u_gt: np.ndarray):
     u_gt   = np.asarray(u_gt,   dtype=np.float32).reshape(-1)
     n = min(len(u_pred), len(u_gt))
     for i in range(n):
-        rr.log(f"gt/j{i}",   rr.Scalar(float(u_gt[i])))
-        rr.log(f"pred/j{i}", rr.Scalar(float(u_pred[i])))
+        rr.log(f"gt/j{i}",   rr.Scalars([float(u_gt[i])]))
+        rr.log(f"pred/j{i}", rr.Scalars([float(u_pred[i])]))
 
 
 def main():
