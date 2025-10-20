@@ -98,7 +98,6 @@ def main():
         n_steps = max(1, int(round((ts_next - ts) / sim_dt)))
 
         # Inference
-        a = time.time()
         with torch.no_grad():
             # print("sample:", sample)
             proc   = preprocess(sample)                           # dict with normalized tensors
@@ -107,7 +106,6 @@ def main():
             action = model_inference.select_action(proc)          # model output (normalized space)
             action = postprocess(action)                          # back to dataset space
             action = make_robot_action(action, dataset_metadata.features)
-        print(time.time()-a)
         
         # Build arrays
         u_pred = np.array(list(action.values()), dtype=np.float32)
