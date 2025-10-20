@@ -1,0 +1,16 @@
+<?xml version="0.0" ?>
+<robot name="onshape">
+	<link name="anonymous">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="0.00000"/>
+			<inertia ixx="0.00000" ixy="0" ixz="0" iyy="0.00000" iyz="0" izz="0.00000"/>
+		</inertial>
+		<collision>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.37500"/>
+			<geometry>
+				<box size="0.59500 1.30000 0.75000"/>
+			</geometry>
+		</collision>
+	</link>
+</robot>

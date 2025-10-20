@@ -1,0 +1,70 @@
+<?xml version="0.0" ?>
+<robot name="onshape">
+	<link name="gate_collision">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="2.68200"/>
+			<inertia ixx="0.50451" ixy="0" ixz="0" iyy="0.19351" iyz="0" izz="0.31140"/>
+		</inertial>
+		<collision>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.57500 0.45000"/>
+			<geometry>
+				<box size="0.03000 0.03000 0.90000"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 -0.57500 0.45000"/>
+			<geometry>
+				<box size="0.03000 0.03000 0.90000"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin rpy="1.57080 -0.00000 0.00000" xyz="0.00000 0.00000 0.91500"/>
+			<geometry>
+				<box size="0.03000 0.03000 1.18000"/>
+			</geometry>
+		</collision>
+	</link>
+	<link name="top_bar_center">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="0.00000"/>
+			<inertia ixx="0.00000" ixy="0" ixz="0" iyy="0.00000" iyz="0" izz="0.00000"/>
+		</inertial>
+	</link>
+	<link name="top_camera_d405">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="0.00000"/>
+			<inertia ixx="0.00000" ixy="0" ixz="0" iyy="0.00000" iyz="0" izz="0.00000"/>
+		</inertial>
+	</link>
+	<link name="top_camera_frame">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="0.00000"/>
+			<inertia ixx="0.00000" ixy="0" ixz="0" iyy="0.00000" iyz="0" izz="0.00000"/>
+		</inertial>
+	</link>
+	<joint name="jointfix_2_0" type="fixed">
+		<parent link="gate_collision"/>
+		<child link="top_bar_center"/>
+		<dynamics damping="1.0" friction="0.0001"/>
+		<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.91500"/>
+		<axis xyz="0.00000 0.00000 0.00000"/>
+	</joint>
+	<joint name="jointfix_1_1" type="fixed">
+		<parent link="top_bar_center"/>
+		<child link="top_camera_d405"/>
+		<dynamics damping="1.0" friction="0.0001"/>
+		<origin rpy="2.61800 -0.00000 1.57080" xyz="0.08601 -0.00900 0.03932"/>
+		<axis xyz="0.00000 0.00000 0.00000"/>
+	</joint>
+	<joint name="jointfix_0_2" type="fixed">
+		<parent link="top_camera_d405"/>
+		<child link="top_camera_frame"/>
+		<dynamics damping="1.0" friction="0.0001"/>
+		<origin rpy="0.00000 -0.00000 3.14159" xyz="0.00900 0.00000 0.00000"/>
+		<axis xyz="0.00000 0.00000 0.00000"/>
+	</joint>
+</robot>
