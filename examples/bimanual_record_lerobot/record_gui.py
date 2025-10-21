@@ -290,26 +290,24 @@ class RecordingGUI(QMainWindow):
         self.connect_btn.setStyleSheet(style_button)
         control_layout.addWidget(self.connect_btn, 0, 0)
         
-        self.disconnect_btn = QPushButton("Finish Teleop")
-        self.disconnect_btn.setEnabled(False)
-        self.disconnect_btn.setStyleSheet(style_button)
-        control_layout.addWidget(self.disconnect_btn, 0, 1)
+        # Add spacing between rows
+        control_layout.setRowMinimumHeight(1, 40)
         
         # Recording buttons
         self.start_episode_btn = QPushButton("Start Episode")
         self.start_episode_btn.setEnabled(False)
         self.start_episode_btn.setStyleSheet(style_button)
-        control_layout.addWidget(self.start_episode_btn, 1, 0)
+        control_layout.addWidget(self.start_episode_btn, 2, 0)
         
         self.exit_early_btn = QPushButton("Finish && Save Episode")
         self.exit_early_btn.setEnabled(False)
         self.exit_early_btn.setStyleSheet(style_button)
-        control_layout.addWidget(self.exit_early_btn, 1, 1)
+        control_layout.addWidget(self.exit_early_btn, 2, 1)
         
         self.rerecord_btn = QPushButton("Rerecord Episode")
         self.rerecord_btn.setEnabled(False)
         self.rerecord_btn.setStyleSheet(style_button)
-        control_layout.addWidget(self.rerecord_btn, 2, 0)
+        control_layout.addWidget(self.rerecord_btn, 3, 0)
         
         
         # Log group
@@ -320,12 +318,24 @@ class RecordingGUI(QMainWindow):
         self.log_text.setReadOnly(True)
         self.log_text.setMaximumHeight(200)
         log_layout.addWidget(self.log_text)
+
+        # Finish teleop button
+        bottom_group = QWidget()
+        bottom_layout = QHBoxLayout(bottom_group)
+        bottom_layout.addStretch()
         
+        self.disconnect_btn = QPushButton("Finish Teleop")
+        self.disconnect_btn.setEnabled(False)
+        self.disconnect_btn.setStyleSheet(style_button)
+        self.disconnect_btn.setFixedWidth(370)
+        bottom_layout.addWidget(self.disconnect_btn)
+
         # Add groups to main layout
         layout.addWidget(status_group)
         layout.addWidget(progress_group)
         layout.addWidget(control_group)
         layout.addWidget(log_group)
+        layout.addWidget(bottom_group)
         
         # Status bar
         self.statusBar().showMessage("Ready")
