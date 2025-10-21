@@ -171,6 +171,7 @@ class RecordingWorker(QThread):
                 
                 # Reset for next episode
                 self.waiting_for_start = True
+            self.dataset.finalize()
                 
         except Exception as e:
             self.error_occurred.emit(f"Recording error: {str(e)}")

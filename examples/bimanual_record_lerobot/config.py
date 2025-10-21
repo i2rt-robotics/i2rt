@@ -16,13 +16,13 @@ class RecordingConfig:
     num_episodes: int = 100
     task_description: str = "Teleop leader - Followers"
     #hf_repo_id: str = "zetanschy/task1" #TODO: push to hub
-    hf_repo_id: str = "task1" #Task name 
+    hf_repo_id: str = "dev_test" #Task name 
 
     fps: int = 30
     episode_time_sec: int = 200
     reset_time_sec: int = 2
     use_videos: bool = True
-    batch_encoding_size: int = 3
+    batch_encoding_size: int = 1
 
 # ---------------- Followers (observations) ----------------
 @dataclass
@@ -44,10 +44,10 @@ class I2RTFollowerConfig(RobotConfig):
 
     cameras: Dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "teleop_left":  RealSenseCameraConfig(serial_number_or_name="148522073102", **CAMERA_SETTINGS),
-            "teleop_right": RealSenseCameraConfig(serial_number_or_name="151222074096", **CAMERA_SETTINGS),
-            "torso":        RealSenseCameraConfig(serial_number_or_name="148122071428", **CAMERA_SETTINGS),
-            #"torso":        OpenCVCameraConfig(index_or_path='/dev/video0', **CAMERA_SETTINGS),
+            "teleop_left":  RealSenseCameraConfig(serial_number_or_name="151222078659", **CAMERA_SETTINGS),
+            "teleop_right": RealSenseCameraConfig(serial_number_or_name="151222079231", **CAMERA_SETTINGS),
+            #"torso":        RealSenseCameraConfig(serial_number_or_name="148122071428", **CAMERA_SETTINGS),
+            "torso":        OpenCVCameraConfig(index_or_path='/dev/video12', **CAMERA_SETTINGS),
         }
     )
 
