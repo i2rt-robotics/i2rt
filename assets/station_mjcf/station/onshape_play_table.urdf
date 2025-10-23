@@ -1,0 +1,16 @@
+<?xml version="0.0" ?>
+<robot name="onshape">
+	<link name="play_table">
+		<inertial>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+			<mass value="7.73500"/>
+			<inertia ixx="1.08941" ixy="0" ixz="0" iyy="0.22826" iyz="0" izz="1.31754"/>
+		</inertial>
+		<collision>
+			<origin rpy="0.00000 -0.00000 0.00000" xyz="0.60000 0.00000 0.74500"/>
+			<geometry>
+				<box size="0.59500 1.30000 0.01000"/>
+			</geometry>
+		</collision>
+	</link>
+</robot>
