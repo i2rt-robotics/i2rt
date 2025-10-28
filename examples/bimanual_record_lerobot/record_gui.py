@@ -32,7 +32,7 @@ from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import log_say
 from lerobot.utils.visualization_utils import init_rerun
 
-from i2rt import I2RTRobot, PortalLeaderTeleop
+from i2rt_robot import I2RTRobot, PortalLeaderTeleop
 from config import I2RTFollowerConfig, i2rtLeaderConfig, RecordingConfig
 
 def create_events_dict() -> dict:
@@ -426,7 +426,7 @@ class RecordingGUI(QMainWindow):
                 features=dataset_features,
                 robot_type=self.robot.name,
                 use_videos=self.recording_cfg.use_videos,
-                image_writer_threads=4,
+                image_writer_threads=12,
                 batch_encoding_size=self.recording_cfg.batch_encoding_size,
             )
             

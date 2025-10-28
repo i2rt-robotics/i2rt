@@ -17,7 +17,7 @@ from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import log_say
 from lerobot.utils.visualization_utils import init_rerun
 
-from i2rt import I2RTRobot, PortalLeaderTeleop
+from i2rt_robot import I2RTRobot, PortalLeaderTeleop
 from config import I2RTFollowerConfig, i2rtLeaderConfig, RecordingConfig
 
 import os, shutil
