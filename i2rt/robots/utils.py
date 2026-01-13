@@ -17,6 +17,33 @@ YAM_XML_LINEAR_4310_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_4310_li
 YAM_TEACHING_HANDLE_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_teaching_handle.xml")
 YAM_NO_GRIPPER_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_no_gripper.xml")
 
+ARM_YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam.xml")
+ARM_ARX_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arx/arx.xml")
+
+class ArmType(enum.Enum):
+    YAM = "yam"
+    ARX = "arx"
+
+    @classmethod
+    def from_string_name(cls, name: str) -> "ArmType":
+        if name == "yam":
+            return cls.YAM
+        elif name == "arx":
+            return cls.ARX
+        else:
+            raise ValueError(
+                f"Unknown arm type: {name}, arm has to be one of the following: {ArmType.available_arms()}"
+            )
+        
+    def get_xml_path(self) -> str:
+        if self == ArmType.ARX:
+            return ARM_ARX_XML_PATH
+        elif self == ArmType.YAM:
+            return ARM_YAM_XML_PATH
+        else:
+            raise ValueError(f"Unknown arm type: {self}")
+
+
 class GripperType(enum.Enum):
     CRANK_4310 = "crank_4310"  # a 4310 motor with a crank
     LINEAR_3507 = "linear_3507"  # a 3507 motor with a linear actuator
