@@ -89,3 +89,4 @@ i2rt.egg-info/
 
 # Ignore temporary scripts or generated files
 scripts/temp_*/
+i2rt/robot_models/yam/combined_arm_gripper.xml
