@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-from evdev import InputDevice, categorize, ecodes, list_devices
-import math
-import pygame
 import os
+
 import numpy as np
-import threading
+import pygame
+
 
 class Gamepad:
     def __init__(self):
@@ -26,7 +25,7 @@ class Gamepad:
         print(f"Number of Axes: {self.joy.get_numaxes()}")
         print(f"Number of Buttons: {self.joy.get_numbuttons()}")
 
-    def get_button_reading(self):
+    def get_button_reading(self) -> dict[str, int]:
         pygame.event.pump()
         key_mode = self.joy.get_button(12)
         key_left_2 = self.joy.get_button(8)
@@ -37,7 +36,7 @@ class Gamepad:
             key_left_1=key_left_1,
         )
 
-    def get_user_cmd(self):
+    def get_user_cmd(self) -> np.ndarray:
         pygame.event.pump()
         # Read inputs
         x = self.joy.get_axis(1)  # Left stick Y-axis
@@ -49,9 +48,8 @@ class Gamepad:
         user_cmd[np.abs(user_cmd) < 0.05] = 0
         return user_cmd
 
-    def close(self):
+    def close(self) -> None:
         pygame.quit()
-
 
 
 if __name__ == "__main__":

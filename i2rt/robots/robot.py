@@ -110,3 +110,11 @@ class Robot(Protocol):
     def get_robot_type(self) -> RobotType:
         """Get the robot type."""
         return RobotType.ARM
+
+    def reinit(self) -> None:
+        """Reinitialize the robot."""
+        pass
+
+    def close(self) -> None:
+        """Close the robot."""
+        pass

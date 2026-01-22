@@ -1,7 +1,9 @@
-import can
+import logging
 import time
 from typing import List, Optional
-import logging
+
+import can
+
 from i2rt.motor_drivers.utils import ReceiveMode
 
 
@@ -15,6 +17,7 @@ class CanInterface:
         receive_mode: ReceiveMode = ReceiveMode.p16,
         use_buffered_reader: bool = False,
     ):
+        self.channel = channel
         self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
         self.busstate = self.bus.state
         self.name = name

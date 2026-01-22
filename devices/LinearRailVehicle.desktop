@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LinearRailVehicle
+Comment=Run FlowBase with linear rail (9 motors: 8 base + 1 linear rail)
+Exec=lxterminal -e "bash -c '/usr/bin/python3 /home/i2rt/i2rt/i2rt/flow_base/flow_base_controller.py --channel can0; echo; echo \"Process finished. Press Enter to close...\"; read'"
+Icon=../i2rt/flow_base/assets/linear_rail.png
+Terminal=true
+Categories=Utility;

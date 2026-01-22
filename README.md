@@ -114,10 +114,10 @@ python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type $YOUR_GRIP
 Default timeout is enabled for YAM motors. Please refer to [YAM configuration](#yam-configuration) for more details.
 ### Getting started
 ```python
-from i2rt.robots.motor_chain_robot import get_yam_robot
+from i2rt.robots.motor_chain_robot import get_yam_robot, get_big_yam_robot
 
 # Get a robot instance
-robot = get_yam_robot(channel="can0", zero_gravity_mode=True)
+robot = get_yam_robot(channel="can0", zero_gravity_mode=True) # use get_big_yam_robot for big_yam
 
 # Get the current joint positions
 joint_pos = robot.get_joint_pos()

@@ -59,8 +59,10 @@ The exposed RJ45 network interface is preconfigured with static IP `172.6.2.20`.
 </p>
 
 ### Control Layout
+
 - **Left joystick**: Translation (XY movement)
-- **Right joystick**: Rotation
+- **Right joystick X-axis**: Rotation
+- **Right joystick Y-axis**: Linear rail lift (up/down) - only available when linear rail is installed
 - **Left1**: Reset odometry
 - **Mode**: Switch between local and global coordinate modes
 - **Left2**: Override API commands (safety feature)
@@ -116,12 +118,41 @@ python i2rt/flow_base/flow_base_client.py --command reset_odometry --host 172.6.
 python i2rt/flow_base/flow_base_client.py --command test_command --host 172.6.2.20
 ```
 
+**Test Linear Rail** ⚠️ **Linear rail will move**:
+```bash
+python i2rt/flow_base/flow_base_client.py --command test_linear_rail --host 172.6.2.20
+```
+
+**Get Linear Rail State**:
+```bash
+python i2rt/flow_base/flow_base_client.py --command get_linear_rail_state --host 172.6.2.20
+```
+
+### Linear Rail API (if equipped)
+
+If your FlowBase has a linear rail lift module installed, you can control it via API:
+
+**Available Methods:**
+- `get_linear_rail_state()` - Get position, velocity, limit switch states
+- `set_linear_rail_velocity(velocity)` - Set velocity in rad/s
+- `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D)
+
+Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to enable linear rail support.
+
+**Important Notes:**
+- Linear rail automatically homes to lower limit on initialization
+- Linear rail has limit switches that prevent movement beyond safe range
+- Velocity commands timeout after 0.25s of inactivity (safety feature)
+- Brake is automatically managed by the system (released on init, engaged on shutdown)
+- To stop the rail, set velocity to 0.0 instead of controlling brake directly
+
 ### Safety Features
-- API command timeout prevents runaway behavior
+- API command timeout prevents runaway behavior (base: 0.25s, linear rail: 0.25s)
 - FlowBaseClient automatically maintains command heartbeat
-- Base stops automatically when client disconnects
+- Base and linear rail stop automatically when client disconnects
 - Use remote Left2 to override API commands in emergencies
 - Use remote Left1 to clear odometry during testing
+- Linear rail limit switches provide hardware safety stops
 
 ## External Control
 
@@ -137,3 +168,6 @@ To control the base without the built-in Raspberry Pi:
 - **Remote unresponsive**: Toggle remote off and on to wake from sleep
 - **Slow boot**: Screen firmware causes delays, but SSH access is available quickly
 - **Inaccurate odometry**: Expected with wheel-based systems, especially during aggressive movements
+- **Linear rail not homing**: Check GPIO connections and limit switches. Ensure brake is released
+- **Linear rail stuck at limit**: Check limit switch state. Use `get_linear_rail_state()` to verify switch 
+- **Assertion error: failed to communicate with motor 3**: Verify the E-stop is not pressed and the CAN multiplexer switch is in the correct position. For the internal Pi, the switch must be UP; for an external computer, the switch must be DOWN.

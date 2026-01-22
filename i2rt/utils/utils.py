@@ -1,9 +1,13 @@
 import logging
 import time
+from types import TracebackType
+from typing import Optional, Type
 
 
 class RateRecorder:
-    def __init__(self, name: str | None = None, report_interval: float = 10, min_required_frequency: float | None = None):
+    def __init__(
+        self, name: str | None = None, report_interval: float = 10, min_required_frequency: float | None = None
+    ):
         """
         Initialize the rate recorder.
         :param report_interval: Interval in seconds at which the rate should be reported.
@@ -24,7 +28,12 @@ class RateRecorder:
         self.iteration_count = 0
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Optional[TracebackType],
+    ) -> None:
         # Final rate report when exiting context
         if self.last_report_time is not None:
             self._report_rate()
@@ -62,6 +71,7 @@ class RateRecorder:
             # Reset for next interval
             self.last_report_time = current_time
             self.iteration_count = 0
+
 
 def override_log_level(level: int = logging.INFO) -> None:
     logger = logging.getLogger()

@@ -1,7 +1,6 @@
 import enum
 import logging
 import os
-import queue
 import time
 from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple
@@ -16,6 +15,7 @@ YAM_XML_LW_GRIPPER_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_lw_gripp
 YAM_XML_LINEAR_4310_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_4310_linear.xml")
 YAM_TEACHING_HANDLE_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_teaching_handle.xml")
 YAM_NO_GRIPPER_PATH = os.path.join(I2RT_ROOT, "robot_models/yam/yam_no_gripper.xml")
+
 
 class GripperType(enum.Enum):
     CRANK_4310 = "crank_4310"  # a 4310 motor with a crank
@@ -42,6 +42,7 @@ class GripperType(enum.Enum):
             raise ValueError(
                 f"Unknown gripper type: {name}, gripper has to be one of the following: {GripperType.available_grippers()}"
             )
+
     @classmethod
     def available_grippers(cls) -> List[str]:
         return [gripper.value for gripper in GripperType]
@@ -56,11 +57,21 @@ class GripperType(enum.Enum):
 
     def get_gripper_needs_calibration(self) -> bool:
         if self == GripperType.CRANK_4310:
-            return False
+            return True
         elif self in [GripperType.LINEAR_3507, GripperType.LINEAR_4310]:
             return True
         elif self in [GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER]:
             return False
+
+    def get_gripper_default_test_torque(self) -> float:
+        if self == GripperType.CRANK_4310:
+            return 0.4
+        elif self == GripperType.LINEAR_4310:
+            return 0.4
+        elif self == GripperType.LINEAR_3507:
+            return 0.5
+        else:
+            raise NotImplementedError
 
     def get_xml_path(self) -> str:
         if self == GripperType.CRANK_4310:
@@ -244,6 +255,35 @@ def zero_linkage_crank_gripper_force_torque_map(
     return target_torque
 
 
+class LockFreeCircularBuffer:
+    """
+    Lock-free circular buffer.
+    There is a ~microsecond level race condition for this, but we're only using it to tell if the gripper is clogged or not.
+    So 1 stale reading out of 1000 is not a big deal (FOR THAT PARTICULAR USE CASE!!!).
+    """
+
+    def __init__(self, maxsize: int = 1000):
+        self.maxsize = maxsize
+        self.timestamps = np.zeros(maxsize)
+        self.values = np.zeros(maxsize)
+        self.write_idx = 0
+
+    def put(self, timestamp: float, value: float) -> None:
+        """Add a timestamped value to the buffer."""
+        idx = self.write_idx % self.maxsize
+        self.timestamps[idx] = timestamp
+        self.values[idx] = value
+        self.write_idx += 1
+
+    def get_recent_values(self, time_window: float, current_time: Optional[float] = None) -> np.ndarray:
+        """Get values within the specified time window."""
+        if current_time is None:
+            current_time = time.time()
+
+        valid_mask = self.timestamps > (current_time - time_window)
+        return self.values[valid_mask]
+
+
 class GripperForceLimiter:
     def __init__(
         self,
@@ -258,7 +298,7 @@ class GripperForceLimiter:
         self._is_clogged = False
         self._gripper_adjusted_qpos = None
         self._kp = kp
-        self._past_gripper_effort_queue = queue.Queue(maxsize=1000)
+        self._past_gripper_effort_buffer = LockFreeCircularBuffer(maxsize=1000)
         self.average_torque_window = average_torque_window
         self.debug = debug
         (self.clog_force_threshold, self.clog_speed_threshold, self.sign, _gripper_force_torque_map) = (
@@ -271,11 +311,11 @@ class GripperForceLimiter:
 
     def compute_target_gripper_torque(self, gripper_state: Dict[str, float]) -> float:
         current_speed = gripper_state["current_qvel"]
-        history_ts, history_effort = zip(*self._past_gripper_effort_queue.queue, strict=False)
-        history_ts = np.array(history_ts)
-        history_effort = np.array(history_effort)
-        valid_idx = history_ts > time.time() - self.average_torque_window
-        average_effort = np.abs(np.mean(history_effort[valid_idx]))
+        relevant_history_effort = self._past_gripper_effort_buffer.get_recent_values(self.average_torque_window)
+        if len(relevant_history_effort) > 0:
+            average_effort = np.abs(np.mean(relevant_history_effort))
+        else:
+            average_effort = 0.0
 
         if self.debug:
             print(f"average_effort: {average_effort}")
@@ -297,10 +337,8 @@ class GripperForceLimiter:
             return None
 
     def update(self, gripper_state: Dict[str, float]) -> None:
-        if self._past_gripper_effort_queue.full():
-            self._past_gripper_effort_queue.get()
         current_ts = time.time()
-        self._past_gripper_effort_queue.put((current_ts, gripper_state["current_eff"]))
+        self._past_gripper_effort_buffer.put(current_ts, gripper_state["current_eff"])
         target_eff = self.compute_target_gripper_torque(gripper_state)
 
         if target_eff is not None:
@@ -317,7 +355,7 @@ class GripperForceLimiter:
                 print(f"target_gripper_raw_pos: {target_gripper_raw_pos}")
             # Update gripper target position
             a = 0.1
-            if self._gripper_adjusted_qpos is None: #initialize it to the target position
+            if self._gripper_adjusted_qpos is None:  # initialize it to the target position
                 self._gripper_adjusted_qpos = target_gripper_raw_pos
             self._gripper_adjusted_qpos = (1 - a) * self._gripper_adjusted_qpos + a * target_gripper_raw_pos
             return self._gripper_adjusted_qpos
@@ -335,6 +373,7 @@ def detect_gripper_limits(
     max_duration: float = 2.0,
     position_threshold: float = 0.01,
     check_interval: float = 0.1,
+    close_offset: float = 0.05,
 ) -> List[float]:
     """
     Detect gripper limits by applying test torques and monitoring position changes.
@@ -346,6 +385,7 @@ def detect_gripper_limits(
         max_duration: Maximum test duration for each direction (s)
         position_threshold: Minimum position change to consider motor still moving (rad)
         check_interval: Time interval between checks (s)
+        close_offset: Add offset to limit of closing gripper to ensure sufficient torque for grasping (percentage: 0.0-1.0)
 
     Returns:
         List of detected limits [limit1, limit2]
@@ -392,13 +432,16 @@ def detect_gripper_limits(
                     position_stable_count = 0
 
                 # Check if gripper has hit limit (position stable)
-                if position_stable_count >= 3:
+                if position_stable_count >= 6:  # tuned smaller to save time but less stable
                     logger.info(f"Gripper limit detected: pos={current_pos:.4f}")
                     break
 
             last_pos = current_pos
 
         time.sleep(0.3)
+
+    # reset torque to zero, to prevent identifiy clogged
+    motor_chain.set_commands(torques=np.array([0.0 for state in initial_states]))
 
     # Calculate detected limits
     min_pos = min(positions)
@@ -412,5 +455,9 @@ def detect_gripper_limits(
         # Negative direction: [min, max]
         detected_limits = [min_pos, max_pos]
 
+    # joint limit offset, to ensure sufficient torques when gripper closes
+    detected_limits[0] += close_offset * (max_pos - min_pos) * motor_direction
+
     logger.info(f"Motor direction: {motor_direction}, detected limits: {detected_limits}")
+
     return detected_limits

@@ -1,4 +1,3 @@
-import enum
 import logging
 import os
 import struct
@@ -6,11 +5,21 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Protocol, Tuple
-from i2rt.motor_drivers.utils import MotorInfo, MotorConstants, FeedbackFrameInfo, MotorErrorCode, MotorType, uint_to_float, float_to_uint, MotorInfo, ReceiveMode
+
 import can
 import numpy as np
-from i2rt.motor_drivers.can_interface import CanInterface
 
+from i2rt.motor_drivers.can_interface import CanInterface
+from i2rt.motor_drivers.utils import (
+    FeedbackFrameInfo,
+    MotorErrorCode,
+    MotorInfo,
+    MotorType,
+    ReceiveMode,
+    float_to_uint,
+    uint_to_float,
+)
+from i2rt.utils.encoder_manager import EncoderConfig, PassiveJointEncoder
 from i2rt.utils.utils import RateRecorder
 
 log_level = os.getenv("LOGLEVEL", "ERROR").upper()
@@ -59,11 +68,21 @@ class PassiveEncoderInfo:
 
 
 class PassiveEncoderReader:
-    def __init__(self, can_interface: CanInterface, receive_mode: ReceiveMode = ReceiveMode.plus_one):
+    def __init__(
+        self,
+        can_interface: CanInterface,
+        receive_mode: ReceiveMode = ReceiveMode.plus_one,
+        range_rad: float = 0.7,
+        encoder_config: EncoderConfig = None,  # type: ignore
+    ):
+        if encoder_config is None:
+            encoder_config = EncoderConfig(adc_freq=255, report_freq=0, firmware=">=2.2.12")
         self.can_interface = can_interface
         # assert self.can_interface.use_buffered_reader, "Passive encoder reader must use buffered reader"
-
+        self.range_rad = range_rad
         self.receive_mode = receive_mode
+        # check the encoder config, the report frequency must be set to 0 for passive mode
+        result = PassiveJointEncoder.validate_encoders(self.can_interface.channel, encoder_config)
 
     def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
         # this encoder's trigger message is 0x02
@@ -72,18 +91,18 @@ class PassiveEncoderReader:
             encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E), max_retry=15
         )
         pos, vel, button_state = self._parse_encoder_message(message)
-        pos_range = [-0.7, 0.7]
+        pos_range = [-self.range_rad, self.range_rad]
         pos = np.clip(pos, pos_range[0], pos_range[1])
         # normalize pos to 1 - 0
         delta = np.abs(0.0 - pos)
-        pos = delta / 0.7
+        pos = delta / self.range_rad
         result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
         return result
 
     def _parse_encoder_message(self, message: can.Message) -> PassiveEncoderInfo:
         # Standard format
         struct_format = "!B h h B"
-        device_id, position, velocity, digital_inputs = struct.unpack(struct_format, message.data)
+        _device_id, position, velocity, digital_inputs = struct.unpack(struct_format, message.data)
 
         # Convert position and velocity to radians
         position_rad = position * 2 * np.pi / 4096
@@ -94,7 +113,7 @@ class PassiveEncoderReader:
 
 
 class EncoderChain:
-    def __init__(self, encoder_ids: List[int], encoder_interface: CanInterface):
+    def __init__(self, encoder_ids: List[int], encoder_interface: PassiveEncoderReader):
         self.encoder_ids = encoder_ids
         self.encoder_interface = encoder_interface
 
@@ -360,13 +379,13 @@ class DMChainCanInterface(MotorChain):
         get_same_bus_device_driver: Optional[Callable] = None,
         use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
     ):
-        assert not use_buffered_reader, (
-            "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
-        )
+        assert (
+            not use_buffered_reader
+        ), "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
         assert len(motor_list) > 0
-        assert len(motor_list) == len(motor_offset) == len(motor_direction), (
-            f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
-        )
+        assert (
+            len(motor_list) == len(motor_offset) == len(motor_direction)
+        ), f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
@@ -422,7 +441,7 @@ class DMChainCanInterface(MotorChain):
             init_mode = True
 
         for idx, motor_info in enumerate(self.motor_list):
-            motor_id, motor_type = motor_info
+            _, motor_type = motor_info
             const = MotorType.get_motor_constants(motor_type)
             position_min = const.POSITION_MIN
             position_max = const.POSITION_MAX
@@ -474,7 +493,9 @@ class DMChainCanInterface(MotorChain):
     def start_thread(self) -> None:
         # clean error again for motor with timeout enabled
         self._motor_on()
-        thread = threading.Thread(target=self._set_torques_and_update_state)
+        thread = threading.Thread(
+            target=self._set_torques_and_update_state, name=f"DMChainCanInterfaceControlLoop-{self.channel}"
+        )
         thread.start()
         time.sleep(0.1)
         while self.state is None:
@@ -490,6 +511,7 @@ class DMChainCanInterface(MotorChain):
         step_time_exceed_count = 0
         step_time_sum = 0.0
         step_time_count = 0
+        max_step_time = 0.0
         report_start_time = time.time()
         with RateRecorder(name=self) as rate_recorder:
             while self.running:
@@ -504,6 +526,7 @@ class DMChainCanInterface(MotorChain):
                     # Statistics
                     step_time_sum += step_time
                     step_time_count += 1
+                    max_step_time = max(step_time, max_step_time)
                     if step_time > EXPECTED_CONTROL_PERIOD:
                         step_time_exceed_count += 1
 
@@ -511,11 +534,12 @@ class DMChainCanInterface(MotorChain):
                     if step_time_exceed_count > 0 and curr_time - report_start_time >= REPORT_INTERVAL:
                         mean_step_time = step_time_sum / step_time_count if step_time_count > 0 else 0.0
                         logging.info(
-                            f"[{self} {REPORT_INTERVAL}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s"
+                            f"[{self} {REPORT_INTERVAL}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s, max step_time: {max_step_time:.6f} s"
                         )
                         step_time_exceed_count = 0
                         step_time_sum = 0.0
                         step_time_count = 0
+                        max_step_time = 0.0
                         report_start_time = curr_time
 
                     # Update state
@@ -571,6 +595,7 @@ class DMChainCanInterface(MotorChain):
 
     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
         motor_infos = []
+        timestamp = time.time()
         with self.state_lock:
             for idx in range(len(self.motor_list)):
                 state = self.state[idx]
@@ -584,6 +609,7 @@ class DMChainCanInterface(MotorChain):
                         pos=self._joint_position_real_to_sim_idx(self.absolute_positions[idx], idx),
                         temp_rotor=state.temperature_rotor,
                         temp_mos=state.temperature_mos,
+                        timestamp=timestamp,
                     )
                 )
         return motor_infos

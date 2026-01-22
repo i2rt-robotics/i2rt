@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 
-import subprocess
 import os
-import signal
-import time
+import subprocess
 import sys
+import time
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
 
-def check_can_interface(interface):
+
+def check_can_interface(interface: str) -> bool:
     """Check if a CAN interface exists and is available"""
     try:
         # Check if interface exists in network interfaces
-        result = subprocess.run(['ip', 'link', 'show', interface],
-                              capture_output=True, text=True, check=False)
+        result = subprocess.run(["ip", "link", "show", interface], capture_output=True, text=True, check=False)
         if result.returncode != 0:
             return False
 
         # Check if interface is UP
-        if 'state UP' in result.stdout or 'state UNKNOWN' in result.stdout:
+        if "state UP" in result.stdout or "state UNKNOWN" in result.stdout:
             return True
         else:
             print(f"Warning: CAN interface {interface} exists but is not UP")
@@ -28,14 +27,10 @@ def check_can_interface(interface):
         print(f"Error checking CAN interface {interface}: {e}")
         return False
 
-def check_all_can_interfaces():
+
+def check_all_can_interfaces() -> bool:
     """Check if all required CAN interfaces exist"""
-    required_interfaces = [
-        'can_follower_r',
-        'can_leader_r',
-        'can_follower_l',
-        'can_leader_l'
-    ]
+    required_interfaces = ["can_follower_r", "can_leader_r", "can_follower_l", "can_leader_l"]
 
     missing_interfaces = []
 
@@ -49,14 +44,15 @@ def check_all_can_interfaces():
     print("✓ All CAN interfaces are available")
     return True
 
-def launch_gello_process(can_channel, gripper, mode=None, server_port=None):
+
+def launch_gello_process(
+    can_channel: str, gripper: str, mode: str | None = None, server_port: int | None = None
+) -> "subprocess.Popen[bytes] | None":
     """Launch a single gello process with given parameters"""
     python_path = "python"
     script_path = os.path.join(current_file_path, "..", "..", "scripts", "minimum_gello.py")
 
-    cmd = [python_path, os.path.expanduser(script_path),
-           "--can_channel", can_channel,
-           "--gripper", gripper]
+    cmd = [python_path, os.path.expanduser(script_path), "--can_channel", can_channel, "--gripper", gripper]
 
     if mode:
         cmd.extend(["--mode", mode])
@@ -73,7 +69,8 @@ def launch_gello_process(can_channel, gripper, mode=None, server_port=None):
         print(f"Error starting process for {can_channel}: {e}")
         return None
 
-def main():
+
+def main() -> None:
     processes = []
 
     try:
@@ -83,28 +80,10 @@ def main():
 
         # Define the processes to launch
         process_configs = [
-            {
-                'can_channel': 'can_follower_r',
-                'gripper': 'linear_4310',
-                'server_port': 1234
-            },
-            {
-                'can_channel': 'can_leader_r',
-                'gripper': 'yam_teaching_handle',
-                'mode': 'leader',
-                'server_port': 1234
-            },
-            {
-                'can_channel': 'can_follower_l',
-                'gripper': 'linear_4310',
-                'server_port': 1235
-            },
-            {
-                'can_channel': 'can_leader_l',
-                'gripper': 'yam_teaching_handle',
-                'mode': 'leader',
-                'server_port': 1235
-            }
+            {"can_channel": "can_follower_r", "gripper": "linear_4310", "server_port": 1234},
+            {"can_channel": "can_leader_r", "gripper": "yam_teaching_handle", "mode": "leader", "server_port": 1234},
+            {"can_channel": "can_follower_l", "gripper": "linear_4310", "server_port": 1235},
+            {"can_channel": "can_leader_l", "gripper": "yam_teaching_handle", "mode": "leader", "server_port": 1235},
         ]
 
         # Launch all processes
@@ -162,6 +141,7 @@ def main():
                 print(f"Error terminating process {process.pid}: {e}")
 
         print("All processes terminated")
+
 
 if __name__ == "__main__":
     main()
