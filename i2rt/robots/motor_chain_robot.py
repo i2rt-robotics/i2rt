@@ -4,16 +4,17 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 from i2rt.motor_drivers.dm_driver import (
     MotorChain,
     MotorInfo,
+    PassiveEncoderInfo,
 )
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import GripperForceLimiter, GripperType, JointMapper
+from i2rt.robots.utils import GripperForceLimiter, GripperType, JointMapper, detect_gripper_limits
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 
 
@@ -25,6 +26,7 @@ class JointStates:
     eff: np.ndarray
     temp_mos: np.ndarray  # MOS temperature (float): Motor MOS temperature.
     temp_rotor: np.ndarray  # ROTOR temperature (float): Motor ROTOR temperature.
+    timestamp: float
 
     def asdict(self) -> Dict[str, Any]:
         return {
@@ -76,29 +78,35 @@ class MotorChainRobot(Robot):
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
         gripper_type: GripperType = GripperType.CRANK_4310,
         temp_record_flag: bool = False,  # whether record the motor's temperature
-        enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
-        zero_gravity_mode:bool = True,
+        zero_gravity_mode: bool = True,
         # below are calibration parameters
-        test_torque: float = 0.5,  # test torque for gripper detection (Nm)
         test_duration: float = 2.0,  # max test duration for each direction (s)
         position_threshold: float = 0.01,  # minimum position change to consider motor still moving (rad)
         check_interval: float = 0.05,  # time interval between checks (s)
+        pinned_cpu: int | None = None,
+        joint_state_saver_factory: Optional[Callable[[str], Any]] = None,
+        set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     ) -> None:
+        self.logger = logging.getLogger(__name__)
+        # Set up CPU pinning and real-time scheduling if requested
+        if pinned_cpu is not None and set_realtime_and_pin_callback is not None:
+            set_realtime_and_pin_callback(pinned_cpu)
+
+        # Store callback functions
+        self._joint_state_saver_factory = joint_state_saver_factory
+        self._set_realtime_and_pin_callback = set_realtime_and_pin_callback
+
         self.temp_record_flag = temp_record_flag
         if gripper_index is not None:
-            assert gripper_index == len(motor_chain) - 1, (
-                "Gripper index should be the last one, but got {gripper_index}"
-            )
+            assert (
+                gripper_index == len(motor_chain) - 1
+            ), "Gripper index should be the last one, but got {gripper_index}"
+            self.logger.info(f"initializing motorchain robot, gripper_limits: {gripper_limits}")
+            # Auto-detect gripper limits
+            if gripper_limits is None and gripper_type.get_gripper_needs_calibration():
+                test_torque = gripper_type.get_gripper_default_test_torque()  # use default test torque
 
-            # Auto-detect gripper limits if enabled and gripper_limits is None
-            print(
-                f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
-            )
-            if gripper_limits is None and enable_gripper_calibration:
-                from i2rt.robots.utils import detect_gripper_limits
-
-                logger = logging.getLogger(__name__)
-                logger.info("Auto-detecting gripper limits...")
+                self.logger.info("Auto-detecting gripper limits...")
                 detected_limits = detect_gripper_limits(
                     motor_chain=motor_chain,
                     gripper_index=gripper_index,
@@ -108,18 +116,22 @@ class MotorChainRobot(Robot):
                     check_interval=check_interval,
                 )
                 gripper_limits = np.array(detected_limits)
-                logger.info(f"Gripper limits auto-detected: {gripper_limits}")
+                self.logger.info(f"Gripper limits auto-detected: {gripper_limits}")
+
             elif gripper_limits is None:
                 raise ValueError(
                     f"{self}: Gripper limits are required if gripper index is provided and auto-calibration is disabled."
                 )
             else:
                 # Use the provided gripper_limits
-                logger = logging.getLogger(__name__)
-                logger.info(f"Using provided gripper limits: {gripper_limits}")
+                self.logger.info(f"Using provided gripper limits: {gripper_limits}")
 
-
-        self._last_gripper_command_qpos = 1 # initialize as fully open
+        # Initialize joint state saver if factory is provided
+        if self._joint_state_saver_factory is not None:
+            self._joint_state_saver = self._joint_state_saver_factory()
+        else:
+            self._joint_state_saver = None
+        self._last_gripper_command_qpos = None
         assert clip_motor_torque >= 0.0
         self._clip_motor_torque = clip_motor_torque
         self.motor_chain = motor_chain
@@ -130,6 +142,7 @@ class MotorChainRobot(Robot):
         self._gripper_index = gripper_index
         self.remapper = JointMapper({}, len(motor_chain))  # so it works without gripper
         self._gripper_limits = gripper_limits
+        self._limit_gripper_force = limit_gripper_force
 
         if self._gripper_index is not None:
             self._gripper_force_limiter = GripperForceLimiter(
@@ -164,7 +177,7 @@ class MotorChainRobot(Robot):
             else np.array(kd)
         )
 
-        self._joint_limits:Optional[np.ndarray] = None
+        self._joint_limits: Optional[np.ndarray] = None
         if xml_path is not None:
             self.xml_path = os.path.expanduser(xml_path)
             self.kdl = MuJoCoKDL(self.xml_path)
@@ -178,9 +191,9 @@ class MotorChainRobot(Robot):
         # override the xml joint limits with the provided joint_limits
         if joint_limits is not None:
             joint_limits = np.array(joint_limits)
-            assert np.all(joint_limits[:, 0] < joint_limits[:, 1]), (
-                "Lower joint limits must be smaller than upper limits"
-            )
+            assert np.all(
+                joint_limits[:, 0] < joint_limits[:, 1]
+            ), "Lower joint limits must be smaller than upper limits"
             self._joint_limits = joint_limits
         self._command_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -200,6 +213,7 @@ class MotorChainRobot(Robot):
         if not zero_gravity_mode:
             # set current qpos as target pos with the default PD parameters
             self.command_joint_pos(self._joint_state.pos)
+
     def __repr__(self) -> str:
         return f"MotorChainRobot(motor_chain={self.motor_chain})"
 
@@ -208,14 +222,16 @@ class MotorChainRobot(Robot):
         If violated, raise an error.
         """
         if self._joint_state is None or self._joint_limits is None:
-            raise RuntimeError(f"{self}: Joint limits:{self._joint_limits} or joint state:{self._joint_state} are not set.")
+            raise RuntimeError(
+                f"{self}: Joint limits:{self._joint_limits} or joint state:{self._joint_state} are not set."
+            )
 
         current_pos = self._joint_state.pos
 
         # Check arm joints (exclude gripper if present)
         if self._gripper_index is not None:
             # Only check arm joints, not the gripper
-            arm_pos = current_pos[:self._gripper_index]
+            arm_pos = current_pos[: self._gripper_index]
             arm_limits = self._joint_limits
         else:
             # Check all joints
@@ -226,7 +242,6 @@ class MotorChainRobot(Robot):
         lower_limits = arm_limits[:, 0] - buffer_rad
         upper_limits = arm_limits[:, 1] + buffer_rad
 
-
         # Find joints that violate lower limits
         lower_violations = arm_pos < lower_limits
         # Find joints that violate upper limits
@@ -235,7 +250,7 @@ class MotorChainRobot(Robot):
         if np.any(lower_violations) or np.any(upper_violations):
             violation_details = []
 
-            for i, (pos, lower, upper) in enumerate(zip(arm_pos, lower_limits, upper_limits)):
+            for i, (pos, lower, upper) in enumerate(zip(arm_pos, lower_limits, upper_limits, strict=False)):
                 if pos < lower:
                     violation_details.append(f"Joint {i}: {pos:.4f} < {lower:.4f} (lower limit)")
                 elif pos > upper:
@@ -244,7 +259,9 @@ class MotorChainRobot(Robot):
             violation_msg = "; ".join(violation_details)
             # turn off the main motor control thread as well.
             self.motor_chain.running = False
-            raise RuntimeError(f"{self}: Joint limit violation detected: {violation_msg}, the root reason should be zero position offset. possible solution: 1. move the arm to zero position and power cycle the robot. 2. Recalibrate the motor zero position.")
+            raise RuntimeError(
+                f"{self}: Joint limit violation detected: {violation_msg}, the root reason should be zero position offset. possible solution: 1. move the arm to zero position and power cycle the robot. 2. Recalibrate the motor zero position."
+            )
 
     def get_robot_info(self) -> Dict[str, Any]:
         """Get the robot information, such as kp, kd, joint limits, gripper limits, etc."""
@@ -273,7 +290,7 @@ class MotorChainRobot(Robot):
             self.update()
             if not self.motor_chain.running:
                 raise RuntimeError(f"{self}: motor_chain_robot's motor chain is not running, exiting the robot server")
-            time.sleep(0.004)
+            time.sleep(0.003)
 
             iteration_count += 1
             if elapsed_time >= 10.0:
@@ -336,18 +353,94 @@ class MotorChainRobot(Robot):
                 )
                 self.motor_chain.start_thread()
                 self.motor_chain.start_thread_flag = True
-            # Send commands to motor chain and update joint state
-            motor_state = self.motor_chain.set_commands(
-                motor_torques,
-                pos=joint_commands.pos,
-                vel=joint_commands.vel,
-                kp=joint_commands.kp,
-                kd=joint_commands.kd,
-            )
-            self._joint_state = self._motor_state_to_joint_state(motor_state)
+            self._update_joint_state(motor_torques, joint_commands)
             # For SWE-454, check if the current qpos is in the joint limits
             # When the arm is fully extened and got a power cycle, the initial qpos might still with the range, then we need to keep monitoring the qpos during the robot running.
             self._check_current_qpos_in_joint_limits()
+
+    def _update_joint_state(
+        self,
+        motor_torques: np.ndarray,
+        joint_commands: JointCommands,
+        encoder_infos: Optional[List[PassiveEncoderInfo]] = None,
+    ) -> None:
+        # Send commands to motor chain and update joint state
+        if (
+            hasattr(self.motor_chain, "get_same_bus_device_states")
+            and callable(self.motor_chain.get_same_bus_device_states)
+            and self.motor_chain.same_bus_device_driver is not None
+        ):
+            has_gripper_encoder = True
+            encoder_infos: list[PassiveEncoderInfo] = self.motor_chain.get_same_bus_device_states()
+            # add strict hardcode check
+            assert len(encoder_infos) == 1, "Only one encoder is supported"
+            assert isinstance(encoder_infos[0], PassiveEncoderInfo), "Encoder info must be a PassiveEncoderInfo"
+        else:
+            has_gripper_encoder = False
+
+        motor_state = self.motor_chain.set_commands(
+            motor_torques,
+            pos=joint_commands.pos,
+            vel=joint_commands.vel,
+            kp=joint_commands.kp,
+            kd=joint_commands.kd,
+        )
+        self._joint_state = self._motor_state_to_joint_state(motor_state)
+        if self._joint_state_saver is not None:
+            ee_pos = None
+            ee_vel = None
+            ee_eff = None
+            # has_gripper_encoder=True and self._gripper_index can not exist at the same time
+            assert not (
+                has_gripper_encoder and self._gripper_index is not None
+            ), "Either has_gripper_encoder=True or self._gripper_index is not None"
+            if has_gripper_encoder:
+                ee_pos = np.array([info.position for info in encoder_infos])
+                ee_vel = np.array([info.velocity for info in encoder_infos])
+            elif self._gripper_index is not None:
+                ee_pos = self._joint_state.pos[self._gripper_index]
+                ee_vel = self._joint_state.vel[self._gripper_index]
+                ee_eff = self._joint_state.eff[self._gripper_index]
+            else:
+                logging.info(f"{self}: No gripper encoder or gripper index is set, will not record gripper state")
+
+            # Store the joint state in the data store
+            if self._gripper_index is None:
+                pos = self._joint_state.pos
+                vel = self._joint_state.vel
+                eff = self._joint_state.eff
+            else:
+                assert len(self._joint_state.pos) == self._gripper_index + 1, "Gripper index is not the last joint"
+                pos = self._joint_state.pos[: self._gripper_index]
+                vel = self._joint_state.vel[: self._gripper_index]
+                eff = self._joint_state.eff[: self._gripper_index]
+
+            self._joint_state_saver.add(
+                timestamp=self._joint_state.timestamp,
+                pos=pos,
+                vel=vel,
+                eff=eff,
+                ee_pos=ee_pos,
+                ee_vel=ee_vel,
+                ee_eff=ee_eff,
+            )
+
+    # async recording
+    def start_recording(self, save_dir: str) -> bool:
+        """Start recording data asynchronously."""
+        if self._joint_state_saver is None:
+            raise RuntimeError("Joint state saver factory not provided, recording not available")
+        self._joint_state_saver.start_recording(save_dir)
+        return True
+
+    def stop_recording(self, prefix: str = "") -> Tuple[bool, str]:
+        """Stop recording data asynchronously."""
+        if self._joint_state_saver is None:
+            raise RuntimeError("Joint state saver not available")
+        succ = self._joint_state_saver.stop_recording(prefix)
+        if succ:
+            return succ, "Recording stopped successfully"
+        return succ, "Recording failed to stop"
 
     def _motor_state_to_joint_state(self, motor_state: List[MotorInfo]) -> JointStates:
         """Convert motor state to joint state.
@@ -366,6 +459,7 @@ class MotorChainRobot(Robot):
         eff = np.array([motor.eff for motor in motor_state])
         temp_mos = np.array([motor.temp_mos for motor in motor_state])
         temp_rotor = np.array([motor.temp_rotor for motor in motor_state])
+        timestamp = motor_state[0].timestamp
         return JointStates(
             names=names,
             pos=pos,
@@ -373,6 +467,7 @@ class MotorChainRobot(Robot):
             eff=eff,
             temp_mos=temp_mos,
             temp_rotor=temp_rotor,
+            timestamp=timestamp,
         )
 
     def _compute_gravity_compensation(self, joint_state: Optional[Dict[str, np.ndarray]]) -> np.ndarray:
@@ -382,8 +477,8 @@ class MotorChainRobot(Robot):
             q = joint_state.pos[: self._gripper_index] if self._gripper_index is not None else joint_state.pos
             t = self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
             # print gravity torque to 2f
-            if np.max(np.abs(t)) > 20.0:
-                print([f"{s:.2f}" for s in t])
+            if np.max(np.abs(t)) > 25.0:  # TODO: support maximum torque for different motor type
+                self.logger.error([f"{s:.2f}" for s in t])
                 raise RuntimeError(f"{self}: too large torques")
             if self._gripper_index is None:
                 return self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
@@ -486,9 +581,11 @@ class MotorChainRobot(Robot):
             else:
                 result = {
                     "joint_pos": self._joint_state.pos[: self._gripper_index],
+                    "joint_vel": self._joint_state.vel[: self._gripper_index],
+                    "joint_eff": self._joint_state.eff[: self._gripper_index],
                     "gripper_pos": np.array([self._joint_state.pos[self._gripper_index]]),
-                    "joint_vel": self._joint_state.vel,
-                    "joint_eff": self._joint_state.eff,
+                    "gripper_vel": np.array([self._joint_state.vel[self._gripper_index]]),
+                    "gripper_eff": np.array([self._joint_state.eff[self._gripper_index]]),
                 }
             if self.temp_record_flag:
                 result["temp_mos"] = self._joint_state.temp_mos
@@ -551,9 +648,9 @@ if __name__ == "__main__":
             # print(robot.get_observations())
             time.sleep(1)
     elif args.operation_mode == "test_gripper":
-        assert gripper_type != GripperType.YAM_TEACHING_HANDLE, (
-            "test_gripper is not supported for YAM_TEACHING_HANDLE, teaching handle is a passive device"
-        )
+        assert (
+            gripper_type != GripperType.YAM_TEACHING_HANDLE
+        ), "test_gripper is not supported for YAM_TEACHING_HANDLE, teaching handle is a passive device"
         for _ in range(30):
             for gripper_pos in [0.8, 0.0]:
                 print(f"gripper_pos: {gripper_pos}")

@@ -1,16 +1,52 @@
+import logging
 import struct
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import IntEnum
-from typing import Literal
+from typing import Any, Dict, Literal, Union
 
 import can
 import click
 from can import BusABC, Message
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
+from pydantic import BaseModel, Field, field_validator
 
 ALL_DEVICE = 0xFF
 """All devices for broadcasting requests."""
+
+
+class EncoderConfig(BaseModel):
+    """Configuration for encoder settings."""
+
+    adc_freq: int = Field(..., ge=0, le=65535)
+    report_freq: int = Field(..., ge=0, le=65535)
+    firmware: str = Field(...)
+
+    @field_validator("firmware")
+    @classmethod
+    def validate_firmware_specifier(cls, v: str) -> str:
+        """Validate firmware version specifier."""
+        SpecifierSet(v)  # Will raise exception if invalid
+        return v
+
+
+def parse_firmware_version(firmware_input: str) -> Version:
+    """Parse firmware version string using packaging.version.Version."""
+    if not firmware_input or not firmware_input.strip():
+        raise ValueError("Firmware input is empty")
+
+    cleaned_input = SpecifierSet(firmware_input.strip())
+
+    return Version(str(next(iter(cleaned_input)).version))
+
+
+def check_firmware_version(actual_version: Union[str, Version], expected_specifier: str) -> bool:
+    """Check if firmware version matches the expected version specifier."""
+    actual = Version(actual_version) if isinstance(actual_version, str) else actual_version
+    spec_set = SpecifierSet(expected_specifier)
+    return actual in spec_set
 
 
 class EEPROMField(IntEnum):
@@ -59,7 +95,7 @@ class EncoderCanID(IntEnum):
     """The CAN ID for reporting the encoder event, e.g. button press."""
 
 
-class Encoder:
+class PassiveJointEncoder:
     """The encoder driver."""
 
     REQ_ZPOS = 0x00
@@ -103,27 +139,47 @@ class Encoder:
 
     def set_report_frequency(self, frequency: int, device: int = ALL_DEVICE) -> None:
         """Set the report frequency, 0 for passive mode."""
-        assert 0 <= frequency <= 255, "Report frequency must be between 0 and 255"
+        assert 0 <= frequency <= 600, "Report frequency value must be between 0 and 600"
+        # report frequency must be less than 600 due to the hardware limitation
         assert 0 <= device <= 255, "Device must be between 0 and 255"
-        message = Message(
-            arbitration_id=EncoderCanID.REQ,
-            data=[device, self.REQ_FREQ, frequency],
-            is_extended_id=False,
-        )
+        if frequency <= 255:
+            message = Message(
+                arbitration_id=EncoderCanID.REQ,
+                data=[device, self.REQ_FREQ, frequency],
+                is_extended_id=False,
+            )
+        else:
+            high_byte = (frequency >> 8) & 0xFF
+            low_byte = frequency & 0xFF
+            message = Message(
+                arbitration_id=EncoderCanID.REQ,
+                data=[device, self.REQ_FREQ, high_byte, low_byte],
+                is_extended_id=False,
+            )
         self.bus.send(message)
 
     def set_adc_frequency(self, frequency: int, device: int = ALL_DEVICE) -> None:
         """Set the ADC sampling frequency."""
-        assert 0 <= frequency <= 255, "ADC frequency must be between 0 and 255"
+        assert 0 <= frequency <= 601, "ADC frequency value must be between 0 and 601"
+        # adc frequency must be less than 601 due to the hardware limitation
         assert 0 <= device <= 255, "Device must be between 0 and 255"
-        message = Message(
-            arbitration_id=EncoderCanID.REQ,
-            data=[device, self.REQ_ADC_FREQ, frequency],
-            is_extended_id=False,
-        )
+        if frequency <= 255:
+            message = Message(
+                arbitration_id=EncoderCanID.REQ,
+                data=[device, self.REQ_ADC_FREQ, frequency],
+                is_extended_id=False,
+            )
+        else:
+            high_byte = (frequency >> 8) & 0xFF
+            low_byte = frequency & 0xFF
+            message = Message(
+                arbitration_id=EncoderCanID.REQ,
+                data=[device, self.REQ_ADC_FREQ, high_byte, low_byte],
+                is_extended_id=False,
+            )
         self.bus.send(message)
 
-    def get_encoder_report(self, device: int = ALL_DEVICE, timeout: float | None = None) -> EncoderReport | None:
+    def get_encoder_report(self, device: int = ALL_DEVICE, timeout: float | None = None) -> list[EncoderReport]:
         """Get the encoder report."""
         assert 0 <= device <= 255, "Device must be between 0 and 255"
         message = Message(
@@ -139,33 +195,46 @@ class Encoder:
         message_id: Literal[EncoderCanID.REPORT, EncoderCanID.EVENT],
         device: int = ALL_DEVICE,
         timeout: float | None = None,
-    ) -> EncoderReport | None:
+    ) -> list[EncoderReport]:
         """Wait for a report."""
         assert 0 <= device <= 255, "Device must be between 0 and 255"
         start_time = time.time()
+        reports = []
         while True:
-            message = self.bus.recv(timeout=timeout)
+            # Adjust timeout for recv based on elapsed time
+            remaining_timeout = None
+            if timeout is not None:
+                elapsed_time = time.time() - start_time
+                if elapsed_time >= timeout:
+                    break
+                remaining_timeout = timeout - elapsed_time
+
+            message = self.bus.recv(timeout=remaining_timeout)
             if message and message.arbitration_id == message_id:
                 assert len(message.data) == 6, "Report must be 6 bytes"
                 from_device = message.data[0]
-                if device not in (ALL_DEVICE, from_device):
+                if device not in (from_device, ALL_DEVICE):
                     continue
                 position = struct.unpack(">h", message.data[1:3])[0]
                 velocity = struct.unpack(">h", message.data[3:5])[0]
                 inputs = message.data[5]
-                return EncoderReport(from_device, position, velocity, inputs)
-            if message is None or (timeout is not None and time.time() - start_time > timeout):
-                return None
+                reports.append(EncoderReport(from_device, position, velocity, inputs))
+                if device != ALL_DEVICE:
+                    break  # Got the specific device report
+            elif message is None:
+                # This means bus.recv timed out
+                break
+        return reports
 
-    def wait_for_event(self, device: int = ALL_DEVICE, timeout: float | None = None) -> EncoderReport | None:
+    def wait_for_event(self, device: int = ALL_DEVICE, timeout: float | None = None) -> list[EncoderReport]:
         """Wait for an event."""
         return self.wait_for(EncoderCanID.EVENT, device, timeout)
 
-    def wait_for_report(self, device: int = ALL_DEVICE, timeout: float | None = None) -> EncoderReport | None:
+    def wait_for_report(self, device: int = ALL_DEVICE, timeout: float | None = None) -> list[EncoderReport]:
         """Wait for a report."""
         return self.wait_for(EncoderCanID.REPORT, device, timeout)
 
-    def get_version(self, device: int = ALL_DEVICE, timeout: float | None = None) -> VersionReply | None:
+    def get_version(self, device: int = ALL_DEVICE, timeout: float | None = None) -> list[VersionReply]:
         """Get the version."""
         assert 0 <= device <= 255, "Device must be between 0 and 255"
         req = Message(
@@ -175,25 +244,45 @@ class Encoder:
         )
         self.bus.send(req)
         start_time = time.time()
+        versions = []
         while True:
-            message = self.bus.recv(timeout=timeout)
+            remaining_timeout = None
+            if timeout is not None:
+                elapsed_time = time.time() - start_time
+                if elapsed_time >= timeout:
+                    break
+                remaining_timeout = timeout - elapsed_time
+
+            message = self.bus.recv(timeout=remaining_timeout)
             if message and message.arbitration_id == EncoderCanID.REQ:
                 if len(message.data) != 5:
                     continue
                 from_device = message.data[0]
-                if device not in (ALL_DEVICE, from_device):
+
+                # If we are looking for a specific device, and the message is from another device, skip it.
+                if device not in (from_device, ALL_DEVICE):
                     continue
+
                 cmd = message.data[1]
                 if cmd != (self.REQ_VERSION | (1 << 7)):
                     continue
-                return VersionReply(
-                    device=from_device,
-                    major=message.data[2],
-                    minor=message.data[3],
-                    patch=message.data[4],
+
+                versions.append(
+                    VersionReply(
+                        device=from_device,
+                        major=message.data[2],
+                        minor=message.data[3],
+                        patch=message.data[4],
+                    )
                 )
-            if timeout is not None and time.time() - start_time > timeout:
-                return None
+
+                # If we are looking for a specific device, we can stop now.
+                if device != ALL_DEVICE:
+                    break
+
+            if message is None:
+                break
+        return versions
 
     def toggle_digital_io_event_report(self, device: int = ALL_DEVICE, io_mask: int = 0) -> None:
         """Toggle the digital IO event report."""
@@ -228,7 +317,7 @@ class Encoder:
                 if len(message.data) != 5:
                     continue
                 from_device = message.data[0]
-                if device not in (ALL_DEVICE, from_device):
+                if device not in (from_device, ALL_DEVICE):
                     continue
                 cmd = message.data[1]
                 if cmd != (self.REQ_READINGS | (1 << 7)):
@@ -239,10 +328,12 @@ class Encoder:
             if timeout is not None and time.time() - start_time > timeout:
                 return None
 
-    def read_eeprom_field(self, offset: int, device: int = ALL_DEVICE, timeout: float | None = None) -> int | None:
+    def read_eeprom_field(
+        self, offset: int, device: int = ALL_DEVICE, timeout: float | None = None
+    ) -> dict[int, int] | int | None:
         """Read EEPROM by offset address. Returns byte value or None."""
         assert 0 <= device <= 255, "Device must be between 0 and 255"
-        assert 0 <= offset < 27, "Offset must be 0-26"
+        assert 0 <= offset < 29, "Offset must be 0-28"
 
         req = Message(
             arbitration_id=EncoderCanID.REQ,
@@ -253,21 +344,71 @@ class Encoder:
 
         # Wait for response using existing readings format
         start_time = time.time()
+        results = {}
         while True:
-            message = self.bus.recv(timeout=timeout)
+            remaining_timeout = None
+            if timeout is not None:
+                elapsed_time = time.time() - start_time
+                if elapsed_time >= timeout:
+                    break
+                remaining_timeout = timeout - elapsed_time
+
+            message = self.bus.recv(timeout=remaining_timeout)
             if message and message.arbitration_id == EncoderCanID.REQ:
                 if len(message.data) != 5:
                     continue
                 from_device = message.data[0]
-                if device not in (ALL_DEVICE, from_device):
+                if device not in (from_device, ALL_DEVICE):
                     continue
                 cmd = message.data[1]
                 if cmd != (self.REQ_READINGS | (1 << 7)):  # Response uses READINGS format
                     continue
-                value = struct.unpack(">h", message.data[2:4])[0]
-                return value & 0xFF  # Return as byte
-            if timeout is not None and time.time() - start_time > timeout:
-                return None
+                value = struct.unpack(">h", message.data[2:4])[0] & 0xFF
+                if device == ALL_DEVICE:
+                    results[from_device] = value
+                else:
+                    return value
+
+            if message is None:
+                break
+
+        if device == ALL_DEVICE:
+            return results
+        return None
+
+    def read_adc_frequency(self, device: int = ALL_DEVICE, timeout: float | None = None) -> int | None:
+        """Read adc frequency from EEPROM"""
+        assert 0 <= device <= 255, "Device must be between 0 and 255"
+
+        high_byte = self.read_eeprom_field(27, device, timeout)
+        low_byte = self.read_eeprom_field(8, device, timeout)
+
+        if not isinstance(high_byte, int) or not isinstance(low_byte, int):
+            return None
+
+        # If high byte is 0xFF (uninitialized), only read low byte as 8-bit value
+        if high_byte == 0xFF:
+            return low_byte  # Return 8-bit value from low byte
+
+        # Return full 16-bit value
+        return (high_byte << 8) | low_byte
+
+    def read_report_frequency(self, device: int = ALL_DEVICE, timeout: float | None = None) -> int | None:
+        """Read report frequency from EEPROM"""
+        assert 0 <= device <= 255, "Device must be between 0 and 255"
+
+        high_byte = self.read_eeprom_field(28, device, timeout)
+        low_byte = self.read_eeprom_field(25, device, timeout)
+
+        if not isinstance(high_byte, int) or not isinstance(low_byte, int):
+            return None
+
+        # If high byte is 0xFF (uninitialized), only read low byte as 8-bit value
+        if high_byte == 0xFF:
+            return low_byte  # Return 8-bit value from low byte
+
+        # Return full 16-bit value
+        return (high_byte << 8) | low_byte
 
     def restart(self, device: int = ALL_DEVICE) -> None:
         """Restart encoder."""
@@ -279,6 +420,59 @@ class Encoder:
         )
         self.bus.send(req)
 
+    @staticmethod
+    def validate_encoders(channel: str, expected_config: EncoderConfig) -> Dict[int, Dict[str, Any]]:
+        """Validate encoder configuration on a CAN channel."""
+        logging.info(f"Validating encoders on {channel}")
+
+        bus = can.interface.Bus(interface="socketcan", channel=channel, bitrate=1000000)
+        encoder = PassiveJointEncoder(bus)
+
+        try:
+            firmware_versions = encoder.get_version(timeout=1.0)
+            logging.info(f"PassiveJointEncoder({channel}) firmware versions: {firmware_versions}")
+            if not firmware_versions:
+                raise RuntimeError(f"No encoders found on {channel}")
+
+            logging.info(f"Found {len(firmware_versions)} encoders: {[f.device for f in firmware_versions]}")
+
+            all_data = {}
+            errors = []
+
+            for firmware_info in firmware_versions:
+                device_id = firmware_info.device
+                # Read encoder data
+                all_data[device_id] = {
+                    "version": asdict(firmware_info),
+                    "adc_freq": encoder.read_adc_frequency(device=device_id, timeout=0.5),
+                    "report_freq": encoder.read_report_frequency(device=device_id, timeout=0.5),
+                }
+
+                # Validate firmware version
+                actual_version = f"{firmware_info.major}.{firmware_info.minor}.{firmware_info.patch}"
+                if not check_firmware_version(actual_version, expected_config.firmware):
+                    expected_version = parse_firmware_version(expected_config.firmware)
+                    errors.append(f"Encoder {device_id}: Firmware {actual_version} != {expected_version}")
+
+            # Auto-fix frequencies if any encoder needs it (check once after reading all data)
+            if any(all_data[device_id]["adc_freq"] != expected_config.adc_freq for device_id in all_data):
+                logging.info(f"Auto-fixing ADC frequency to {expected_config.adc_freq}")
+                encoder.set_adc_frequency(expected_config.adc_freq)
+                time.sleep(0.1)  # Give some time for the setting to take effect
+
+            if any(all_data[device_id]["report_freq"] != expected_config.report_freq for device_id in all_data):
+                logging.info(f"Auto-fixing report frequency to {expected_config.report_freq}")
+                encoder.set_report_frequency(expected_config.report_freq)
+
+            if errors:
+                raise RuntimeError(f"Encoder validation failed for {channel}:\n" + "\n".join(errors))
+
+            logging.info(f"All encoders on {channel} validated ?")
+            return all_data
+
+        finally:
+            bus.shutdown()
+
 
 @click.group()
 @click.option("--bus", type=str, default="can0", show_default=True)
@@ -287,7 +481,7 @@ class Encoder:
 @click.pass_context
 def cli(ctx: click.Context, bus: str, device: int, bitrate: int) -> None:
     can_bus = can.interface.Bus(interface="socketcan", channel=bus, bitrate=bitrate)
-    encoder = Encoder(can_bus)
+    encoder = PassiveJointEncoder(can_bus)
     ctx.ensure_object(dict)
     ctx.obj["encoder"] = encoder
     ctx.obj["device"] = device
@@ -297,7 +491,7 @@ def cli(ctx: click.Context, bus: str, device: int, bitrate: int) -> None:
 @cli.command()
 @click.pass_context
 def reset_zero_position(ctx: click.Context) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     encoder.reset_zero_position(device)
 
@@ -306,7 +500,7 @@ def reset_zero_position(ctx: click.Context) -> None:
 @click.pass_context
 @click.argument("frequency", type=int, default=0)
 def set_report_frequency(ctx: click.Context, frequency: int) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     encoder.set_report_frequency(frequency, device)
 
@@ -315,55 +509,58 @@ def set_report_frequency(ctx: click.Context, frequency: int) -> None:
 @click.pass_context
 @click.argument("frequency", type=int)
 def set_adc_frequency(ctx: click.Context, frequency: int) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     encoder.set_adc_frequency(frequency, device)
 
 
 @cli.command()
-@click.option("--timeout", type=float, default=None, show_default=True)
+@click.option("--timeout", type=float, default=1.0, show_default=True)
 @click.pass_context
 def get_report(ctx: click.Context, timeout: float | None = None) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
-    report: EncoderReport | None = encoder.get_encoder_report(device, timeout)
-    if report is None:
+    reports: list[EncoderReport] = encoder.get_encoder_report(device, timeout)
+    if not reports:
         print("No report")
     else:
-        print(report)
+        for report in reports:
+            print(report)
 
 
 @cli.command()
 @click.option("--timeout", type=float, default=None, show_default=True)
 @click.pass_context
 def wait_for_event(ctx: click.Context, timeout: float | None = None) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
-    event: EncoderReport | None = encoder.wait_for_event(device, timeout)
-    if event is None:
+    events: list[EncoderReport] = encoder.wait_for_event(device, timeout)
+    if not events:
         print("No event")
     else:
-        print(event)
+        for event in events:
+            print(event)
 
 
 @cli.command()
 @click.option("--timeout", type=float, default=None, show_default=True)
 @click.pass_context
 def wait_for_report(ctx: click.Context, timeout: float | None = None) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
-    report: EncoderReport | None = encoder.wait_for_report(device, timeout)
-    if report is None:
+    reports: list[EncoderReport] = encoder.wait_for_report(device, timeout)
+    if not reports:
         print("No report")
     else:
-        print(report)
+        for report in reports:
+            print(report)
 
 
 @cli.command()
 @click.option("--timeout", type=float, default=None, show_default=True)
 @click.pass_context
 def wait_for_event_or_report(ctx: click.Context, timeout: float | None = None) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     executor = ThreadPoolExecutor(max_workers=2)
     event_future = executor.submit(encoder.wait_for_event, device, timeout)
@@ -380,13 +577,14 @@ def wait_for_event_or_report(ctx: click.Context, timeout: float | None = None) -
 @click.option("--timeout", type=float, default=1, show_default=True)
 @click.pass_context
 def get_version(ctx: click.Context, timeout: float) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
-    version_reply = encoder.get_version(device, timeout)
-    if version_reply is None:
+    version_replies = encoder.get_version(device, timeout)
+    if not version_replies:
         print("No version")
     else:
-        print(version_reply)
+        for version_reply in version_replies:
+            print(version_reply)
 
 
 @cli.command()
@@ -394,7 +592,7 @@ def get_version(ctx: click.Context, timeout: float) -> None:
 @click.pass_context
 def toggle_digital_io_event(ctx: click.Context, io_mask: int) -> None:
     """Toggle the digital IO events, io_mask is a bit mask of the IOs, 0 to disable all IOs."""
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     encoder.toggle_digital_io_event_report(device, io_mask)
 
@@ -403,7 +601,7 @@ def toggle_digital_io_event(ctx: click.Context, io_mask: int) -> None:
 @click.argument("analog_index", type=int, required=True)
 @click.pass_context
 def get_readings(ctx: click.Context, analog_index: int) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     assert 0 <= analog_index <= 3, "Analog index must be between 0 and 3"
     readings = encoder.get_readings(device, analog_index)
@@ -418,7 +616,7 @@ def get_readings(ctx: click.Context, analog_index: int) -> None:
 @click.pass_context
 def read_eeprom(ctx: click.Context, offset: int) -> None:
     """Read EEPROM field by offset."""
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
 
     # EEPROM offset and field name mapping
@@ -431,7 +629,7 @@ def read_eeprom(ctx: click.Context, offset: int) -> None:
         5: "can_id_2",
         6: "can_id_3",
         7: "device",
-        8: "adc_freq",
+        8: "adc_freq_l",
         9: "zpos_h",
         10: "zpos_l",
         11: "mpos_h",
@@ -441,31 +639,38 @@ def read_eeprom(ctx: click.Context, offset: int) -> None:
         15: "filters_begin",
         23: "dir",
         24: "threshold_steps",
-        25: "report_freq",
+        25: "report_freq_l",
         26: "dio_report_reverse",
+        27: "adc_freq_h",  # ADC frequency high byte (for 16-bit support)
+        28: "report_freq_h",  # Report frequency high byte (for 16-bit support)
     }
 
     field_name = EEPROM_FIELDS.get(offset, "unknown")
     print(f"Reading EEPROM field '{field_name}' at offset {offset}...")
-    value = encoder.read_eeprom_field(offset, device, timeout=1.0)
+    values = encoder.read_eeprom_field(offset, device, timeout=1.0)
 
-    if value is None:
+    if values is None:
         print("No response from device")
+    elif isinstance(values, dict):
+        for dev, val in values.items():
+            print(f"Device {dev}: {val} (0x{val:02X})")
     else:
-        print(f"Value: {value} (0x{value:02X})")
+        print(f"Value: {values} (0x{values:02X})")
 
 
 @cli.command()
 @click.pass_context
 def read_eeprom_zpos(ctx: click.Context) -> None:
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
-    zpos_bytes_0 = encoder.read_eeprom_field(EEPROMField.ZPOS_H, device, timeout=1.0)
-    zpos_bytes_1 = encoder.read_eeprom_field(EEPROMField.ZPOS_L, device, timeout=1.0)
-    if zpos_bytes_0 is None or zpos_bytes_1 is None:
+    zpos_h = encoder.read_eeprom_field(EEPROMField.ZPOS_H, device, timeout=1.0)
+    zpos_l = encoder.read_eeprom_field(EEPROMField.ZPOS_L, device, timeout=1.0)
+    if zpos_h is None or zpos_l is None:
         print("No response from device")
+    elif isinstance(zpos_h, dict) or isinstance(zpos_l, dict):
+        print("Unexpected dictionary response for single device")
     else:
-        zpos = struct.unpack("<h", bytes([zpos_bytes_0, zpos_bytes_1]))[0]  # little endian
+        zpos = (zpos_h << 8) | zpos_l
         print(f"ZPOS: 0x{zpos:04x}")
 
 
@@ -473,7 +678,7 @@ def read_eeprom_zpos(ctx: click.Context) -> None:
 @click.pass_context
 def restart(ctx: click.Context) -> None:
     """Restart the encoder."""
-    encoder: Encoder = ctx.obj["encoder"]
+    encoder: PassiveJointEncoder = ctx.obj["encoder"]
     device: int = ctx.obj["device"]
     encoder.restart(device)
 

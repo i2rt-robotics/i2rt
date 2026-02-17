@@ -193,7 +193,7 @@ def save_to_memory(can_interface: RawCanInterface, motor_id: int, reg_name: str)
         can.Message: The response message from the motor.
     """
     assert reg_name in register_addr_map, f"reg_name {reg_name} not in register_addr_map"
-    reg_id, convert_func = register_addr_map[reg_name]
+    reg_id, _ = register_addr_map[reg_name]
     message = can_interface._send_message_get_response(
         0x7FF, [motor_id, 0x00, 0xAA, reg_id, 0x00, 0x00, 0x00, 0x00], max_retry=20
     )

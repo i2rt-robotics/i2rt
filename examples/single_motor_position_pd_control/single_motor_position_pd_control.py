@@ -1,10 +1,14 @@
 import argparse
-import time
 import curses
+import time
+from typing import Any
+
 import numpy as np
+
 from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 
-def main(stdscr):
+
+def main(stdscr: Any) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", type=str, default="can0")
     parser.add_argument("--motor_id", type=int, default=1)
@@ -13,12 +17,14 @@ def main(stdscr):
     parser.add_argument("--kd", type=float, default=3.0)
     parser.add_argument("--can_receive_mode", type=str, default="p16")
     parser.add_argument("--rate_hz", type=float, default=200.0)  # control loop rate
-    parser.add_argument("--step", type=float, default=0.01)      # rad per key press
+    parser.add_argument("--step", type=float, default=0.01)  # rad per key press
     args = parser.parse_args()
 
     motor_list = [[args.motor_id, args.motor_type]]
     motor_directions = [1]
-    motor_chain = DMChainCanInterface(motor_list, [0], motor_directions, channel=args.channel, receive_mode=args.can_receive_mode)
+    motor_chain = DMChainCanInterface(
+        motor_list, [0], motor_directions, channel=args.channel, receive_mode=args.can_receive_mode
+    )
 
     # Read current position and use it as initial target
     motor_states = motor_chain.read_states()
@@ -42,27 +48,27 @@ def main(stdscr):
             # Non-blocking key read
             key = stdscr.getch()
             if key != -1:
-                if key in (curses.KEY_RIGHT, ord('l')):   # → / 'l'
+                if key in (curses.KEY_RIGHT, ord("l")):  # → / 'l'
                     target_pos += step
-                elif key in (curses.KEY_LEFT, ord('h')):  # ← / 'h'
+                elif key in (curses.KEY_LEFT, ord("h")):  # ← / 'h'
                     target_pos -= step
-                elif key in (curses.KEY_UP, ord('k')):    # ↑ / 'k' : increase step
+                elif key in (curses.KEY_UP, ord("k")):  # ↑ / 'k' : increase step
                     step *= 1.25
-                elif key in (curses.KEY_DOWN, ord('j')):  # ↓ / 'j' : decrease step
+                elif key in (curses.KEY_DOWN, ord("j")):  # ↓ / 'j' : decrease step
                     step = max(step / 1.25, 1e-4)
-                elif key == ord('r'):                     # reset target to current
+                elif key == ord("r"):  # reset target to current
                     motor_states = motor_chain.read_states()
                     target_pos = float(motor_states[0].pos)
-                elif key == ord(' '):                     # hold (no-op)
+                elif key == ord(" "):  # hold (no-op)
                     pass
-                elif key in (ord('q'), 27):               # 'q' or ESC
+                elif key in (ord("q"), 27):  # 'q' or ESC
                     running = False
 
             # Send PD command: pos=target_pos, vel_ff=0, kp/kd from args
             motor_chain.set_commands(
-                np.array([0.0]),                 # velocity feedforward or torque_ff (keep 0.0 per your API)
-                np.array([target_pos]),          # position target
-                np.array([0.0]),                 # torque/effort ff (0.0)
+                np.array([0.0]),  # velocity feedforward or torque_ff (keep 0.0 per your API)
+                np.array([target_pos]),  # position target
+                np.array([0.0]),  # torque/effort ff (0.0)
                 np.array([args.kp]),
                 np.array([args.kd]),
             )
@@ -108,8 +114,6 @@ def main(stdscr):
                 stdscr.refresh()
                 last_print = now
 
-
-
             # Sleep to maintain loop rate
             elapsed = time.monotonic() - t0
             if elapsed < dt:
@@ -128,6 +132,7 @@ def main(stdscr):
             )
         except Exception:
             pass
+
 
 if __name__ == "__main__":
     curses.wrapper(main)

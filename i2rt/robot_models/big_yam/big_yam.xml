@@ -1,0 +1,58 @@
+<mujoco model="big-yam-urdf">
+    <compiler angle="radian" meshdir="assets"/>
+    <size njmax="500" nconmax="100" />
+    <asset>
+        <mesh name="joint1" file="joint1.STL" />
+        <mesh name="joint2_link" file="joint2_link.STL" />
+        <mesh name="joint3_link" file="joint3_link.STL" />
+        <mesh name="joint4_link" file="joint4_link.STL" />
+        <mesh name="joint5_link" file="joint5_link.STL" />
+        <mesh name="joint6_link" file="joint6_link.STL" />
+        <mesh name="gripper_link" file="gripper_link.STL" />
+        <mesh name="finger-l-link" file="finger-l-link.STL" />
+        <mesh name="finger-r-link" file="finger-r-link.STL" />
+    </asset>
+    <worldbody>
+        <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint1" />
+        <body name="joint2_link" pos="0 0 0.07735">
+            <inertial pos="0.00262043 0.0186981 0.0476979" quat="0.477329 0.878707 -0.00124457 0.00543518" mass="0.844869" diaginertia="0.00057425 0.000428775 0.000395685" />
+            <joint name="joint2" pos="0 0 0" axis="0 0 1" range="-2.61799 3.13" actuatorfrcrange="-10 10"/>
+            <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint2_link" />
+            <body name="joint3_link" pos="0 0.021912 0.053202">
+                <inertial pos="0.00386212 -0.27688 0.0327451" quat="0.711298 0.702816 -0.00721743 0.00719254" mass="0.87676" diaginertia="0.00182975 0.00177963 0.000341322" />
+                <joint name="joint3" pos="0 0 0" axis="-1 0 0"  range="0 3.65" actuatorfrcrange="-10 10"/>
+                <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint3_link" />
+                <body name="joint4_link" pos="0 -0.3787 0.068">
+                    <inertial pos="0.00320447 0.26687 -5.98855e-06" quat="0.707044 0.707124 0.00347899 -0.00727348" mass="0.849152" diaginertia="0.00176365 0.00172838 0.000252411" />
+                    <joint name="joint4" pos="0 0 0" axis="1 0 0" range="0 3.13" actuatorfrcrange="-10 10"/>
+                    <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint4_link" />
+                    <body name="joint5_link" pos="0 0.38198 0">
+                        <inertial pos="-0.000204601 0.0595323 0.0500375" quat="0.174559 0.714795 -0.223159 0.639373" mass="0.465659" diaginertia="0.00021982 0.000163919 0.000126974" />
+                        <joint name="joint5" pos="0 0 0" axis="1 0 0" range="-1.65 1.65" actuatorfrcrange="-10 10"/>
+                        <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint5_link" />
+                        <body name="joint6_link" pos="0 0.074 0.0455">
+                            <inertial pos="-4.72877e-05 -0.00118652 -0.0426116" quat="0.706401 -0.0368625 0.0458386 0.705363" mass="0.382514" diaginertia="0.000149214 9.5343e-05 8.35947e-05" />
+                            <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" actuatorfrcrange="-10 10"/>
+                            <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="joint6_link" />
+                            <body name="gripper_link" pos="0 0.0235 -0.0455">
+                                <inertial pos="0.000137378 0.0463253 0.00816867" quat="0.512468 0.488154 0.508448 0.490473" mass="0.567147" diaginertia="0.000305066 0.000202878 0.00012419" />
+                                <joint name="gripper" pos="0 0 0" axis="0 -1 0" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
+                                <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="gripper_link" />
+                                <body name="finger-l-link" pos="0 0.0591 0">
+                                    <inertial pos="0.00424575 0.029046 0.0114616" quat="0.448249 0.28597 0.249103 0.80947" mass="0.1930649" diaginertia="3.75539e-05 3.3476e-05 2.89678e-05" />
+                                    <!-- <joint name="finger-l" pos="0 0 0" axis="-1 0 0" type="slide" /> -->
+                                    <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="finger-l-link" />
+                                </body>
+                                <body name="finger-r-link" pos="0 0.0591 0">
+                                    <inertial pos="-0.00424575 0.029046 -0.0114616" quat="0.80947 0.249103 0.28597 0.448249" mass="0.1930649" diaginertia="3.75539e-05 3.3476e-05 2.89678e-05" />
+                                    <!-- <joint name="finger-r" pos="0 0 0" axis="1 0 0" type="slide" /> -->
+                                    <geom type="mesh" rgba="0.752941 0.752941 0.752941 1" mesh="finger-r-link" />
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+</mujoco>

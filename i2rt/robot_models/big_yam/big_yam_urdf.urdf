@@ -1,0 +1,481 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com)
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="big-yam-urdf">
+  <link
+    name="joint1">
+    <inertial>
+      <origin
+        xyz="-5.22569828514952E-06 -2.45550170611792E-05 0.0359385899995561"
+        rpy="0 0 0" />
+      <mass
+        value="1.11522607076613" />
+      <inertia
+        ixx="0.000667469471933364"
+        ixy="9.52607486042287E-08"
+        ixz="-1.04082825487826E-08"
+        iyy="0.000762865983512096"
+        iyz="4.91531164566736E-08"
+        izz="0.00111043033603152" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="joint2_link">
+    <inertial>
+      <origin
+        xyz="0.00262043338906797 0.0186980983426543 0.0476978837259382"
+        rpy="0 0 0" />
+      <mass
+        value="0.844868994266236" />
+      <inertia
+        ixx="0.000574229559206357"
+        ixy="6.687302766436E-07"
+        ixz="1.71289497113844E-06"
+        iyy="0.000405490061162557"
+        iyz="-1.51031697915455E-05"
+        izz="0.000418989942573212" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint2_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint2_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint2"
+    type="continuous">
+    <origin
+      xyz="0 0 0.07735"
+      rpy="0 0 0" />
+    <parent
+      link="joint1" />
+    <child
+      link="joint2_link" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="joint3_link">
+    <inertial>
+      <origin
+        xyz="0.00386211891002865 -0.276880218490815 0.0327451460179446"
+        rpy="0 0 0" />
+      <mass
+        value="0.876760377259626" />
+      <inertia
+        ixx="0.00182973110492121"
+        ixy="-2.22037247440314E-07"
+        ixz="1.02377042693291E-06"
+        iyy="0.000341528937917236"
+        iyz="1.72504783021114E-05"
+        izz="0.00177944858739725" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint3_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint3_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint3"
+    type="continuous">
+    <origin
+      xyz="0 0.021912 0.053202"
+      rpy="0 0 0" />
+    <parent
+      link="joint2_link" />
+    <child
+      link="joint3_link" />
+    <axis
+      xyz="-1 0 0" />
+  </joint>
+  <link
+    name="joint4_link">
+    <inertial>
+      <origin
+        xyz="0.00320446596606837 0.266870013019176 -5.98854656161385E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.849151876249635" />
+      <inertia
+        ixx="0.00176360215533057"
+        ixy="-8.10886621226483E-06"
+        ixz="-5.36882598798644E-07"
+        iyy="0.000252454168016015"
+        iyz="-1.04465141630879E-07"
+        izz="0.00172838820340551" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint4_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint4_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint4"
+    type="continuous">
+    <origin
+      xyz="0 -0.3787 0.068"
+      rpy="0 0 0" />
+    <parent
+      link="joint3_link" />
+    <child
+      link="joint4_link" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="joint5_link">
+    <inertial>
+      <origin
+        xyz="-0.000204601113324043 0.0595322868510172 0.05003746628125"
+        rpy="0 0 0" />
+      <mass
+        value="0.465659196167811" />
+      <inertia
+        ixx="0.000138473595152471"
+        ixy="1.60805041082319E-05"
+        ixz="8.34364033741271E-06"
+        iyy="0.000153861289007756"
+        iyz="-7.71316488732989E-06"
+        izz="0.000218378578542221" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint5_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint5_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint5"
+    type="continuous">
+    <origin
+      xyz="0 0.38198 0"
+      rpy="0 0 0" />
+    <parent
+      link="joint4_link" />
+    <child
+      link="joint5_link" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="joint6_link">
+    <inertial>
+      <origin
+        xyz="-4.72877410073527E-05 -0.00118651651199964 -0.0426116473710965"
+        rpy="0 0 0" />
+      <mass
+        value="0.382514131559949" />
+      <inertia
+        ixx="9.53410733357355E-05"
+        ixy="2.12169660328111E-08"
+        ixz="-1.53399891346684E-07"
+        iyy="0.000148319829064392"
+        iyz="-7.60926685330668E-06"
+        izz="8.44912288452243E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint6_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/joint6_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint6"
+    type="continuous">
+    <origin
+      xyz="0 0.074 0.0455"
+      rpy="0 0 0" />
+    <parent
+      link="joint5_link" />
+    <child
+      link="joint6_link" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
+  <link
+    name="gripper_link">
+    <inertial>
+      <origin
+        xyz="0.000137377952859563 0.0463252896953799 0.00816867396138829"
+        rpy="0 0 0" />
+      <mass
+        value="0.567146742379966" />
+      <inertia
+        ixx="0.000124193341856474"
+        ixy="3.10707897410255E-07"
+        ixz="-5.09504046870712E-07"
+        iyy="0.000304883159155605"
+        iyz="-4.31534543337648E-06"
+        izz="0.000203057120372928" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/gripper_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/gripper_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="gripper"
+    type="continuous">
+    <origin
+      xyz="0 0.0235 -0.0455"
+      rpy="0 0 0" />
+    <parent
+      link="joint6_link" />
+    <child
+      link="gripper_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="finger-l-link">
+    <inertial>
+      <origin
+        xyz="0.00424574929303179 0.0290459612948318 0.011461626585402"
+        rpy="0 0 0" />
+      <mass
+        value="0.09306490345146" />
+      <inertia
+        ixx="3.21228406976354E-05"
+        ixy="-1.99309428904582E-06"
+        ixz="-2.62864129368954E-06"
+        iyy="3.64522264255474E-05"
+        iyz="3.76626080905027E-07"
+        izz="3.14226051265662E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/finger-l-link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/finger-l-link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="finger-l"
+    type="prismatic">
+    <origin
+      xyz="0 0.0591 0"
+      rpy="0 0 0" />
+    <parent
+      link="gripper_link" />
+    <child
+      link="finger-l-link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="finger-r-link">
+    <inertial>
+      <origin
+        xyz="-0.00424574921108675 0.0290459613088252 -0.0114616265668524"
+        rpy="0 0 0" />
+      <mass
+        value="0.0930649039797078" />
+      <inertia
+        ixx="3.21228408554017E-05"
+        ixy="1.99309429013729E-06"
+        ixz="-2.62864129254617E-06"
+        iyy="3.64522264592339E-05"
+        iyz="-3.76626144781567E-07"
+        izz="3.14226052509976E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/finger-r-link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://big-yam-urdf/meshes/finger-r-link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="finger-r"
+    type="prismatic">
+    <origin
+      xyz="0 0.0591 0"
+      rpy="0 0 0" />
+    <parent
+      link="gripper_link" />
+    <child
+      link="finger-r-link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>
