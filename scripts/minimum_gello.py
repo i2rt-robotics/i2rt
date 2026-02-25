@@ -118,13 +118,15 @@ class Args:
     server_port: int = DEFAULT_ROBOT_PORT
     can_channel: str = "can0"
     bilateral_kp: float = 0.0
+    link6_mass: float | None = None
+    """Override the mass (kg) of link_6 for gravity compensation. Defaults to the value in the XML."""
 
 
 def main(args: Args) -> None:
     gripper_type = GripperType.from_string_name(args.gripper)
 
     if "remote" not in args.mode:
-        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type)
+        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type, link6_mass=args.link6_mass)
 
     if args.mode == "follower":
         server_robot = ServerRobot(robot, args.server_port)
