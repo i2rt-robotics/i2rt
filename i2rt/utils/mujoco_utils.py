@@ -40,3 +40,15 @@ class MuJoCoKDL:
         """
         assert gravity.shape == (3,)
         self.model.opt.gravity = gravity
+
+    def set_body_mass(self, body_name: str, mass: float) -> None:
+        """Sets the mass of a body in the model.
+
+        Args:
+            body_name (str): The name of the body.
+            mass (float): The new mass value in kg.
+        """
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        if body_id == -1:
+            raise ValueError(f"Body '{body_name}' not found in model")
+        self.model.body_mass[body_id] = mass

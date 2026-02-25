@@ -79,6 +79,7 @@ def get_yam_robot(
     zero_gravity_mode: bool = True,
     joint_state_saver_factory: Optional[Callable[[str], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
+    link6_mass: float | None = None,
 ) -> MotorChainRobot:
     with_gripper = True
     with_teaching_handle = False
@@ -146,14 +147,19 @@ def get_yam_robot(
     )
 
     if with_gripper:
-        return get_robot(
+        robot = get_robot(
             gripper_index=6,
             gripper_limits=gripper_type.get_gripper_limits(),
             gripper_type=gripper_type,
             limit_gripper_force=50.0,
         )
     else:
-        return get_robot()
+        robot = get_robot()
+
+    if link6_mass is not None:
+        robot.kdl.set_body_mass("link_6", link6_mass)
+
+    return robot
 
 
 if __name__ == "__main__":
