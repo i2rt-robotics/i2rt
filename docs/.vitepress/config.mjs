@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitepress'
 
+const base = process.env.DEPLOY_TARGET === 'cloudflare' ? '/' : '/JH_i2rt/'
+
 export default defineConfig({
   title: 'I2RT Robotics',
   description: 'Open robotics platform for research and embodied AI — YAM arms, Flow Base, and more.',
-  base: '/i2rt/',
+  base,
   appearance: 'dark',
 
   head: [
