@@ -1,0 +1,39 @@
+<mujoco model="linear_4310">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="gripper" file="gripper.stl"/>
+    <mesh name="tip_left" file="tip_left.stl"/>
+    <mesh name="tip_right" file="tip_right.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="link_6" pos="2.39858e-07 -0.0419481 0.0404996" quat="0.499998 -0.5 -0.5 -0.500002">
+      <inertial pos="-3.57066e-05 0.000249371 -0.0293133" quat="0.667981 0.744113 -0.00433092 0.00882801" mass="0.303" diaginertia="0.000409686 0.000369758 0.000324415"/>
+      <joint name="joint6" pos="0 0 0" axis="0 0 -1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
+      <geom pos="-0.014 -0.0463995 0.0731" quat="1 0 0 0" type="mesh" rgba="0.109804 0.286275 0.0117647 1" mesh="gripper" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
+      <site name="grasp_site" pos="0 0 -0.1347" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
+      <body name="tip_left" pos="-0.0238981 0.0450619 -0.0545599" quat="0.499998 -0.5 -0.5 -0.500002">
+        <inertial pos="-0.0224716 0.0143408 -0.0426253" quat="0.498899 0.455348 -0.0576406 0.735143" mass="0.0710042" diaginertia="6.24193e-05 6.01079e-05 2.83591e-05"/>
+        <joint name="joint7" pos="0 0 0" type="slide" axis="0 0 -1" range="0 0.0475"/>
+        <geom pos="0.129783 0.00999321 -0.0914614" quat="0.499998 0.5 0.500002 0.5" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_left"/>
+      </body>
+      <body name="tip_right" pos="0.0238981 -0.0450619 -0.0545599" quat="0.707105 0.707108 0 0">
+        <inertial pos="-0.0143408 -0.0224716 -0.0426253" quat="0.281222 0.8726 0.16705 -0.362738" mass="0.0710042" diaginertia="6.24193e-05 6.01079e-05 2.83591e-05"/>
+        <joint name="joint8" pos="0 0 0" type="slide" axis="0 0 -1" range="0 0.0475"/>
+        <geom pos="-0.0379932 0.129783 0.00133753" quat="0.707105 -0.707108 0 0" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_right"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <joint joint1="joint7" joint2="joint8" polycoef="0 1 0 0 0"/>
+  </equality>
+
+  <contact>
+    <exclude body1="link_6" body2="tip_left"/>
+    <exclude body1="link_6" body2="tip_right"/>
+    <exclude body1="tip_left" body2="tip_right"/>
+  </contact>
+</mujoco>

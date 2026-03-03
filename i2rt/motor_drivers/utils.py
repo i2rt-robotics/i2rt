@@ -66,7 +66,7 @@ class MotorInfo:
     voltage: float = -1
     temp_mos: float = -1
     temp_rotor: float = -1
-    timestamp: float = -1
+    timestamp: float = 0.0
 
 
 @dataclass
@@ -124,10 +124,10 @@ class MotorType:
     DM4310 = "DM4310"
     DM4310V = "DM4310V"
     DM4340 = "DM4340"
+    DM6248 = "DM6248"
     DMH6215 = "DMH6215"
     DMH6215MIT = "DMH6215MIT"
     DM3507 = "DM3507"
-    DM6248 = "DM6248"
     DM_FLOW_WHEEL = "DM_FLOW_WHEEL"
 
     @classmethod

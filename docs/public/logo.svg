@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" fill="none">
+  <!-- Background circle accent -->
+  <circle cx="20" cy="20" r="18" fill="#0a0e1a" stroke="#FF7A29" stroke-width="1.5"/>
+  <!-- Robot arm silhouette inside circle -->
+  <rect x="15" y="14" width="4" height="12" rx="1" fill="#FF7A29" opacity="0.9"/>
+  <rect x="15" y="22" width="10" height="3.5" rx="1" fill="#4CCFB0" opacity="0.9"/>
+  <rect x="22" y="17" width="3.5" height="8.5" rx="1" fill="#FF7A29" opacity="0.75"/>
+  <!-- I2RT text -->
+  <text x="44" y="26" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" letter-spacing="-0.02em" fill="#FFFFFF">i<tspan fill="#FF7A29">2</tspan>rt</text>
+</svg>

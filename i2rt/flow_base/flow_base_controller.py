@@ -23,11 +23,6 @@ from dm_env.specs import Array
 from ruckig import ControlInterface, InputParameter, OutputParameter, Result, Ruckig
 from threadpoolctl import threadpool_limits
 
-from i2rt.flow_base.linear_rail_controller import (
-    LinearRailController,
-    SingleMotorControlInterface,
-    initialize_brake_gpio,
-)
 from i2rt.motor_drivers.dm_driver import ControlMode, DMChainCanInterface
 
 # Configure logging
@@ -605,6 +600,8 @@ class LinearRailVehicle(Vehicle):
 
         # Initialize brake GPIO only if linear rail is enabled
         if enable_linear_rail:
+            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio
+
             initialize_brake_gpio()
 
         # Initialize vehicle base with the unified motor chain using super().__init__()
@@ -618,6 +615,11 @@ class LinearRailVehicle(Vehicle):
         # Initialize linear rail only if enabled
         self.linear_rail = None
         if enable_linear_rail:
+            from i2rt.flow_base.linear_rail_controller import (
+                LinearRailController,
+                SingleMotorControlInterface,
+            )
+
             # Create single motor control interface for the linear rail (9th motor, index 8)
             single_motor_interface = SingleMotorControlInterface.from_multi_motor_chain(
                 unified_motor_chain, target_motor_idx=8
@@ -640,8 +642,8 @@ class LinearRailVehicle(Vehicle):
 
             # Set homing check callback for VehicleMotorController to prevent overwriting homing velocity
             if hasattr(self, "caster_module_controller"):
-                self.caster_module_controller.homing_check_callback = (
-                    lambda: self.linear_rail.is_homing() if self.linear_rail else False
+                self.caster_module_controller.homing_check_callback = lambda: (
+                    self.linear_rail.is_homing() if self.linear_rail else False
                 )
 
     def set_target_velocity(self, velocity: Any, frame: str = "local") -> None:

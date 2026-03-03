@@ -379,13 +379,13 @@ class DMChainCanInterface(MotorChain):
         get_same_bus_device_driver: Optional[Callable] = None,
         use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
     ):
-        assert (
-            not use_buffered_reader
-        ), "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
+        assert not use_buffered_reader, (
+            "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
+        )
         assert len(motor_list) > 0
-        assert (
-            len(motor_list) == len(motor_offset) == len(motor_direction)
-        ), f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        assert len(motor_list) == len(motor_offset) == len(motor_direction), (
+            f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
+        )
         self.motor_list = motor_list
         self.motor_offset = np.array(motor_offset)
         self.motor_direction = np.array(motor_direction)
@@ -441,7 +441,7 @@ class DMChainCanInterface(MotorChain):
             init_mode = True
 
         for idx, motor_info in enumerate(self.motor_list):
-            _, motor_type = motor_info
+            _motor_id, motor_type = motor_info
             const = MotorType.get_motor_constants(motor_type)
             position_min = const.POSITION_MIN
             position_max = const.POSITION_MAX
@@ -493,9 +493,7 @@ class DMChainCanInterface(MotorChain):
     def start_thread(self) -> None:
         # clean error again for motor with timeout enabled
         self._motor_on()
-        thread = threading.Thread(
-            target=self._set_torques_and_update_state, name=f"DMChainCanInterfaceControlLoop-{self.channel}"
-        )
+        thread = threading.Thread(target=self._set_torques_and_update_state)
         thread.start()
         time.sleep(0.1)
         while self.state is None:
@@ -511,7 +509,6 @@ class DMChainCanInterface(MotorChain):
         step_time_exceed_count = 0
         step_time_sum = 0.0
         step_time_count = 0
-        max_step_time = 0.0
         report_start_time = time.time()
         with RateRecorder(name=self) as rate_recorder:
             while self.running:
@@ -526,7 +523,6 @@ class DMChainCanInterface(MotorChain):
                     # Statistics
                     step_time_sum += step_time
                     step_time_count += 1
-                    max_step_time = max(step_time, max_step_time)
                     if step_time > EXPECTED_CONTROL_PERIOD:
                         step_time_exceed_count += 1
 
@@ -534,12 +530,11 @@ class DMChainCanInterface(MotorChain):
                     if step_time_exceed_count > 0 and curr_time - report_start_time >= REPORT_INTERVAL:
                         mean_step_time = step_time_sum / step_time_count if step_time_count > 0 else 0.0
                         logging.info(
-                            f"[{self} {REPORT_INTERVAL}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s, max step_time: {max_step_time:.6f} s"
+                            f"[{self} {REPORT_INTERVAL}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s"
                         )
                         step_time_exceed_count = 0
                         step_time_sum = 0.0
                         step_time_count = 0
-                        max_step_time = 0.0
                         report_start_time = curr_time
 
                     # Update state

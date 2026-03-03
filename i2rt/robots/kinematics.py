@@ -5,8 +5,6 @@ import mink
 import mujoco
 import numpy as np
 
-from i2rt.robots.utils import YAM_XML_PATH
-
 
 class Kinematics:
     def __init__(self, xml_path: str, site_name: Optional[str]):
@@ -110,16 +108,18 @@ class Kinematics:
 
 
 def main() -> None:
-    mj_model = Kinematics(YAM_XML_PATH, "grasp_site")
+    from i2rt.robots.utils import ARM_YAM_XML_PATH
+
+    mj_model = Kinematics(ARM_YAM_XML_PATH, "grasp_site")
     q = np.zeros(6)
     pose = mj_model.fk(q)
     print(pose)
 
-    new_q = q + np.random.uniform(0, 0.1, 6)
-    pose1 = mj_model.fk(new_q)
-    print(pose1)
-    q_ik = mj_model.ik(pose1, "grasp_site")
-    print(f"gt q: {new_q}, ik q: {q_ik}, error: {np.linalg.norm(new_q - q_ik[1])}")
+    pose[0, 3] -= 0.1
+    pose[2, 3] += 0.1
+    print(pose)
+    q_ik = mj_model.ik(pose, "grasp_site")
+    print(q_ik)
 
 
 if __name__ == "__main__":

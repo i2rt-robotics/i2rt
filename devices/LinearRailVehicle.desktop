@@ -6,3 +6,4 @@ Exec=lxterminal -e "bash -c '/usr/bin/python3 /home/i2rt/i2rt/i2rt/flow_base/flo
 Icon=../i2rt/flow_base/assets/linear_rail.png
 Terminal=true
 Categories=Utility;
+

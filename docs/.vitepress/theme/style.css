@@ -1,0 +1,349 @@
+/* ============================================================
+   I2RT Robotics — Custom VitePress Theme
+   Brand: Navy #11151C | Amber #FF7A29 | Teal #4C6762
+   ============================================================ */
+
+:root {
+  --vp-c-brand-1: #FF7A29;
+  --vp-c-brand-2: #ff6310;
+  --vp-c-brand-3: #cc5500;
+  --vp-c-brand-soft: rgba(255, 122, 41, 0.14);
+
+  --vp-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', 'Fira Code', monospace;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #FF7A29 0%, #4CCFB0 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(255,122,41,0.25) 0%, rgba(76,207,176,0.1) 50%, transparent 70%);
+  --vp-home-hero-image-filter: blur(72px);
+
+  --vp-nav-bg-color: rgba(255, 255, 255, 0.88);
+
+  /* Wider layout so nav bar uses more horizontal space */
+  --vp-layout-max-width: 1600px;
+}
+
+.dark {
+  --vp-c-bg: #0a0e1a;
+  --vp-c-bg-soft: #10152b;
+  --vp-c-bg-mute: #181e35;
+  --vp-c-divider: rgba(255, 255, 255, 0.08);
+  --vp-c-text-1: #e8eaf0;
+  --vp-c-text-2: #9ca3b8;
+  --vp-c-text-3: #6b7490;
+  --vp-nav-bg-color: rgba(10, 14, 26, 0.92);
+  --vp-sidebar-bg-color: #0d1124;
+}
+
+/* ── Scrollbar ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,122,41,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,122,41,0.6); }
+
+/* ── Navbar ───────────────────────────────────────────── */
+.VPNav {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 122, 41, 0.12) !important;
+}
+
+/* Widen the search button in the navbar */
+.VPNavBarSearch .DocSearch-Button,
+.VPNavBarSearch button[aria-label="Search"] {
+  min-width: 260px !important;
+}
+
+/* Stretch nav container edge-to-edge with comfortable padding */
+.VPNavBar > .wrapper {
+  max-width: 100% !important;
+  padding: 0 32px !important;
+}
+.VPNavBar > .wrapper > .container {
+  max-width: 100% !important;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #FF7A29 0%, #4CCFB0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Sidebar ──────────────────────────────────────────── */
+.VPSidebarItem.is-active > .item .link .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.VPSidebarItem.is-active > .item {
+  border-left: 2px solid var(--vp-c-brand-1);
+  padding-left: 12px;
+}
+
+/* ── Code blocks ──────────────────────────────────────── */
+.dark div[class*="language-"] {
+  background: #080c18 !important;
+  border: 1px solid rgba(255, 122, 41, 0.1);
+  border-radius: 10px;
+}
+
+.dark .vp-code-group .tabs {
+  background: #0d1124;
+  border-bottom: 1px solid rgba(255, 122, 41, 0.12);
+}
+
+code {
+  font-family: var(--vp-font-family-mono);
+}
+
+/* ── Badges ───────────────────────────────────────────── */
+.vp-badge.tip { background: rgba(76, 207, 176, 0.15); color: #4CCFB0; border: 1px solid rgba(76,207,176,0.3); }
+.vp-badge.warning { background: rgba(255, 122, 41, 0.15); color: #FF7A29; border: 1px solid rgba(255,122,41,0.3); }
+.vp-badge.danger { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220,38,38,0.3); }
+
+/* ── Home hero ────────────────────────────────────────── */
+.VPHero .name {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.VPHero .tagline {
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  opacity: 0.75;
+  margin-top: 8px;
+}
+
+/* ── Features ─────────────────────────────────────────── */
+.VPFeature {
+  background: var(--vp-c-bg-soft) !important;
+  border: 1px solid rgba(255, 122, 41, 0.08) !important;
+  border-radius: 12px !important;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.VPFeature:hover {
+  border-color: rgba(255, 122, 41, 0.35) !important;
+  transform: translateY(-2px);
+}
+
+/* ── Tables ───────────────────────────────────────────── */
+.dark table {
+  border-collapse: collapse;
+}
+
+.dark th {
+  background: rgba(255, 122, 41, 0.08);
+  color: var(--vp-c-brand-1);
+  border: 1px solid rgba(255, 122, 41, 0.15);
+}
+
+.dark td {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark tr:hover td {
+  background: rgba(255, 122, 41, 0.04);
+}
+
+/* ── Tip / warning / danger blocks ───────────────────── */
+.dark .custom-block.tip {
+  background: rgba(76, 207, 176, 0.06);
+  border-color: rgba(76, 207, 176, 0.35);
+}
+
+.dark .custom-block.warning {
+  background: rgba(255, 122, 41, 0.06);
+  border-color: rgba(255, 122, 41, 0.35);
+}
+
+.dark .custom-block.danger {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+/* ── Home page: remove VitePress page-layout padding ─── */
+.Layout .VPContent.is-home,
+.Layout[data-layout="page"] .VPContent {
+  padding-top: 0 !important;
+}
+
+/* ── Media placeholders ──────────────────────────────── */
+.media-placeholder {
+  position: relative;
+  background: linear-gradient(135deg, #0d1124 0%, #10152b 100%);
+  border: 1px dashed rgba(255, 122, 41, 0.35);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  margin: 24px 0;
+  overflow: hidden;
+}
+
+.media-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,122,41,0.06) 0%, transparent 70%);
+}
+
+.media-placeholder .placeholder-icon {
+  font-size: 2.5rem;
+  filter: grayscale(0.3);
+  position: relative;
+}
+
+.media-placeholder .placeholder-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+  position: relative;
+}
+
+.media-placeholder .placeholder-desc {
+  font-size: 0.9rem;
+  color: var(--vp-c-text-2);
+  max-width: 400px;
+  line-height: 1.6;
+  position: relative;
+}
+
+.media-placeholder.video-placeholder {
+  min-height: 280px;
+}
+
+.media-placeholder.photo-placeholder {
+  min-height: 200px;
+}
+
+/* ── Spec table ───────────────────────────────────────── */
+.spec-table th:first-child { width: 40%; }
+
+/* ── Product badge row ───────────────────────────────── */
+.product-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.product-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.product-badge.available {
+  color: #4CCFB0;
+  border-color: rgba(76, 207, 176, 0.4);
+  background: rgba(76, 207, 176, 0.08);
+}
+
+.product-badge.coming-soon {
+  color: #9ca3b8;
+  border-color: rgba(156, 163, 184, 0.3);
+  background: rgba(156, 163, 184, 0.06);
+}
+
+/* ================================================================
+   LIGHT MODE OVERRIDES
+   ================================================================ */
+
+/* ── Light nav ────────────────────────────────────────── */
+:root:not(.dark) .VPNav {
+  border-bottom: 1px solid rgba(255, 122, 41, 0.15) !important;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:root:not(.dark) .VPNavBar > .wrapper {
+  background: transparent;
+}
+
+/* ── Light code blocks ────────────────────────────────── */
+:root:not(.dark) div[class*="language-"] {
+  background: #f4f6fb !important;
+  border: 1px solid rgba(255, 122, 41, 0.12);
+  border-radius: 10px;
+}
+
+:root:not(.dark) .vp-code-group .tabs {
+  background: #eef0f7;
+  border-bottom: 1px solid rgba(255, 122, 41, 0.12);
+}
+
+/* ── Light tables ─────────────────────────────────────── */
+:root:not(.dark) table {
+  border-collapse: collapse;
+}
+
+:root:not(.dark) th {
+  background: rgba(255, 122, 41, 0.06);
+  color: var(--vp-c-brand-3);
+  border: 1px solid rgba(255, 122, 41, 0.18);
+}
+
+:root:not(.dark) td {
+  border: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+:root:not(.dark) tr:hover td {
+  background: rgba(255, 122, 41, 0.03);
+}
+
+/* ── Light custom blocks ──────────────────────────────── */
+:root:not(.dark) .custom-block.tip {
+  background: rgba(76, 207, 176, 0.06);
+  border-color: rgba(76, 207, 176, 0.4);
+}
+
+:root:not(.dark) .custom-block.warning {
+  background: rgba(255, 122, 41, 0.06);
+  border-color: rgba(255, 122, 41, 0.35);
+}
+
+:root:not(.dark) .custom-block.danger {
+  background: rgba(220, 38, 38, 0.05);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+/* ── Light feature + product cards ───────────────────── */
+:root:not(.dark) .VPFeature {
+  background: #f8f9fc !important;
+  border: 1px solid rgba(255, 122, 41, 0.1) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+:root:not(.dark) .VPFeature:hover {
+  border-color: rgba(255, 122, 41, 0.4) !important;
+  box-shadow: 0 4px 16px rgba(255, 122, 41, 0.08);
+}
+
+/* ── Light sidebar ────────────────────────────────────── */
+:root:not(.dark) .VPSidebarItem.is-active > .item .link .text {
+  color: var(--vp-c-brand-3);
+}
+
+:root:not(.dark) .VPSidebarItem.is-active > .item {
+  border-left: 2px solid var(--vp-c-brand-3);
+}
+
+/* ── Light 3D viewer border ───────────────────────────── */
+:root:not(.dark) .hero-viewer > div {
+  border: 1px solid rgba(255, 122, 41, 0.25) !important;
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1), 0 0 40px rgba(255, 122, 41, 0.06) !important;
+}
