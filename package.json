@@ -1,0 +1,15 @@
+{
+  "name": "i2rt-docs",
+  "private": true,
+  "scripts": {
+    "docs:dev": "bash scripts/copy_doc_models.sh && vitepress dev docs",
+    "docs:build": "bash scripts/copy_doc_models.sh && vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  }
+}

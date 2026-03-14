@@ -4,9 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
   schedule:
-    # schedule actions once a week
     - cron: "0 0 * * 0"
 
 jobs:
@@ -22,8 +20,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv pip install --system -e .
-          uv pip install --system pytest
-      # run pytest on the codebase
+          uv pip install --system -e ".[dev]"
       - name: Test with pytest
-        run: pytest
+        run: pytest -n auto

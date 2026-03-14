@@ -169,5 +169,4 @@ To control the base without the built-in Raspberry Pi:
 - **Slow boot**: Screen firmware causes delays, but SSH access is available quickly
 - **Inaccurate odometry**: Expected with wheel-based systems, especially during aggressive movements
 - **Linear rail not homing**: Check GPIO connections and limit switches. Ensure brake is released
-- **Linear rail stuck at limit**: Check limit switch state. Use `get_linear_rail_state()` to verify switch 
-- **Assertion error: failed to communicate with motor 3**: Verify the E-stop is not pressed and the CAN multiplexer switch is in the correct position. For the internal Pi, the switch must be UP; for an external computer, the switch must be DOWN.
+- **Linear rail stuck at limit**: Check limit switch state. Use `get_linear_rail_state()` to verify switch status

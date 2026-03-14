@@ -2,6 +2,8 @@ import time
 from dataclasses import dataclass
 from typing import Dict, Literal
 
+import mujoco
+import mujoco.viewer
 import numpy as np
 import portal
 import tyro
@@ -10,13 +12,6 @@ from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import GripperType
-
-try:
-    import mujoco
-    import mujoco.viewer  # type: ignore[attr-defined]
-except Exception:
-    # Optional at runtime; only needed in visualizer modes
-    mujoco = None  # type: ignore[assignment]
 
 DEFAULT_ROBOT_PORT = 11333
 
@@ -173,8 +168,6 @@ def main(args: Args) -> None:
 
             time.sleep(0.01)
     elif "visualizer" in args.mode:
-        assert mujoco is not None, "mujoco is required for visualizer modes but is not installed"
-
         if args.mode == "visualizer_remote":
             robot = ClientRobot(args.server_port, host=args.server_host)
         xml_path = gripper_type.get_xml_path()
