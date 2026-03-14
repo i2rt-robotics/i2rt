@@ -7,12 +7,11 @@
   <span class="product-badge available">✓ Teleoperation</span>
 </div>
 
-**YAM** (Your Arm Matters) is I2RT's flagship robotic arm — a 6-DOF, CAN bus–driven manipulator designed for real-world research and embodied AI data collection. The YAM family spans four tiers to match different reach, payload, and budget requirements.
+**YAM** (Yet Another Manipulator) is I2RT's flagship robotic arm — a 6-DOF, CAN bus–driven manipulator designed for real-world research and embodied AI data collection. The YAM family spans four tiers to match different reach, payload, and budget requirements.
 
-<MediaPlaceholder
-  type="photo"
-  description="Hero photo of the full YAM arm family — YAM, YAM Pro, YAM Ultra, and BIG YAM — arranged side by side on a clean white surface."
-/>
+<ClientOnly>
+  <RobotCompare />
+</ClientOnly>
 
 ## Model Overview
 

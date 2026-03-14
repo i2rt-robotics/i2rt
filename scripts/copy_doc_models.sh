@@ -21,4 +21,14 @@ cp "$REPO/i2rt/robot_models/gripper/linear_4310/assets/gripper.stl"   "$DEST/"
 cp "$REPO/i2rt/robot_models/gripper/linear_4310/assets/tip_left.stl"  "$DEST/"
 cp "$REPO/i2rt/robot_models/gripper/linear_4310/assets/tip_right.stl" "$DEST/"
 
-echo "✓ Doc models copied to $DEST"
+# BIG YAM arm meshes
+DEST_BIG="$REPO/docs/public/models/big_yam/assets"
+mkdir -p "$DEST_BIG"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint1.STL"       "$DEST_BIG/"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint2_link.STL"  "$DEST_BIG/"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint3_link.STL"  "$DEST_BIG/"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint4_link.STL"  "$DEST_BIG/"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint5_link.STL"  "$DEST_BIG/"
+cp "$REPO/i2rt/robot_models/arm/big_yam/assets/joint6_link.STL"  "$DEST_BIG/"
+
+echo "✓ Doc models copied to $DEST and $DEST_BIG"
