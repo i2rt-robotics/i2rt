@@ -64,7 +64,7 @@ python -c "import i2rt; print('i2rt installed successfully')"
 The simulator requires MuJoCo, which is installed automatically as a dependency. Verify it works:
 
 ```bash
-python scripts/minimum_gello.py --mode visualizer_local
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 
 This opens the MuJoCo viewer with the YAM arm model. No hardware required.

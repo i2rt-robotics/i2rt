@@ -76,10 +76,10 @@ robot.command_joint_pos(np.zeros(6))
 
 ```bash
 # Follower arm
-python scripts/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0 --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0 --bilateral_kp 0.2
 
 # Leader arm (teaching handle)
-python scripts/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral_kp 0.2
 ```
 
 - **Top button (press once):** enable synchronisation — follower tracks leader
@@ -95,7 +95,7 @@ python scripts/run_yam_leader.py --channel $CAN_CHANNEL
 ### MuJoCo visualiser
 
 ```bash
-python scripts/minimum_gello.py --mode visualizer_local
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 
 ## Gripper Types

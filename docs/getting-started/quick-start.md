@@ -7,7 +7,7 @@ Get the YAM arm moving in 5 minutes. This guide assumes you have [installed the 
 You don't need an arm to try the SDK. Launch the MuJoCo visualizer:
 
 ```bash
-python scripts/minimum_gello.py --mode visualizer_local
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 
 A 3D window opens with the YAM arm. You can inspect the model and verify your environment is working.
@@ -46,7 +46,7 @@ You need one **follower arm** (any gripper) and one **leader arm** (with `yam_te
 **Terminal 1 — follower:**
 
 ```bash
-python scripts/minimum_gello.py \
+python examples/minimum_gello/minimum_gello.py \
   --gripper linear_4310 \
   --mode follower \
   --can-channel can0 \
@@ -56,7 +56,7 @@ python scripts/minimum_gello.py \
 **Terminal 2 — leader:**
 
 ```bash
-python scripts/minimum_gello.py \
+python examples/minimum_gello/minimum_gello.py \
   --gripper yam_teaching_handle \
   --mode leader \
   --can-channel can1 \

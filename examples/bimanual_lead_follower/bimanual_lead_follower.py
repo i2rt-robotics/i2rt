@@ -50,7 +50,7 @@ def launch_gello_process(
 ) -> "subprocess.Popen[bytes] | None":
     """Launch a single gello process with given parameters"""
     python_path = "python"
-    script_path = os.path.join(current_file_path, "..", "..", "scripts", "minimum_gello.py")
+    script_path = os.path.join(current_file_path, "..", "minimum_gello", "minimum_gello.py")
 
     cmd = [python_path, os.path.expanduser(script_path), "--can_channel", can_channel, "--gripper", gripper]
 

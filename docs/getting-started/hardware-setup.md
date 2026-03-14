@@ -219,5 +219,5 @@ The latest pre-built Pi firmware image is available in the [Flow Base firmware f
 ```bash
 ssh i2rt@172.6.2.20
 python i2rt/flow_base/flow_base_controller.py &
-python scripts/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0
+python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0
 ```

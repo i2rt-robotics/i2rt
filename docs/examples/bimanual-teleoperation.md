@@ -85,8 +85,8 @@ The example launches two `minimum_gello.py` instances internally — one per arm
 
 ```python
 # Conceptually equivalent to:
-python scripts/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can_follower_l --bilateral_kp 0.2
-python scripts/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can_leader_l --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can_follower_l --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can_leader_l --bilateral_kp 0.2
 # (mirrored for right pair)
 ```
 

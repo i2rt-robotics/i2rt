@@ -65,7 +65,7 @@ Re-run `read_encoder.py` to confirm the trigger-released reading is near `0.0`.
 The leader arm is launched via `minimum_gello.py` in leader mode:
 
 ```bash
-python scripts/minimum_gello.py \
+python examples/minimum_gello/minimum_gello.py \
   --gripper yam_teaching_handle \
   --mode leader \
   --can-channel can_leader_l

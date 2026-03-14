@@ -112,14 +112,14 @@ i2rt/robot_models/arm/yam/
 Launch the visualizer without hardware:
 
 ```bash
-python scripts/minimum_gello.py --mode visualizer_local
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 
 ---
 
 ## Leader–Follower Script
 
-`scripts/minimum_gello.py` is the primary teleoperation entry point:
+`examples/minimum_gello/minimum_gello.py` is the primary teleoperation entry point:
 
 ```
 usage: minimum_gello.py [options]
