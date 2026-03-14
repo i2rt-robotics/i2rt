@@ -244,9 +244,7 @@ class ViserControlInterface:
         gripper_slider: Optional[Any] = None
         if self._gripper_index is not None and self._gripper_limits is not None:
             with server.gui.add_folder("Gripper"):
-                lo_g = float(min(self._gripper_limits))
-                hi_g = float(max(self._gripper_limits))
-                gripper_slider = server.gui.add_slider("Position", min=lo_g, max=hi_g, step=0.001, initial_value=lo_g)
+                gripper_slider = server.gui.add_slider("Position", min=0.0, max=1.0, step=0.01, initial_value=0.0)
                 gripper_slider.disabled = True
 
         # ---- GUI — PD gains --------------------------------------------------
