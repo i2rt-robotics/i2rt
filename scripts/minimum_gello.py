@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass
-from typing import Dict, Literal
+from typing import Dict, Literal, Optional
 
 import mujoco
 import mujoco.viewer
@@ -113,13 +113,15 @@ class Args:
     server_port: int = DEFAULT_ROBOT_PORT
     can_channel: str = "can0"
     bilateral_kp: float = 0.0
+    ee_mass: Optional[float] = None
+    """Override end-effector (link_6) mass in kg for gravity compensation. Defaults to the value in the XML."""
 
 
 def main(args: Args) -> None:
     gripper_type = GripperType.from_string_name(args.gripper)
 
     if "remote" not in args.mode:
-        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type)
+        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type, ee_mass=args.ee_mass)
 
     if args.mode == "follower":
         server_robot = ServerRobot(robot, args.server_port)
