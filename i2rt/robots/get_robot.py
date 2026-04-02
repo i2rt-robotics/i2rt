@@ -134,6 +134,7 @@ def get_yam_robot(
     ee_mass: Optional[float] = None,
     ee_inertia: Optional[np.ndarray] = None,
     gravity_comp_factor: Optional[np.ndarray] = None,
+    gripper_limits_override: Optional[np.ndarray] = None,
     sim: bool = False,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
@@ -149,6 +150,7 @@ def get_yam_robot(
         ee_inertia: Optional 10-element inertia override [ipos(3), quat(4), diaginertia(3)].
         gravity_comp_factor: Per-joint array (6 elements, arm joints only) multiplied against gravity torques.
             Overrides the arm-type default when provided.
+        gripper_limits_override: Optional [closed, open] limits. If provided, skips calibration.
         sim: If True, return a SimRobot instead of connecting to real hardware.
     """
     # --- Gripper-only path (no arm) -------------------------------------------
@@ -194,8 +196,12 @@ def get_yam_robot(
         kp = np.append(kp, gripper_kp)
         kd = np.append(kd, gripper_kd)
 
-    gripper_limits = gripper_type.get_gripper_limits(arm_type) if with_gripper else None
-    gripper_needs_cal = gripper_type.get_gripper_needs_calibration(arm_type) if with_gripper else False
+    if gripper_limits_override is not None and with_gripper:
+        gripper_limits = np.asarray(gripper_limits_override)
+        gripper_needs_cal = False
+    else:
+        gripper_limits = gripper_type.get_gripper_limits(arm_type) if with_gripper else None
+        gripper_needs_cal = gripper_type.get_gripper_needs_calibration(arm_type) if with_gripper else False
 
     if sim:
         from i2rt.robots.sim_robot import SimRobot
