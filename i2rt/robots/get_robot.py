@@ -135,6 +135,8 @@ def get_yam_robot(
     ee_inertia: Optional[np.ndarray] = None,
     gravity_comp_factor: Optional[np.ndarray] = None,
     gripper_limits_override: Optional[np.ndarray] = None,
+    gripper_kp: Optional[float] = None,
+    gripper_kd: Optional[float] = None,
     sim: bool = False,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
@@ -151,6 +153,8 @@ def get_yam_robot(
         gravity_comp_factor: Per-joint array (6 elements, arm joints only) multiplied against gravity torques.
             Overrides the arm-type default when provided.
         gripper_limits_override: Optional [closed, open] limits. If provided, skips calibration.
+        gripper_kp: Optional gripper kp override. Defaults to gripper_type's default.
+        gripper_kd: Optional gripper kd override. Defaults to gripper_type's default.
         sim: If True, return a SimRobot instead of connecting to real hardware.
     """
     # --- Gripper-only path (no arm) -------------------------------------------
@@ -188,13 +192,15 @@ def get_yam_robot(
 
     if with_gripper:
         motor_type = gripper_type.get_motor_type(arm_type)
-        gripper_kp, gripper_kd = gripper_type.get_motor_kp_kd(arm_type)
-        logging.info(f"adding gripper motor type={motor_type}, kp={gripper_kp}, kd={gripper_kd}")
+        default_kp, default_kd = gripper_type.get_motor_kp_kd(arm_type)
+        _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
+        _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
+        logging.info(f"adding gripper motor type={motor_type}, kp={_gripper_kp}, kd={_gripper_kd}")
         motor_list.append([0x07, motor_type])
         motor_offsets.append(0.0)
         directions.append(gripper_type.get_motor_direction(arm_type))
-        kp = np.append(kp, gripper_kp)
-        kd = np.append(kd, gripper_kd)
+        kp = np.append(kp, _gripper_kp)
+        kd = np.append(kd, _gripper_kd)
 
     if gripper_limits_override is not None and with_gripper:
         gripper_limits = np.asarray(gripper_limits_override)
