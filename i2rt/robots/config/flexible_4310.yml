@@ -1,0 +1,38 @@
+# Last-joint mounting geometry (set on the deepest arm link at runtime)
+# Per-arm transforms account for different wrist geometries.
+last_joint_mount:
+  yam:
+    pos: "0 -0.0398 0.0412"
+    quat: "0.5 -0.5 0.5 0.5"
+    axis: "0 0 -1"
+  yam_pro:
+    pos: "0 -0.0398 0.0412"
+    quat: "0.5 -0.5 0.5 0.5"
+    axis: "0 0 -1"
+  yam_ultra:
+    pos: "0 -0.0398 0.0412"
+    quat: "0.5 -0.5 0.5 0.5"
+    axis: "0 0 -1"
+  big_yam:
+    pos: "0.0334519 0 -0.0412"
+    quat: "0.707107 0 -0.707107 0"
+    axis: "0 0 -1"
+
+# Gripper motor config
+motor_type: "DM4310"
+motor_kp: 20.0
+motor_kd: 0.5
+motor_direction: -1
+
+# Gripper limits (null = needs calibration)
+gripper_limits: null
+needs_calibration: true
+
+# Force limiter config
+limiter:
+  clog_force_threshold: 0.5
+  clog_speed_threshold: 0.3
+  sign: 1.0
+  force_torque_map: "linear"
+  motor_stroke: 6.57
+  gripper_stroke: 0.096

@@ -2,16 +2,15 @@
   <compiler angle="radian" meshdir="assets"/>
 
   <asset>
-    <mesh name="link_6_collision" file="link_6_collision.stl"/>
+    <mesh name="gripper_collision" file="gripper_collision.stl"/>
   </asset>
 
   <worldbody>
-    <body name="link_6" pos="0.0 -0.0398 0.0412" quat="-9.381869e-07 -4.890237e-06 -0.7071064 0.7071072">
+    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
       <inertial pos="-5.10177e-05 -0.00269952 0.0581778" quat="0.98383 0.174699 0.0 0.0" mass="0.55366" diaginertia="0.000956992 0.000799286 0.000469547"/>
-                <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
-                <geom pos="-5.10177e-05 -0.00269952 0.0481778" quat="1 -1 -1 -1" type="mesh" rgba="1 0.6 0 1" mesh="link_6_collision"/>
-                <site name="tcp_site" pos="0 0 0" quat="1 0 0 -1" size="0.005" rgba="1 0 0 1"/>
-                <site name="grasp_site" pos="0 0 0.1347" quat="1 0 0 -1" size="0.005" rgba="0 1 0 1"/>
+      <geom pos="-5.10177e-05 -0.00269952 0.0481778" quat="1 -1 -1 -1" type="mesh" rgba="1 0.6 0 1" mesh="gripper_collision"/>
+      <site name="tcp_site" pos="0 0 0" quat="1 0 0 -1" size="0.005" rgba="1 0 0 1"/>
+      <site name="grasp_site" pos="0 0 0.1347" quat="1 0 0 -1" size="0.005" rgba="0 1 0 1"/>
     </body>
   </worldbody>
 </mujoco>

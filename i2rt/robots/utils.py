@@ -5,56 +5,210 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from copy import deepcopy
-from functools import partial
+from dataclasses import dataclass
+from functools import lru_cache, partial
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+import yaml
 
 from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
 
-# Arm XML paths
-ARM_YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arm/yam/yam.xml")
-ARM_YAM_PRO_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arm/yam_pro/yam_pro.xml")
-ARM_YAM_ULTRA_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arm/yam_ultra/yam_ultra.xml")
-ARM_BIG_YAM_XML_PATH = os.path.join(I2RT_ROOT, "robot_models/arm/big_yam/big_yam.xml")
+logger = logging.getLogger(__name__)
 
-# Gripper XML paths
-GRIPPER_CRANK_4310_PATH = os.path.join(I2RT_ROOT, "robot_models/gripper/crank_4310/crank_4310.xml")
-GRIPPER_LINEAR_3507_PATH = os.path.join(I2RT_ROOT, "robot_models/gripper/linear_3507/linear_3507.xml")
-GRIPPER_LINEAR_4310_PATH = os.path.join(I2RT_ROOT, "robot_models/gripper/linear_4310/linear_4310.xml")
-GRIPPER_TEACHING_HANDLE_PATH = os.path.join(
-    I2RT_ROOT, "robot_models/gripper/yam_teaching_handle/yam_teaching_handle.xml"
+
+# ---------------------------------------------------------------------------
+# Per-gripper hardware config — loaded from YAML at runtime.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class _GripperHWConfig:
+    mount_pos: str
+    mount_quat: str
+    mount_axis: str
+    motor_type: str
+    motor_kp: float
+    motor_kd: float
+    gripper_limits: Optional[tuple[float, float]]
+    needs_calibration: bool
+    motor_direction: int  # motor polarity for the gripper (+1 or -1)
+    limiter_params: Optional[dict]  # raw limiter section from YAML
+
+
+@lru_cache(maxsize=None)
+def _load_gripper_config(gripper_type_value: str, arm_type_value: str) -> _GripperHWConfig:
+    """Load gripper hardware config from the YAML file for the given gripper type.
+
+    Args:
+        gripper_type_value: The gripper type string (e.g. "linear_4310").
+        arm_type_value: The arm type string (e.g. "yam", "big_yam"). Used to
+            select the correct per-arm mounting transform.
+    """
+    config_path = os.path.join(_CONFIG_DIR, f"{gripper_type_value}.yml")
+    logger.info(f"Loading gripper config from {config_path} (arm={arm_type_value})")
+    with open(config_path) as f:
+        raw = yaml.safe_load(f)
+
+    # Support both legacy "joint6_mount" and new "last_joint_mount" key
+    j_mount_raw = raw.get("last_joint_mount") or raw["joint6_mount"]
+
+    # Per-arm mount transforms: if the mount section has arm sub-keys, select by arm_type.
+    # Otherwise fall back to flat format for backward compatibility.
+    if "pos" in j_mount_raw:
+        # Legacy flat format
+        j_mount = j_mount_raw
+    else:
+        # Per-arm format: pick the sub-key matching arm_type_value
+        if arm_type_value not in j_mount_raw:
+            raise ValueError(
+                f"No mount transform for arm type {arm_type_value!r} in "
+                f"{gripper_type_value}.yml. Available: {list(j_mount_raw.keys())}"
+            )
+        j_mount = j_mount_raw[arm_type_value]
+
+    gripper_limits = raw.get("gripper_limits")
+    if gripper_limits is not None:
+        gripper_limits = tuple(gripper_limits)
+
+    cfg = _GripperHWConfig(
+        mount_pos=j_mount["pos"],
+        mount_quat=j_mount["quat"],
+        mount_axis=j_mount["axis"],
+        motor_type=raw["motor_type"],
+        motor_kp=float(raw["motor_kp"]),
+        motor_kd=float(raw["motor_kd"]),
+        gripper_limits=gripper_limits,
+        needs_calibration=bool(raw["needs_calibration"]),
+        motor_direction=int(raw.get("motor_direction", 1)),
+        limiter_params=raw.get("limiter"),
+    )
+
+    logger.info(f"  motor_type:          {cfg.motor_type}")
+    logger.info(f"  motor_kp:            {cfg.motor_kp}")
+    logger.info(f"  motor_kd:            {cfg.motor_kd}")
+    logger.info(f"  gripper_limits:      {cfg.gripper_limits}")
+    logger.info(f"  needs_calibration:   {cfg.needs_calibration}")
+    logger.info(f"  motor_direction:     {cfg.motor_direction}")
+    logger.info(f"  limiter_params:      {cfg.limiter_params}")
+
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Per-arm hardware config — loaded from YAML at runtime.
+# Only covers the 6 arm joints; the gripper motor (0x07) is appended at runtime.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class _ArmHWConfig:
+    motor_list: tuple  # ((can_id, motor_type_str), ...) — 6 arm joints
+    directions: tuple  # motor polarity (+1 / -1), one per arm joint
+    kp: np.ndarray  # position gain, one per arm joint
+    kd: np.ndarray  # damping gain,  one per arm joint
+    gravity_comp_factor: np.ndarray  # per-joint factor, one per arm joint (6 elements)
+
+
+@lru_cache(maxsize=None)
+def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
+    """Load arm hardware config from the YAML file for the given arm type."""
+    config_path = os.path.join(_CONFIG_DIR, f"{arm_type.value}.yml")
+    logger.info(f"Loading arm config from {config_path}")
+    with open(config_path) as f:
+        raw = yaml.safe_load(f)
+
+    motor_list = tuple(tuple(m) for m in raw["motor_list"])
+    directions = tuple(raw["directions"])
+    kp = np.array(raw["kp"], dtype=float)
+    kd = np.array(raw["kd"], dtype=float)
+    gravity_comp_factor = np.array(raw["gravity_comp_factor"], dtype=float)
+
+    logger.info(f"  motor_list:          {motor_list}")
+    logger.info(f"  directions:          {directions}")
+    logger.info(f"  kp:                  {kp}")
+    logger.info(f"  kd:                  {kd}")
+    logger.info(f"  gravity_comp_factor: {gravity_comp_factor}")
+
+    return _ArmHWConfig(
+        motor_list=motor_list,
+        directions=directions,
+        kp=kp,
+        kd=kd,
+        gravity_comp_factor=gravity_comp_factor,
+    )
+
+
+from i2rt.robot_models import (
+    ARM_BIG_YAM_XML_PATH,
+    ARM_YAM_PRO_XML_PATH,
+    ARM_YAM_ULTRA_XML_PATH,
+    ARM_YAM_XML_PATH,
+    GRIPPER_CRANK_4310_PATH,
+    GRIPPER_FLEXIBLE_4310_PATH,
+    GRIPPER_LINEAR_3507_PATH,
+    GRIPPER_LINEAR_4310_PATH,
+    GRIPPER_NO_GRIPPER_PATH,
+    GRIPPER_TEACHING_HANDLE_PATH,
 )
-GRIPPER_NO_GRIPPER_PATH = os.path.join(I2RT_ROOT, "robot_models/gripper/no_gripper/no_gripper.xml")
+
+
+def _find_deepest_body(element: ET.Element) -> ET.Element:
+    """Return the deepest (leaf) body in a kinematic chain.
+
+    Walks into the first child ``<body>`` at each level until no more child
+    bodies exist, then returns that leaf body.  This is used to locate the
+    tip of the arm chain where the gripper should be appended.
+    """
+    current = element
+    while True:
+        child_bodies = [c for c in current if c.tag == "body"]
+        if not child_bodies:
+            return current
+        current = child_bodies[0]
 
 
 def combine_arm_and_gripper_xml(
-    arm_path: str,
-    gripper_path: str,
+    arm_type: "ArmType",
+    gripper_type: "GripperType",
     ee_mass: Optional[float] = None,
     ee_inertia: Optional[np.ndarray] = None,
 ) -> str:
     """Combine arm and gripper XML files into a single XML string.
 
-    Replaces the <body name="link_6"> subtree in the arm XML with the one from the
-    gripper XML (if present). If ee_mass or ee_inertia are provided, update the
-    inertial properties of the resulting link_6. Returns path to combined XML in /tmp/.
+    Appends the ``<body name="gripper">`` subtree from the gripper XML as a
+    child of the deepest body in the arm's kinematic chain.  The last body
+    in the arm chain is located dynamically via ``_find_deepest_body``, and
+    its ``pos``, ``quat``, and first joint's ``axis`` are set from the
+    gripper type's per-arm YAML config.
 
     Args:
-        arm_path: Path to the arm MuJoCo XML file.
-        gripper_path: Path to the gripper MuJoCo XML file. If falsy, the arm XML
-            is used as-is (no gripper replacement).
-        ee_mass: Optional end-effector mass (kg) to override in link_6's inertial.
+        arm_type: ArmType enum value. Determines arm XML path and selects the
+            correct per-arm mounting transform from the gripper's YAML config.
+        gripper_type: GripperType enum value. Determines gripper XML path and
+            mounting geometry from YAML config.
+        ee_mass: Optional end-effector mass (kg) to override in gripper's inertial.
         ee_inertia: Optional end-effector inertia array. Expected as a flat array of
             10 elements: [ipos(3), quat(4), diaginertia(3)].
 
     Returns:
         Path to the combined XML file written to /tmp/.
     """
+    arm_path = arm_type.get_xml_path()
+    gripper_path = gripper_type.get_xml_path()
+
     arm_tree = ET.parse(arm_path)
     arm_root = arm_tree.getroot()
+
+    # Set last-joint mounting geometry from gripper config (per-arm)
+    cfg = _load_gripper_config(gripper_type.value, arm_type.value)
+    worldbody = arm_root.find("worldbody")
+    if worldbody is not None:
+        last_link = _find_deepest_body(worldbody)
+        last_link.set("pos", cfg.mount_pos)
+        last_link.set("quat", cfg.mount_quat)
+        last_joint = last_link.find("joint")
+        if last_joint is not None:
+            last_joint.set("axis", cfg.mount_axis)
 
     # Resolve arm mesh paths to absolute
     arm_dir = os.path.dirname(os.path.abspath(arm_path))
@@ -71,14 +225,12 @@ def combine_arm_and_gripper_xml(
     if arm_compiler is not None and arm_compiler.get("meshdir"):
         del arm_compiler.attrib["meshdir"]
 
-    # attempt to load gripper and replace link_6 if available
+    # attempt to load gripper and attach gripper body if available
     if gripper_path:
         try:
             grip_tree = ET.parse(gripper_path)
             grip_root = grip_tree.getroot()
-            grip_body = grip_root.find(".//body[@name='link_6']")
-            if grip_body is None:
-                grip_body = grip_root.find(".//body[@name='link6']")
+            grip_body = grip_root.find(".//body[@name='gripper']")
         except Exception:
             grip_root = None
             grip_body = None
@@ -109,19 +261,29 @@ def combine_arm_and_gripper_xml(
                         arm_asset.append(elem)
                         existing.add(key)
 
-        # replace arm's link_6 with gripper's if found
+        # Attach gripper body to the arm.
+        # If the arm still has a legacy <body name="gripper"> placeholder, replace it.
+        # Otherwise append the gripper body as a child of the deepest arm body.
         if grip_body is not None:
-            replaced = False
-            for parent in arm_root.iter():
-                children = list(parent)
-                for idx, child in enumerate(children):
-                    if child.tag == "body" and child.get("name") in ("link_6", "link6"):
-                        parent.remove(child)
-                        parent.insert(idx, deepcopy(grip_body))
-                        replaced = True
-                        break
-                if replaced:
+            existing_gripper = arm_root.find(".//body[@name='gripper']")
+            if existing_gripper is not None:
+                # Legacy path: replace the placeholder
+                for parent in arm_root.iter():
+                    children = list(parent)
+                    for idx, child in enumerate(children):
+                        if child.tag == "body" and child.get("name") == "gripper":
+                            parent.remove(child)
+                            parent.insert(idx, deepcopy(grip_body))
+                            break
+                    else:
+                        continue
                     break
+            else:
+                # New path: append gripper body to the deepest body in the arm chain
+                worldbody = arm_root.find("worldbody")
+                if worldbody is not None:
+                    tip_body = _find_deepest_body(worldbody)
+                    tip_body.append(deepcopy(grip_body))
 
         # merge optional top-level sections (equality, contact) from gripper
         if grip_root is not None:
@@ -135,11 +297,9 @@ def combine_arm_and_gripper_xml(
                 for child in grip_section:
                     arm_section.append(deepcopy(child))
 
-    # find resulting link_6 and apply end-effector overrides (mass/inertia)
+    # find resulting gripper body and apply end-effector overrides (mass/inertia)
     if ee_mass is not None or ee_inertia is not None:
-        res_body = arm_root.find(".//body[@name='link_6']")
-        if res_body is None:
-            res_body = arm_root.find(".//body[@name='link6']")
+        res_body = arm_root.find(".//body[@name='gripper']")
         if res_body is not None:
             inertial = res_body.find("inertial")
             if inertial is None:
@@ -158,7 +318,9 @@ def combine_arm_and_gripper_xml(
                 inertial.set("diaginertia", diagin)
 
     # write combined xml to /tmp/ and return filepath
-    out_path = tempfile.NamedTemporaryFile(suffix=".xml", prefix="i2rt_combined_", delete=False, dir="/tmp").name
+    out_path = tempfile.NamedTemporaryFile(
+        suffix=".xml", prefix=f"i2rt_{arm_type.value}_{gripper_type.value}_", delete=False, dir="/tmp"
+    ).name
     arm_tree.write(out_path, encoding="utf-8", xml_declaration=True)
     return out_path
 
@@ -168,6 +330,7 @@ class ArmType(enum.Enum):
     YAM_PRO = "yam_pro"
     YAM_ULTRA = "yam_ultra"
     BIG_YAM = "big_yam"
+    NO_ARM = "no_arm"
 
     @classmethod
     def from_string_name(cls, name: str) -> "ArmType":
@@ -189,6 +352,8 @@ class ArmType(enum.Enum):
             ArmType.YAM_ULTRA: ARM_YAM_ULTRA_XML_PATH,
             ArmType.BIG_YAM: ARM_BIG_YAM_XML_PATH,
         }
+        if self == ArmType.NO_ARM:
+            raise ValueError("NO_ARM has no XML path; use the gripper XML directly.")
         if self not in _xml_map:
             raise ValueError(f"Unknown arm type: {self}")
         return _xml_map[self]
@@ -198,6 +363,7 @@ class GripperType(enum.Enum):
     CRANK_4310 = "crank_4310"  # a 4310 motor with a crank
     LINEAR_3507 = "linear_3507"  # a 3507 motor with a linear actuator
     LINEAR_4310 = "linear_4310"  # a 4310 motor with a linear actuator
+    FLEXIBLE_4310 = "flexible_4310"  # a 4310 motor with flexible soft tips
 
     # technically not a gripper
     YAM_TEACHING_HANDLE = "yam_teaching_handle"
@@ -216,19 +382,20 @@ class GripperType(enum.Enum):
     def available_grippers(cls) -> List[str]:
         return [gripper.value for gripper in GripperType]
 
-    def get_gripper_limits(self) -> Optional[tuple[float, float]]:
-        if self == GripperType.CRANK_4310:
-            return 0.0, -2.7
-        return None
+    def get_gripper_limits(self, arm_type: "ArmType") -> Optional[tuple[float, float]]:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.gripper_limits
 
-    def get_gripper_needs_calibration(self) -> bool:
-        return self in (GripperType.LINEAR_3507, GripperType.LINEAR_4310)
+    def get_gripper_needs_calibration(self, arm_type: "ArmType") -> bool:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.needs_calibration
 
     def get_xml_path(self) -> str:
         _xml_map = {
             GripperType.CRANK_4310: GRIPPER_CRANK_4310_PATH,
             GripperType.LINEAR_3507: GRIPPER_LINEAR_3507_PATH,
             GripperType.LINEAR_4310: GRIPPER_LINEAR_4310_PATH,
+            GripperType.FLEXIBLE_4310: GRIPPER_FLEXIBLE_4310_PATH,
             GripperType.YAM_TEACHING_HANDLE: GRIPPER_TEACHING_HANDLE_PATH,
             GripperType.NO_GRIPPER: GRIPPER_NO_GRIPPER_PATH,
         }
@@ -236,72 +403,55 @@ class GripperType(enum.Enum):
             raise ValueError(f"Unknown gripper type: {self}")
         return _xml_map[self]
 
-    def get_motor_kp_kd(self) -> tuple[float, float]:
-        if self in (GripperType.CRANK_4310, GripperType.LINEAR_4310):
-            return 20, 0.5
-        elif self == GripperType.LINEAR_3507:
-            return 10, 0.3
-        elif self in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER):
-            return -1.0, -1.0
-        else:
-            raise ValueError(f"Unknown gripper type: {self}")
+    def get_motor_kp_kd(self, arm_type: "ArmType") -> tuple[float, float]:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.motor_kp, cfg.motor_kd
 
-    def get_motor_type(self) -> str:
-        if self in (GripperType.CRANK_4310, GripperType.LINEAR_4310):
-            return "DM4310"
-        elif self == GripperType.LINEAR_3507:
-            return "DM3507"
-        elif self in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER):
-            return ""
-        else:
-            raise ValueError(f"Unknown gripper type: {self}")
+    def get_motor_type(self, arm_type: "ArmType") -> str:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.motor_type
 
-    def get_gripper_limiter_params(self) -> tuple[float, float, float, callable]:
+    def get_motor_direction(self, arm_type: "ArmType") -> int:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.motor_direction
+
+    def get_gripper_limiter_params(self, arm_type: "ArmType") -> tuple[float, float, float, callable]:
         """
         clog_force_threshold: float,
         clog_speed_threshold: float,
         sign: float,
         gripper_force_torque_map: callable,
         """
-        if self == GripperType.CRANK_4310:
-            return (
-                0.5,
-                0.2,
-                1.0,
-                partial(
-                    zero_linkage_crank_gripper_force_torque_map,
-                    motor_reading_to_crank_angle=lambda x: -x + 0.174,
-                    gripper_close_angle=8 / 180.0 * np.pi,
-                    gripper_open_angle=170 / 180.0 * np.pi,
-                    gripper_stroke=0.071,  # unit in meter
-                ),
-            )
-        elif self == GripperType.LINEAR_3507:
-            return (
-                0.5,
-                0.3,
-                1.0,
-                partial(
-                    linear_gripper_force_torque_map,
-                    motor_stroke=6.57,
-                    gripper_stroke=0.096,
-                ),
-            )
-        elif self == GripperType.LINEAR_4310:
-            return (
-                0.5,
-                0.3,
-                1.0,
-                partial(
-                    linear_gripper_force_torque_map,
-                    motor_stroke=6.57,
-                    gripper_stroke=0.096,
-                ),
-            )
-        elif self in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER):
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        lim = cfg.limiter_params
+        if lim is None:
             return -1.0, -1.0, -1.0, None
+
+        map_type = lim["force_torque_map"]
+        if map_type == "linear":
+            fn = partial(
+                linear_gripper_force_torque_map,
+                motor_stroke=lim["motor_stroke"],
+                gripper_stroke=lim["gripper_stroke"],
+            )
+        elif map_type == "crank":
+            offset = lim["motor_reading_offset"]
+            fn = partial(
+                zero_linkage_crank_gripper_force_torque_map,
+                motor_reading_to_crank_angle=lambda x, o=offset: -x + o,
+                gripper_close_angle=lim["gripper_close_angle"],
+                gripper_open_angle=lim["gripper_open_angle"],
+                gripper_stroke=lim["gripper_stroke"],
+            )
         else:
-            raise ValueError(f"Unknown gripper type: {self}")
+            raise ValueError(f"Unknown force_torque_map type: {map_type}")
+
+        return (
+            lim["clog_force_threshold"],
+            lim["clog_speed_threshold"],
+            lim["sign"],
+            fn,
+        )
 
 
 class JointMapper:
@@ -440,6 +590,7 @@ class GripperForceLimiter:
         self,
         max_force: float,
         gripper_type: GripperType,
+        arm_type: "ArmType",
         kp: float,
         average_torque_window: float = 0.1,  # in seconds
         debug: bool = False,
@@ -453,7 +604,7 @@ class GripperForceLimiter:
         self.average_torque_window = average_torque_window
         self.debug = debug
         (self.clog_force_threshold, self.clog_speed_threshold, self.sign, _gripper_force_torque_map) = (
-            self.gripper_type.get_gripper_limiter_params()
+            self.gripper_type.get_gripper_limiter_params(arm_type)
         )
         self.gripper_force_torque_map = partial(
             _gripper_force_torque_map,
@@ -519,12 +670,12 @@ class GripperForceLimiter:
 
 def detect_gripper_limits(
     motor_chain: DMChainCanInterface,
-    gripper_index: int = 6,
+    gripper_index: int,
     test_torque: float = 0.2,
     max_duration: float = 2.0,
     position_threshold: float = 0.01,
     check_interval: float = 0.1,
-) -> List[float]:
+) -> Tuple[float, float]:
     """
     Detect gripper limits by applying test torques and monitoring position changes.
 
@@ -596,10 +747,10 @@ def detect_gripper_limits(
     # Order based on motor direction
     if motor_direction > 0:
         # Positive direction: [max, min]
-        detected_limits = [max_pos, min_pos]
+        detected_limits = (max_pos, min_pos)
     else:
         # Negative direction: [min, max]
-        detected_limits = [min_pos, max_pos]
+        detected_limits = (min_pos, max_pos)
 
     logger.info(f"Motor direction: {motor_direction}, detected limits: {detected_limits}")
     return detected_limits

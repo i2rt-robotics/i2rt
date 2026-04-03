@@ -49,8 +49,10 @@ class CanInterface:
         message = can.Message(arbitration_id=id, data=data, is_extended_id=False)
         for _ in range(max_retry):
             try:
+                # logging.info("Sending message: %s at %f", message, time.time())
                 self.bus.send(message)
-                response = self._receive_message(motor_id, timeout=0.2)
+                response = self._receive_message(motor_id, timeout=0.01)
+                # logging.info("Received response: %s at %f", response, time.time())
 
                 if expected_id is None:
                     expected_id = self.receive_mode.get_receive_id(motor_id)
@@ -100,16 +102,11 @@ class CanInterface:
         start_time = time.time()
         while (time.time() - start_time) < timeout:
             if self.use_buffered_reader:
-                # Use BufferedReader to get the message
-                message = self.buffered_reader.get_message(timeout=0.002)
+                message = self.buffered_reader.get_message(timeout=0.001)
             else:
-                message = self.bus.recv(timeout=0.002)
+                message = self.bus.recv(timeout=0.001)
             if message:
                 return message
-            else:
-                message = self.bus.recv(timeout=0.0008)
-                if message:
-                    return message
         if not supress_warning:
             logging.warning(
                 "\033[91m"

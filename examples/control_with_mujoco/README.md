@@ -44,6 +44,7 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 | `--sim` | off | Use simulation instead of real hardware |
 | `--dt` | `0.02` | Control loop timestep in seconds |
 | `--site` | `grasp_site` | Name of the MuJoCo site used as end-effector |
+| `--log` | off | Log joint state and torques to terminal each iteration |
 
 ## Viewer Controls (CONTROL mode)
 

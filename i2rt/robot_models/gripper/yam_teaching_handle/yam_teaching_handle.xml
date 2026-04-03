@@ -2,9 +2,8 @@
   <compiler angle="radian"/>
 
   <worldbody>
-    <body name="link_6" pos="0.00358881 -0.03891574 0.04880005" quat="-9.381869e-07 -4.890237e-06 -0.7071064 0.7071072">
+    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
       <inertial pos="-5.10177e-05 -0.08 0.05" quat="0.98383 0.174699 0.0 0.0" mass="0.258" diaginertia="0.000956992 0.000799286 0.000469547"/>
-      <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
       <site name="tcp_site" pos="-5.10177e-05 -0.08 0.05" quat="1 0 0 -1" size="0.005" rgba="1 0 0 1"/>
     </body>
   </worldbody>

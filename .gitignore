@@ -96,3 +96,5 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 # STL files are copied at build time from i2rt/robot_models/ — do not commit
 docs/public/models/
+
+CLAUDE.md

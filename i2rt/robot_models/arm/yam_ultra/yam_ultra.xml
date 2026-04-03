@@ -32,12 +32,10 @@
               <inertial pos="-3.55003e-05 -0.00717397 0.0375847" quat="0.911516 0.411243 -0.00302177 -0.00303654" mass="0.403307" diaginertia="0.000219794 0.000195686 0.000169647"/>
               <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" actuatorfrcrange="-10 10"/>
               <geom pos="-0.0463995 0.0311519 0.0265" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" rgba="0.827451 0.623529 0.784314 1" mesh="link5"/>
-              <!-- link_6 is replaced at runtime by combine_arm_and_gripper_xml() -->
-              <body name="link_6" pos="2.39858e-07 -0.0419481 0.0404996" quat="0.499998 -0.5 -0.5 -0.500002">
+              <body name="link6" pos="0 0 0" quat="1 0 0 0">
                 <inertial pos="0 0 0" mass="1e-6" diaginertia="1e-9 1e-9 1e-9"/>
                 <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
-                <site name="tcp_site"   pos="0 0 0"      quat="1 0 0 -1" size="0.005" rgba="1 0 0 1"/>
-                <site name="grasp_site" pos="0 0 0.1347" quat="1 0 0 -1" size="0.005" rgba="0 1 0 1"/>
+                <!-- gripper is appended at runtime by combine_arm_and_gripper_xml() -->
               </body>
             </body>
           </body>

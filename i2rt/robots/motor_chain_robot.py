@@ -14,7 +14,7 @@ from i2rt.motor_drivers.dm_driver import (
     PassiveEncoderInfo,
 )
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import GripperForceLimiter, GripperType, JointMapper, detect_gripper_limits
+from i2rt.robots.utils import ArmType, GripperForceLimiter, GripperType, JointMapper, detect_gripper_limits
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 
 
@@ -68,7 +68,7 @@ class MotorChainRobot(Robot):
         xml_path: Optional[str] = None,
         use_gravity_comp: bool = True,
         gravity: Optional[np.ndarray] = None,
-        gravity_comp_factor: float = 1.0,  # New parameter with default value
+        gravity_comp_factor: Optional[np.ndarray] = None,
         gripper_index: Optional[int] = None,  # Zero starting index: if you have a 6 dof arm and last one is gripper: 6
         kp: Union[float, List[float]] = 10.0,
         kd: Union[float, List[float]] = 1.0,
@@ -77,6 +77,7 @@ class MotorChainRobot(Robot):
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
         gripper_type: GripperType = GripperType.LINEAR_4310,
+        arm_type: ArmType = ArmType.YAM,
         temp_record_flag: bool = False,  # whether record the motor's temperature
         enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
         zero_gravity_mode: bool = True,
@@ -132,7 +133,9 @@ class MotorChainRobot(Robot):
         self._clip_motor_torque = clip_motor_torque
         self.motor_chain = motor_chain
         self.use_gravity_comp = use_gravity_comp
-        self.gravity_comp_factor = gravity_comp_factor  # Store the factor
+        self.gravity_comp_factor = (
+            gravity_comp_factor if gravity_comp_factor is not None else np.ones(len(motor_chain))
+        )
 
         # variables for gripper effort limiting
         self._gripper_index = gripper_index
@@ -141,7 +144,7 @@ class MotorChainRobot(Robot):
 
         if self._gripper_index is not None:
             self._gripper_force_limiter = GripperForceLimiter(
-                max_force=limit_gripper_force, gripper_type=gripper_type, kp=kp[gripper_index]
+                max_force=limit_gripper_force, gripper_type=gripper_type, arm_type=arm_type, kp=kp[gripper_index]
             )  # force in newton
             self._limit_gripper_force = limit_gripper_force
 
@@ -207,6 +210,7 @@ class MotorChainRobot(Robot):
         # For SWE-454, check if the current qpos is in the joint limits
         self._check_current_qpos_in_joint_limits()
 
+        self._last_motor_torques: Optional[np.ndarray] = None
         self._stop_event = threading.Event()  # Add a stop event
         self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
         self._server_thread.start()
@@ -317,6 +321,7 @@ class MotorChainRobot(Robot):
             g = self._compute_gravity_compensation(self._joint_state)
             motor_torques = joint_commands.torques + g * self.gravity_comp_factor
             motor_torques = np.clip(motor_torques, -self._clip_motor_torque, self._clip_motor_torque)
+            self._last_motor_torques = motor_torques.copy()
 
             if self._gripper_index is not None:
                 if self._limit_gripper_force > 0 and self._joint_state is not None:
@@ -472,6 +477,10 @@ class MotorChainRobot(Robot):
             int: The number of joints of the robot.
         """
         return len(self.motor_chain)
+
+    def get_motor_torques(self) -> Optional[np.ndarray]:
+        """Return the last computed motor torques (gravity comp + any command torques)."""
+        return self._last_motor_torques
 
     def get_joint_pos(self) -> np.ndarray:
         """Get the current state of the leader robot, including the gripper in radian.

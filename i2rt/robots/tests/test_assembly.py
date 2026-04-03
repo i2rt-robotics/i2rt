@@ -11,7 +11,7 @@ from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 # Helpers
 # ---------------------------------------------------------------------------
 
-ALL_ARM_GRIPPER_COMBOS = [(arm, gripper) for arm in ArmType for gripper in GripperType]
+ALL_ARM_GRIPPER_COMBOS = [(arm, gripper) for arm in ArmType for gripper in GripperType if arm != ArmType.NO_ARM]
 
 
 def _combo_id(val: object) -> str:
@@ -55,23 +55,20 @@ def _get_body_inertials(root: ET.Element) -> dict:
     return result
 
 
-def _find_link6(root: ET.Element) -> ET.Element | None:
-    """Find the link_6 or link6 body element."""
-    elem = root.find(".//body[@name='link_6']")
-    if elem is None:
-        elem = root.find(".//body[@name='link6']")
-    return elem
+def _find_gripper(root: ET.Element) -> ET.Element | None:
+    """Find the gripper body element."""
+    return root.find(".//body[@name='gripper']")
 
 
 # ---------------------------------------------------------------------------
-# Test 1: combine_xml produces valid, parseable XML with link_6
+# Test 1: combine_xml produces valid, parseable XML with gripper body
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_combine_xml_produces_valid_xml(arm: ArmType, gripper: GripperType) -> None:
     """combine_arm_and_gripper_xml should produce valid XML for every combo."""
-    out_path = combine_arm_and_gripper_xml(arm.get_xml_path(), gripper.get_xml_path())
+    out_path = combine_arm_and_gripper_xml(arm, gripper)
 
     assert isinstance(out_path, str)
     assert out_path.endswith(".xml")
@@ -79,7 +76,7 @@ def test_combine_xml_produces_valid_xml(arm: ArmType, gripper: GripperType) -> N
     tree = ET.parse(out_path)
     root = tree.getroot()
 
-    assert _find_link6(root) is not None, "Combined XML must contain a body named 'link_6' or 'link6'"
+    assert _find_gripper(root) is not None, "Combined XML must contain a body named 'gripper'"
 
 
 # ---------------------------------------------------------------------------
@@ -89,20 +86,21 @@ def test_combine_xml_produces_valid_xml(arm: ArmType, gripper: GripperType) -> N
 
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_combined_xml_preserves_dofs(arm: ArmType, gripper: GripperType) -> None:
-    """Joint count in combined XML should equal arm joints (link_6 joint comes from gripper)."""
+    """Joint count in combined XML should equal arm joints (gripper body's joint comes from gripper)."""
     arm_root = ET.parse(arm.get_xml_path()).getroot()
     gripper_root = ET.parse(gripper.get_xml_path()).getroot()
-    combined_root = ET.parse(combine_arm_and_gripper_xml(arm.get_xml_path(), gripper.get_xml_path())).getroot()
+    combined_root = ET.parse(combine_arm_and_gripper_xml(arm, gripper)).getroot()
 
     arm_joints = _count_joints(arm_root)
     gripper_joints = _count_joints(gripper_root)
     combined_joints = _count_joints(combined_root)
 
-    # The arm has joints 1-6. The gripper replaces link_6, which carries joint6.
-    # So combined = arm_joints - 1 (arm's joint6 removed) + gripper_joints.
-    expected = arm_joints - 1 + gripper_joints
+    # The arm defines only its own joints (no gripper placeholder).
+    # The gripper body (with its joints) is appended at runtime.
+    # So combined = arm_joints + gripper_joints.
+    expected = arm_joints + gripper_joints
     assert combined_joints == expected, (
-        f"Expected {expected} joints (arm={arm_joints} - 1 + gripper={gripper_joints}), got {combined_joints}"
+        f"Expected {expected} joints (arm={arm_joints} + gripper={gripper_joints}), got {combined_joints}"
     )
 
 
@@ -113,65 +111,64 @@ def test_combined_xml_preserves_dofs(arm: ArmType, gripper: GripperType) -> None
 
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_combined_xml_preserves_link_properties(arm: ArmType, gripper: GripperType) -> None:
-    """Bodies other than link_6 should keep arm inertials; link_6 gets gripper's."""
+    """Bodies other than gripper should keep arm inertials; gripper body gets gripper's."""
     arm_root = ET.parse(arm.get_xml_path()).getroot()
     gripper_root = ET.parse(gripper.get_xml_path()).getroot()
-    combined_root = ET.parse(combine_arm_and_gripper_xml(arm.get_xml_path(), gripper.get_xml_path())).getroot()
+    combined_root = ET.parse(combine_arm_and_gripper_xml(arm, gripper)).getroot()
 
     arm_inertials = _get_body_inertials(arm_root)
     gripper_inertials = _get_body_inertials(gripper_root)
     combined_inertials = _get_body_inertials(combined_root)
 
-    link6_names = {"link_6", "link6"}
+    gripper_name = "gripper"
 
-    # Non-link_6 bodies: must match arm values
+    # Non-gripper bodies: must match arm values
     for name, arm_val in arm_inertials.items():
-        if name in link6_names:
+        if name == gripper_name:
             continue
         assert name in combined_inertials, f"Body '{name}' missing from combined XML"
         assert combined_inertials[name] == arm_val, (
             f"Inertial mismatch for body '{name}': arm={arm_val}, combined={combined_inertials[name]}"
         )
 
-    # link_6: should match gripper's definition (if gripper defines one)
-    for l6_name in link6_names:
-        if l6_name in gripper_inertials and gripper_inertials[l6_name] is not None:
-            assert l6_name in combined_inertials, f"Body '{l6_name}' missing from combined XML"
-            grip_val = gripper_inertials[l6_name]
-            comb_val = combined_inertials[l6_name]
-            assert comb_val is not None, "Combined XML link_6 inertial is None but gripper defines one"
-            assert comb_val["mass"] == grip_val["mass"], (
-                f"link_6 mass mismatch: gripper={grip_val['mass']}, combined={comb_val['mass']}"
-            )
-            assert comb_val["diaginertia"] == grip_val["diaginertia"], (
-                f"link_6 diaginertia mismatch: gripper={grip_val['diaginertia']}, combined={comb_val['diaginertia']}"
-            )
+    # gripper body: should match gripper's definition (if gripper defines one)
+    if gripper_name in gripper_inertials and gripper_inertials[gripper_name] is not None:
+        assert gripper_name in combined_inertials, f"Body '{gripper_name}' missing from combined XML"
+        grip_val = gripper_inertials[gripper_name]
+        comb_val = combined_inertials[gripper_name]
+        assert comb_val is not None, "Combined XML gripper inertial is None but gripper defines one"
+        assert comb_val["mass"] == grip_val["mass"], (
+            f"gripper mass mismatch: gripper={grip_val['mass']}, combined={comb_val['mass']}"
+        )
+        assert comb_val["diaginertia"] == grip_val["diaginertia"], (
+            f"gripper diaginertia mismatch: gripper={grip_val['diaginertia']}, combined={comb_val['diaginertia']}"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Test 4: custom ee_mass / ee_inertia override link_6 properties
+# Test 4: custom ee_mass / ee_inertia override gripper body properties
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_combine_xml_with_custom_ee_mass_inertia(arm: ArmType, gripper: GripperType) -> None:
-    """Passing ee_mass and ee_inertia should override link_6 inertial attributes."""
+    """Passing ee_mass and ee_inertia should override gripper inertial attributes."""
     rng = np.random.default_rng(42)
     ee_mass = rng.uniform(0.1, 2.0)
     ee_inertia = rng.uniform(0.001, 1.0, size=10)  # 3 pos + 4 quat + 3 diaginertia
 
     out_path = combine_arm_and_gripper_xml(
-        arm.get_xml_path(),
-        gripper.get_xml_path(),
+        arm,
+        gripper,
         ee_mass=ee_mass,
         ee_inertia=ee_inertia,
     )
     combined_root = ET.parse(out_path).getroot()
 
-    link6 = _find_link6(combined_root)
-    assert link6 is not None
-    inertial = link6.find("inertial")
-    assert inertial is not None, "link_6 should have an <inertial> element after override"
+    gripper_body = _find_gripper(combined_root)
+    assert gripper_body is not None
+    inertial = gripper_body.find("inertial")
+    assert inertial is not None, "gripper body should have an <inertial> element after override"
 
     # Check mass
     assert float(inertial.get("mass")) == pytest.approx(ee_mass), (
@@ -195,8 +192,7 @@ def test_combine_xml_with_custom_ee_mass_inertia(arm: ArmType, gripper: GripperT
     arm_inertials = _get_body_inertials(arm_root)
     combined_inertials = _get_body_inertials(combined_root)
 
-    link6_names = {"link_6", "link6"}
     for name, arm_val in arm_inertials.items():
-        if name in link6_names:
+        if name == "gripper":
             continue
         assert combined_inertials[name] == arm_val, f"Body '{name}' inertial changed unexpectedly after ee override"

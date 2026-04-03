@@ -2,12 +2,13 @@ import numpy as np
 import pytest
 
 from i2rt.robots.kinematics import Kinematics
-from i2rt.robots.utils import ARM_YAM_XML_PATH
+from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
 
 @pytest.fixture
 def kinematics_yam() -> Kinematics:
-    return Kinematics(ARM_YAM_XML_PATH, "grasp_site")
+    combined_path = combine_arm_and_gripper_xml(ArmType.YAM, GripperType.NO_GRIPPER)
+    return Kinematics(combined_path, "grasp_site")
 
 
 def test_fk(kinematics_yam: Kinematics) -> None:
@@ -19,8 +20,8 @@ def test_fk(kinematics_yam: Kinematics) -> None:
     rotation = pose[:3, :3]
     translation = pose[:3, 3]
 
-    start_rot = np.array([[0, 0, -1], [1, 0, 0], [0, -1, 0]])
-    start_trans = np.array([-0.02137, 0.00359, 0.1723])
+    start_rot = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+    start_trans = np.array([0.11333, 0.00359, 0.1723])
     np.testing.assert_allclose(rotation, start_rot, atol=1e-5)
     np.testing.assert_allclose(translation, start_trans, atol=1e-5)
 

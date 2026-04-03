@@ -1,0 +1,29 @@
+# Last-joint mounting geometry (set on the deepest arm link at runtime)
+# Per-arm transforms account for different wrist geometries.
+last_joint_mount:
+  yam:
+    pos: "0.00358881 -0.03891574 0.04880005"
+    quat: "-9.381869e-07 -4.890237e-06 -0.7071064 0.7071072"
+    axis: "0 0 1"
+  yam_pro:
+    pos: "0.00358881 -0.03891574 0.04880005"
+    quat: "-9.381869e-07 -4.890237e-06 -0.7071064 0.7071072"
+    axis: "0 0 1"
+  yam_ultra:
+    pos: "0.00358881 -0.03891574 0.04880005"
+    quat: "-9.381869e-07 -4.890237e-06 -0.7071064 0.7071072"
+    axis: "0 0 1"
+  big_yam:
+    pos: "0.0325676 -0.00358881 -0.04880005"
+    quat: "0.5 0.5 0.5 0.5"
+    axis: "0 0 1"
+
+# No gripper motor
+motor_type: ""
+motor_kp: -1.0
+motor_kd: -1.0
+
+gripper_limits: null
+needs_calibration: false
+
+limiter: null

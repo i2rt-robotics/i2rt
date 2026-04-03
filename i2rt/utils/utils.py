@@ -18,6 +18,7 @@ class RateRecorder:
         self.iteration_count = 0
         self.name = name
         self.min_required_frequency = min_required_frequency
+        self.last_rate: float = 0.0
 
     def __enter__(self):
         return self.start()
@@ -43,6 +44,7 @@ class RateRecorder:
         assert self.last_report_time is not None, "RateRecorder must be started before reporting."
         elapsed_time = time.time() - self.last_report_time
         rate = self.iteration_count / elapsed_time if elapsed_time > 0 else 0
+        self.last_rate = rate
         logging.info(f"{self.name} Total rate: {rate:.2f} iterations per second over {elapsed_time:.2f} seconds.")
         return rate
 

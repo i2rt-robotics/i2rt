@@ -8,9 +8,8 @@
   </asset>
 
   <worldbody>
-    <body name="link_6" pos="2.39858e-07 -0.0419481 0.0404996" quat="0.499998 -0.5 -0.5 -0.500002">
+    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
       <inertial pos="-3.57066e-05 0.000249371 -0.0293133" quat="0.667981 0.744113 -0.00433092 0.00882801" mass="0.303" diaginertia="0.000409686 0.000369758 0.000324415"/>
-      <joint name="joint6" pos="0 0 0" axis="0 0 -1" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
       <geom pos="-0.014 -0.0463995 0.0731" quat="1 0 0 0" type="mesh" rgba="0.109804 0.286275 0.0117647 1" mesh="gripper" contype="0" conaffinity="0"/>
       <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
       <site name="grasp_site" pos="0 0 -0.1347" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
@@ -32,8 +31,8 @@
   </equality>
 
   <contact>
-    <exclude body1="link_6" body2="tip_left"/>
-    <exclude body1="link_6" body2="tip_right"/>
+    <exclude body1="gripper" body2="tip_left"/>
+    <exclude body1="gripper" body2="tip_right"/>
     <exclude body1="tip_left" body2="tip_right"/>
   </contact>
 </mujoco>

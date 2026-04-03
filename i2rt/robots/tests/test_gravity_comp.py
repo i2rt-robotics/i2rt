@@ -19,7 +19,7 @@ _MAX_TORQUE = {
 _DEFAULT_MAX_TORQUE = 20.0  # Nm — same threshold as MotorChainRobot
 NUM_SAMPLES = 20
 
-ALL_ARM_GRIPPER_COMBOS = [(arm, gripper) for arm in ArmType for gripper in GripperType]
+ALL_ARM_GRIPPER_COMBOS = [(arm, gripper) for arm in ArmType for gripper in GripperType if arm != ArmType.NO_ARM]
 
 
 def _combo_id(val: object) -> str:
@@ -40,7 +40,7 @@ def _count_arm_joints(model: mujoco.MjModel) -> int:
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_gravity_comp_torques_in_range(arm: ArmType, gripper: GripperType) -> None:
     """Gravity compensation torques on arm joints should stay below MAX_TORQUE."""
-    model_path = combine_arm_and_gripper_xml(arm.get_xml_path(), gripper.get_xml_path())
+    model_path = combine_arm_and_gripper_xml(arm, gripper)
     kdl = MuJoCoKDL(model_path)
     n_arm = _count_arm_joints(kdl.model)
     joint_ranges = kdl.model.jnt_range[:n_arm]
@@ -63,7 +63,7 @@ def test_gravity_comp_torques_in_range(arm: ArmType, gripper: GripperType) -> No
 @pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
 def test_gravity_comp_at_zero_config(arm: ArmType, gripper: GripperType) -> None:
     """Gravity torques at zero configuration should be finite and within range."""
-    model_path = combine_arm_and_gripper_xml(arm.get_xml_path(), gripper.get_xml_path())
+    model_path = combine_arm_and_gripper_xml(arm, gripper)
     kdl = MuJoCoKDL(model_path)
     n_arm = _count_arm_joints(kdl.model)
 

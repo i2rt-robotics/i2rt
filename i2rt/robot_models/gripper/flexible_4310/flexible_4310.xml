@@ -1,0 +1,40 @@
+<mujoco model="flexible">
+  <compiler angle="radian"/>
+
+  <asset>
+    <mesh name="flexible_base" content_type="model/stl" file="assets/base.stl"/>
+    <mesh name="linear_module" content_type="model/stl" file="assets/linear_module.stl"/>
+    <mesh name="soft_tips" content_type="model/stl" file="assets/soft_tips.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="0 0 0" mass="0.455645" diaginertia="0.0003 0.0003 0.0002"/>
+      <geom type="mesh" quat="0 0.707107 0.707107 0" rgba="0.74902 0.74902 0.74902 1" mesh="flexible_base" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
+      <site name="grasp_site" pos="0 0 -0.1" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
+      <body name="linear_module" pos="-0.02615 0.04395 -0.0547" quat="0.707107 -0.707107 0 0">
+        <inertial pos="0.0206066 0.0299426 -0.0504181" quat="0.764844 0.232608 -0.418301 0.431197" mass="0.120713" diaginertia="9.73585e-05 9.07567e-05 4.0415e-05"/>
+        <joint name="joint7" pos="0 0 0" axis="0 0 -1" type="slide" range="0 0.048" actuatorfrcrange="-10 10"/>
+        <geom pos="0.00406876 0.0123 -0.0209218" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" rgba="0.87451 0.447059 0.317647 1" mesh="linear_module"/>
+        <geom pos="0.006 0.00575867 -0.0451883" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" rgba="0.980392 0.796078 0.262745 1" mesh="soft_tips"/>
+      </body>
+      <body name="linear_module_2" pos="0.02615 -0.04395 -0.0547" quat="0 0 0.707107 -0.707107">
+        <inertial pos="0.0206066 0.0299426 -0.0504181" quat="0.764844 0.232608 -0.418301 0.431197" mass="0.120713" diaginertia="9.73585e-05 9.07567e-05 4.0415e-05"/>
+        <joint name="joint8" pos="0 0 0" axis="0 0 -1" type="slide" range="0 0.048" actuatorfrcrange="-10 10"/>
+        <geom pos="0.006 0.00575867 -0.0451883" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" rgba="0.980392 0.796078 0.262745 1" mesh="soft_tips"/>
+        <geom pos="0.00406876 0.0123 -0.0209218" quat="0.499998 -0.5 -0.5 -0.500002" type="mesh" rgba="0.87451 0.447059 0.317647 1" mesh="linear_module"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <joint joint1="joint7" joint2="joint8" polycoef="0 1 0 0 0"/>
+  </equality>
+
+  <contact>
+    <exclude body1="gripper" body2="linear_module"/>
+    <exclude body1="gripper" body2="linear_module_2"/>
+    <exclude body1="linear_module" body2="linear_module_2"/>
+  </contact>
+</mujoco>

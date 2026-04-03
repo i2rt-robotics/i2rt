@@ -1,0 +1,125 @@
+<?xml version="1.0" ?>
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape document_id: f945e2d475a1f55bbde9dcca -->
+<robot name="output">
+  <!-- Link base -->
+  <link name="base">
+    <inertial>
+      <origin xyz="-5.80059e-09 3.62593e-09 0.0295286" rpy="0 0 0"/>
+      <mass value="0.455645"/>
+      <inertia ixx="0.000236578" ixy="-5.2921e-06" ixz="7.02366e-11" iyy="0.000293432" iyz="-4.41685e-11" izz="0.000264694"/>
+    </inertial>
+    <!-- Part base -->
+    <visual>
+      <origin xyz="0 -3.46945e-18 0" rpy="0 -0 9.19811e-32"/>
+      <geometry>
+        <mesh filename="assets/base.stl"/>
+      </geometry>
+      <material name="base_material">
+        <color rgba="0.74902 0.74902 0.74902 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -3.46945e-18 0" rpy="0 -0 9.19811e-32"/>
+      <geometry>
+        <mesh filename="assets/base.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link linear_module -->
+  <link name="linear_module">
+    <inertial>
+      <origin xyz="0.0206066 0.0299426 -0.0504181" rpy="0 0 0"/>
+      <mass value="0.120713"/>
+      <inertia ixx="8.15537e-05" ixy="-1.49917e-05" ixz="1.35255e-05" iyy="6.63359e-05" iyz="2.21256e-05" izz="8.06405e-05"/>
+    </inertial>
+    <!-- Part linear_module -->
+    <visual>
+      <origin xyz="0.00406876 0.0123 -0.0209218" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/linear_module.stl"/>
+      </geometry>
+      <material name="linear_module_material">
+        <color rgba="0.87451 0.447059 0.317647 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00406876 0.0123 -0.0209218" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/linear_module.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part soft_tips -->
+    <visual>
+      <origin xyz="0.006 0.00575867 -0.0451883" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/soft_tips.stl"/>
+      </geometry>
+      <material name="soft_tips_material">
+        <color rgba="0.980392 0.796078 0.262745 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.006 0.00575867 -0.0451883" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/soft_tips.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Joint from base to linear_module -->
+  <joint name="tip1" type="prismatic">
+    <origin xyz="0.04395 -0.02615 0.0547" rpy="1.5708 -1.58555e-76 1.5708"/>
+    <parent link="base"/>
+    <child link="linear_module"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-0.048" upper="3.46945e-18"/>
+  </joint>
+  <!-- Link linear_module_2 -->
+  <link name="linear_module_2">
+    <inertial>
+      <origin xyz="0.0206066 0.0299426 -0.0504181" rpy="0 0 0"/>
+      <mass value="0.120713"/>
+      <inertia ixx="8.15537e-05" ixy="-1.49917e-05" ixz="1.35255e-05" iyy="6.63359e-05" iyz="2.21256e-05" izz="8.06405e-05"/>
+    </inertial>
+    <!-- Part soft_tips_2 -->
+    <visual>
+      <origin xyz="0.006 0.00575867 -0.0451883" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/soft_tips.stl"/>
+      </geometry>
+      <material name="soft_tips_2_material">
+        <color rgba="0.980392 0.796078 0.262745 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.006 0.00575867 -0.0451883" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/soft_tips.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part linear_module_2 -->
+    <visual>
+      <origin xyz="0.00406876 0.0123 -0.0209218" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/linear_module.stl"/>
+      </geometry>
+      <material name="linear_module_2_material">
+        <color rgba="0.87451 0.447059 0.317647 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.00406876 0.0123 -0.0209218" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="assets/linear_module.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Joint from base to linear_module_2 -->
+  <joint name="tip2" type="prismatic">
+    <origin xyz="-0.04395 0.02615 0.0547" rpy="1.5708 3.82473e-48 -1.5708"/>
+    <parent link="base"/>
+    <child link="linear_module_2"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-0.048" upper="2.42861e-17"/>
+  </joint>
+</robot>
