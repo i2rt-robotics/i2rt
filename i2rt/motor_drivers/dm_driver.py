@@ -510,7 +510,11 @@ class DMChainCanInterface(MotorChain):
         self.running = True
 
     def start_thread(self) -> None:
+        if self.start_thread_flag:
+            logging.info("control loop thread already started, skipping")
+            return
         logging.info("starting separate thread for control loop")
+        self.start_thread_flag = True
         thread = threading.Thread(target=self._set_torques_and_update_state)
         thread.start()
         time.sleep(0.1)

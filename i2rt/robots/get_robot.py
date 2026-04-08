@@ -215,10 +215,7 @@ def get_yam_robot(
 
     # --- Real hardware path ---------------------------------------------------
 
-    # Create chain with start_thread=True so thread lifecycle is handled in one place.
-    # _motor_on() runs during DMChainCanInterface initialization regardless of thread mode.
-    # Using the delayed pattern (start_thread=False then manual start_thread()) can trigger
-    # duplicate control-loop startup in downstream robot wiring and stale state updates.
+    # Single pass: create chain, read positions, fix wrap-around offsets in-place, then start thread.
     motor_chain = DMChainCanInterface(
         motor_list,
         motor_offsets,
@@ -226,12 +223,14 @@ def get_yam_robot(
         channel,
         motor_chain_name="yam_real",
         receive_mode=ReceiveMode.p16,
-        start_thread=True,
+        start_thread=False,
         get_same_bus_device_driver=get_encoder_chain if with_teaching_handle else None,
         use_buffered_reader=False,
     )
-    # Apply wrap-around offset correction after init.
     motor_states = motor_chain.read_states()
+    logging.debug(f"motor_states: {motor_states}")
+
+    logging.info(f"current_pos: {[m.pos for m in motor_states]}")
     for idx, state in enumerate(motor_states):
         if state.pos < -np.pi:
             logging.info(f"motor {idx} pos={state.pos:.3f}, offset -2π")
@@ -239,6 +238,11 @@ def get_yam_robot(
         elif state.pos > np.pi:
             logging.info(f"motor {idx} pos={state.pos:.3f}, offset +2π")
             motor_chain.motor_offset[idx] += 2 * np.pi
+
+    logging.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
+
+    # Start the control thread with corrected offsets.
+    motor_chain.start_thread()
     logging.info(f"YAM initial motor_states: {motor_chain.read_states()}")
 
     get_robot = partial(
