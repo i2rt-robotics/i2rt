@@ -215,10 +215,10 @@ def get_yam_robot(
 
     # --- Real hardware path ---------------------------------------------------
 
-    # Create chain with start_thread=True to avoid _motor_on() being called twice.
-    # The delayed start_thread() pattern (start_thread=False then manual start_thread())
-    # causes _motor_on() to re-initialize motors after offset correction, which disrupts
-    # the control loop and prevents motor positions from updating.
+    # Create chain with start_thread=True so thread lifecycle is handled in one place.
+    # _motor_on() runs during DMChainCanInterface initialization regardless of thread mode.
+    # Using the delayed pattern (start_thread=False then manual start_thread()) can trigger
+    # duplicate control-loop startup in downstream robot wiring and stale state updates.
     motor_chain = DMChainCanInterface(
         motor_list,
         motor_offsets,
