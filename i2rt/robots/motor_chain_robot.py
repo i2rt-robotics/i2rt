@@ -87,6 +87,11 @@ class MotorChainRobot(Robot):
         position_threshold: float = 0.01,  # minimum position change to consider motor still moving (rad)
         check_interval: float = 0.05,  # time interval between checks (s)
         pinned_cpu: int | None = None,
+        # Coulomb friction feedforward (lands in the MIT-mode Cff/torque slot).
+        # Helps small leader motions overcome static friction without raising kp.
+        enable_friction_comp: bool = False,
+        friction_comp_breakaway: Optional[Union[float, List[float], np.ndarray]] = None,
+        friction_comp_eps: float = 0.01,
         joint_state_saver_factory: Optional[Callable[[], Any]] = None,
         set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     ) -> None:
@@ -174,6 +179,25 @@ class MotorChainRobot(Robot):
             if isinstance(kd, float)
             else np.array(kd)
         )
+
+        self._enable_friction_comp = enable_friction_comp
+        self._friction_comp_eps = float(friction_comp_eps)
+        if friction_comp_breakaway is None:
+            self._friction_comp_breakaway: Optional[np.ndarray] = None
+        else:
+            breakaway = np.asarray(friction_comp_breakaway, dtype=float)
+            if breakaway.ndim == 0:
+                breakaway = np.full(len(motor_chain), float(breakaway))
+            assert breakaway.shape == (len(motor_chain),), (
+                f"friction_comp_breakaway must have shape ({len(motor_chain)},) or be scalar, "
+                f"got shape {breakaway.shape}"
+            )
+            self._friction_comp_breakaway = breakaway
+        if self._enable_friction_comp and self._friction_comp_breakaway is None:
+            logging.warning(
+                f"{self}: enable_friction_comp=True but friction_comp_breakaway is None; "
+                "friction compensation will be a no-op until breakaway is set."
+            )
 
         self._joint_limits: Optional[np.ndarray] = None
         if xml_path is not None:
@@ -319,7 +343,8 @@ class MotorChainRobot(Robot):
             joint_commands = copy.deepcopy(self._commands)
         with self._state_lock:
             g = self._compute_gravity_compensation(self._joint_state)
-            motor_torques = joint_commands.torques + g * self.gravity_comp_factor
+            tau_friction = self._compute_friction_compensation(joint_commands, self._joint_state)
+            motor_torques = joint_commands.torques + g * self.gravity_comp_factor + tau_friction
             motor_torques = np.clip(motor_torques, -self._clip_motor_torque, self._clip_motor_torque)
             self._last_motor_torques = motor_torques.copy()
 
@@ -451,6 +476,45 @@ class MotorChainRobot(Robot):
             temp_rotor=temp_rotor,
             timestamp=timestamp,
         )
+
+    def _compute_friction_compensation(
+        self, joint_commands: "JointCommands", joint_state: Optional[JointStates]
+    ) -> np.ndarray:
+        """Smooth Coulomb feedforward to overcome static friction (stiction).
+
+        Returns ``breakaway * tanh((p_target - p_meas) / eps)`` per joint, which
+        is summed into the MIT-mode Cff/torque field. The position-error sign
+        (not velocity sign) is used so the comp can break the joint *out* of a
+        stuck state — sign(v) is zero precisely when stuck.
+        """
+        if (
+            not self._enable_friction_comp
+            or self._friction_comp_breakaway is None
+            or joint_state is None
+        ):
+            return np.zeros(len(self.motor_chain))
+        err = joint_commands.pos - joint_state.pos
+        return self._friction_comp_breakaway * np.tanh(err / self._friction_comp_eps)
+
+    def set_friction_comp(
+        self,
+        enable: bool,
+        breakaway: Optional[Union[float, List[float], np.ndarray]] = None,
+        eps: Optional[float] = None,
+    ) -> None:
+        """Update friction-comp settings at runtime (mirrors update_kp_kd)."""
+        with self._command_lock:
+            self._enable_friction_comp = enable
+            if eps is not None:
+                self._friction_comp_eps = float(eps)
+            if breakaway is not None:
+                arr = np.asarray(breakaway, dtype=float)
+                if arr.ndim == 0:
+                    arr = np.full(len(self.motor_chain), float(arr))
+                assert arr.shape == (len(self.motor_chain),), (
+                    f"breakaway must have shape ({len(self.motor_chain)},) or be scalar, got {arr.shape}"
+                )
+                self._friction_comp_breakaway = arr
 
     def _compute_gravity_compensation(self, joint_state: Optional[Dict[str, np.ndarray]]) -> np.ndarray:
         if joint_state is None or not self.use_gravity_comp:

@@ -35,6 +35,7 @@ class _GripperHWConfig:
     needs_calibration: bool
     motor_direction: int  # motor polarity for the gripper (+1 or -1)
     limiter_params: Optional[dict]  # raw limiter section from YAML
+    friction_comp_breakaway: float  # Coulomb friction breakaway torque (Nm) for the gripper motor
 
 
 @lru_cache(maxsize=None)
@@ -83,15 +84,17 @@ def _load_gripper_config(gripper_type_value: str, arm_type_value: str) -> _Gripp
         needs_calibration=bool(raw["needs_calibration"]),
         motor_direction=int(raw.get("motor_direction", 1)),
         limiter_params=raw.get("limiter"),
+        friction_comp_breakaway=float(raw.get("friction_comp_breakaway", 0.0)),
     )
 
-    logger.info(f"  motor_type:          {cfg.motor_type}")
-    logger.info(f"  motor_kp:            {cfg.motor_kp}")
-    logger.info(f"  motor_kd:            {cfg.motor_kd}")
-    logger.info(f"  gripper_limits:      {cfg.gripper_limits}")
-    logger.info(f"  needs_calibration:   {cfg.needs_calibration}")
-    logger.info(f"  motor_direction:     {cfg.motor_direction}")
-    logger.info(f"  limiter_params:      {cfg.limiter_params}")
+    logger.info(f"  motor_type:              {cfg.motor_type}")
+    logger.info(f"  motor_kp:                {cfg.motor_kp}")
+    logger.info(f"  motor_kd:                {cfg.motor_kd}")
+    logger.info(f"  gripper_limits:          {cfg.gripper_limits}")
+    logger.info(f"  needs_calibration:       {cfg.needs_calibration}")
+    logger.info(f"  motor_direction:         {cfg.motor_direction}")
+    logger.info(f"  limiter_params:          {cfg.limiter_params}")
+    logger.info(f"  friction_comp_breakaway: {cfg.friction_comp_breakaway}")
 
     return cfg
 
@@ -107,6 +110,9 @@ class _ArmHWConfig:
     kp: np.ndarray  # position gain, one per arm joint
     kd: np.ndarray  # damping gain,  one per arm joint
     gravity_comp_factor: np.ndarray  # per-joint factor, one per arm joint (6 elements)
+    friction_comp_enable: bool  # whether friction comp is enabled by default for this arm
+    friction_comp_breakaway: np.ndarray  # per-joint Coulomb breakaway torque (Nm), 6 elements (arm only)
+    friction_comp_eps: float  # saturation width (rad) for the smooth-tanh friction comp
 
 
 @lru_cache(maxsize=None)
@@ -123,11 +129,20 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
     kd = np.array(raw["kd"], dtype=float)
     gravity_comp_factor = np.array(raw["gravity_comp_factor"], dtype=float)
 
-    logger.info(f"  motor_list:          {motor_list}")
-    logger.info(f"  directions:          {directions}")
-    logger.info(f"  kp:                  {kp}")
-    logger.info(f"  kd:                  {kd}")
-    logger.info(f"  gravity_comp_factor: {gravity_comp_factor}")
+    fc_raw = raw.get("friction_comp") or {}
+    n_arm = len(motor_list)
+    friction_comp_enable = bool(fc_raw.get("enable", False))
+    friction_comp_breakaway = np.array(fc_raw.get("breakaway", [0.0] * n_arm), dtype=float)
+    friction_comp_eps = float(fc_raw.get("eps", 0.01))
+
+    logger.info(f"  motor_list:              {motor_list}")
+    logger.info(f"  directions:              {directions}")
+    logger.info(f"  kp:                      {kp}")
+    logger.info(f"  kd:                      {kd}")
+    logger.info(f"  gravity_comp_factor:     {gravity_comp_factor}")
+    logger.info(f"  friction_comp.enable:    {friction_comp_enable}")
+    logger.info(f"  friction_comp.breakaway: {friction_comp_breakaway}")
+    logger.info(f"  friction_comp.eps:       {friction_comp_eps}")
 
     return _ArmHWConfig(
         motor_list=motor_list,
@@ -135,6 +150,9 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         kp=kp,
         kd=kd,
         gravity_comp_factor=gravity_comp_factor,
+        friction_comp_enable=friction_comp_enable,
+        friction_comp_breakaway=friction_comp_breakaway,
+        friction_comp_eps=friction_comp_eps,
     )
 
 
@@ -406,6 +424,10 @@ class GripperType(enum.Enum):
     def get_motor_kp_kd(self, arm_type: "ArmType") -> tuple[float, float]:
         cfg = _load_gripper_config(self.value, arm_type.value)
         return cfg.motor_kp, cfg.motor_kd
+
+    def get_friction_comp_breakaway(self, arm_type: "ArmType") -> float:
+        cfg = _load_gripper_config(self.value, arm_type.value)
+        return cfg.friction_comp_breakaway
 
     def get_motor_type(self, arm_type: "ArmType") -> str:
         cfg = _load_gripper_config(self.value, arm_type.value)

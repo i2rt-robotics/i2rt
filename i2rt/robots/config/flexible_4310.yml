@@ -23,6 +23,7 @@ motor_type: "DM4310"
 motor_kp: 20.0
 motor_kd: 0.5
 motor_direction: -1
+friction_comp_breakaway: 0.0
 
 # Gripper limits (null = needs calibration)
 gripper_limits: null

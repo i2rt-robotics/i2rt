@@ -1,7 +1,7 @@
 import logging
 import xml.etree.ElementTree as ET
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional, Union
 
 import numpy as np
 
@@ -135,6 +135,9 @@ def get_yam_robot(
     ee_inertia: Optional[np.ndarray] = None,
     gravity_comp_factor: Optional[np.ndarray] = None,
     sim: bool = False,
+    enable_friction_comp: Optional[bool] = None,
+    friction_comp_breakaway: Optional[Union[float, List[float], np.ndarray]] = None,
+    friction_comp_eps: Optional[float] = None,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
 ) -> "Robot":
@@ -150,6 +153,11 @@ def get_yam_robot(
         gravity_comp_factor: Per-joint array (6 elements, arm joints only) multiplied against gravity torques.
             Overrides the arm-type default when provided.
         sim: If True, return a SimRobot instead of connecting to real hardware.
+        enable_friction_comp: If None, use the arm YAML default. Otherwise overrides it.
+        friction_comp_breakaway: If None, build from YAML (arm 6 from arm YAML + gripper 1 from
+            gripper YAML). Otherwise an explicit array — pass length 7 to override both arm + gripper,
+            or length 6 for arm-only override (the gripper element is appended from gripper YAML).
+        friction_comp_eps: If None, use the arm YAML default. Otherwise overrides it.
     """
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
@@ -193,6 +201,30 @@ def get_yam_robot(
         directions.append(gripper_type.get_motor_direction(arm_type))
         kp = np.append(kp, gripper_kp)
         kd = np.append(kd, gripper_kd)
+
+    # Resolve friction-comp params: caller's explicit value wins, otherwise fall back to YAML.
+    effective_friction_enable = (
+        hw.friction_comp_enable if enable_friction_comp is None else enable_friction_comp
+    )
+    effective_friction_eps = hw.friction_comp_eps if friction_comp_eps is None else friction_comp_eps
+    if friction_comp_breakaway is None:
+        # Build from YAMLs: arm 6 + gripper 1 (when present).
+        effective_friction_breakaway = hw.friction_comp_breakaway.copy()
+        if with_gripper:
+            effective_friction_breakaway = np.append(
+                effective_friction_breakaway, gripper_type.get_friction_comp_breakaway(arm_type)
+            )
+    else:
+        effective_friction_breakaway = np.asarray(friction_comp_breakaway, dtype=float)
+        # Arm-only override (length 6) — append gripper from YAML so the array matches motor count.
+        if with_gripper and effective_friction_breakaway.shape[0] == len(hw.motor_list):
+            effective_friction_breakaway = np.append(
+                effective_friction_breakaway, gripper_type.get_friction_comp_breakaway(arm_type)
+            )
+    logging.info(
+        f"friction_comp: enable={effective_friction_enable}, "
+        f"breakaway={effective_friction_breakaway}, eps={effective_friction_eps}"
+    )
 
     gripper_limits = gripper_type.get_gripper_limits(arm_type) if with_gripper else None
     gripper_needs_cal = gripper_type.get_gripper_needs_calibration(arm_type) if with_gripper else False
@@ -255,6 +287,9 @@ def get_yam_robot(
         kp=kp,
         kd=kd,
         zero_gravity_mode=zero_gravity_mode,
+        enable_friction_comp=effective_friction_enable,
+        friction_comp_breakaway=effective_friction_breakaway,
+        friction_comp_eps=effective_friction_eps,
         joint_state_saver_factory=joint_state_saver_factory,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,
     )
