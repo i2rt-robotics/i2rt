@@ -8,6 +8,15 @@ export default defineConfig({
   base,
   appearance: true,
 
+  // Force no-cache headers in local preview so changes are always visible after rebuild
+  vite: {
+    preview: {
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+    },
+  },
+
   head: [
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
