@@ -19,7 +19,7 @@ The YAM Box hardware is available for purchase. Software and SDK support is unde
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-9.webp')" alt="YAM Box assembled with two arms and center camera" />
+    <img :src="withBase('/images/yam-box/step-9.png')" alt="YAM Box assembled with two arms and center camera" />
   </figure>
 </div>
 
@@ -30,12 +30,6 @@ The YAM Box hardware is available for purchase. Software and SDK support is unde
 - **Safe testing environments** — Enclosed workspace limits accidental contact during development.
 
 ## What's Inside
-
-<div class="dim-gallery">
-  <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-1.webp')" alt="YAM Box components layout" />
-  </figure>
-</div>
 
 | Component | Details |
 |-----------|---------|
@@ -76,7 +70,7 @@ Open the front cover. Secure the camera mount to the **center mount base** using
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-2.webp')" alt="Step 1: Mount center top camera" />
+    <img :src="withBase('/images/yam-box/setp-1.png')" alt="Step 1: Mount center top camera" />
   </figure>
 </div>
 
@@ -86,7 +80,10 @@ Route the two arm camera cables through the **holes on each side** of the enclos
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-3.webp')" alt="Step 2: Route side camera cables to Mini PC" />
+    <img :src="withBase('/images/yam-box/step-2-1.png')" alt="Step 2: Route side camera cables to Mini PC" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/yam-box/step-2-2.png')" alt="Step 2: Camera cable USB connection to Mini PC" />
   </figure>
 </div>
 
@@ -96,7 +93,10 @@ Close and secure the front cover.
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-4.webp')" alt="Step 3: Close front cover" />
+    <img :src="withBase('/images/yam-box/step-3-1.png')" alt="Step 3: Close front cover" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/yam-box/step-3-2.png')" alt="Step 3: Front cover secured" />
   </figure>
 </div>
 
@@ -106,7 +106,7 @@ Place **4× T-nuts** on each side into the slots of the front two rows. Mount bo
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-5.webp')" alt="Step 4: Mount follower arms with T-nuts and M5×16 screws" />
+    <img :src="withBase('/images/yam-box/step-4.png')" alt="Step 4: Mount follower arms with T-nuts and M5×16 screws" />
   </figure>
 </div>
 
@@ -116,7 +116,10 @@ Plug the **XT30 (2+2) cables** on both sides of the YAM Box into the correspondi
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-6.webp')" alt="Step 5: Connect XT30 power cables to arm bases" />
+    <img :src="withBase('/images/yam-box/step-5-1.png')" alt="Step 5: Connect XT30 power cables to arm bases" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/yam-box/step-5-2.png')" alt="Step 5: XT30 cable connected to arm base" />
   </figure>
 </div>
 
@@ -129,7 +132,10 @@ For each arm-mounted camera:
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-7.webp')" alt="Step 6: Attach camera brackets to arms" />
+    <img :src="withBase('/images/yam-box/step-6-1.png')" alt="Step 6: Attach camera brackets to arms" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/yam-box/step-6-2.png')" alt="Step 6: Camera secured to bracket" />
   </figure>
 </div>
 
@@ -139,13 +145,22 @@ Connect the two **XT30U-F adapter plugs** to the power parallel connector first,
 
 <div class="dim-gallery">
   <figure>
-    <img :src="withBase('/images/yam-box/assembly-step-8.webp')" alt="Step 7: Connect main power via XT30U-F parallel adapter" />
+    <img :src="withBase('/images/yam-box/step-7.png')" alt="Step 7: Connect main power via XT30U-F parallel adapter" />
   </figure>
 </div>
 
 ### Step 8 — Power on
 
 Plug in the power supply and switch on. The Mini PC will boot automatically — the YAM Box is ready to use.
+
+<div class="dim-gallery">
+  <figure>
+    <img :src="withBase('/images/yam-box/step-8-1.png')" alt="Step 8: Power on the YAM Box" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/yam-box/step-8-2.png')" alt="Step 8: YAM Box powered and ready" />
+  </figure>
+</div>
 
 ---
 
