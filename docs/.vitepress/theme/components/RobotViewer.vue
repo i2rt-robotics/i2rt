@@ -41,13 +41,15 @@ onMounted(async () => {
     const H = el.clientHeight
 
     // ── Renderer ──────────────────────────────────────────────────────────────
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+    // Use alpha:true for better Safari compatibility (avoids WebGL context issues
+    // when combined with overflow:hidden + border-radius containers)
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     renderer.setSize(W, H)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.1
+    renderer.shadowMap.type = THREE.PCFShadowMap  // PCFSoftShadowMap requires WebGL2 extensions
+    renderer.toneMapping = THREE.LinearToneMapping // More compatible than ACESFilmic across browsers
+    renderer.toneMappingExposure = 1.0
     el.appendChild(renderer.domElement)
 
     // ── Scene ─────────────────────────────────────────────────────────────────
@@ -55,8 +57,11 @@ onMounted(async () => {
     const bgColor = isDark ? 0x1a1612 : 0xf7f5f2
     const fogColor = isDark ? 0x1a1612 : 0xf7f5f2
     scene = new THREE.Scene()
+    // Set background on the scene (works with alpha:true — CSS bg shows through where fog clears it)
     scene.background = new THREE.Color(bgColor)
     scene.fog = new THREE.FogExp2(fogColor, 0.22)
+    // Set canvas background via CSS for Safari (the alpha:true renderer blends with CSS bg)
+    renderer.domElement.style.background = isDark ? '#1a1612' : '#f7f5f2'
 
     // ── Camera ────────────────────────────────────────────────────────────────
     camera = new THREE.PerspectiveCamera(40, W / H, 0.005, 30)
@@ -366,6 +371,11 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06);
+  /* Safari fix: force GPU compositing layer so WebGL canvas renders correctly
+     inside overflow:hidden + border-radius containers */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 
 .robot-canvas { width: 100%; height: 100%; }
