@@ -427,15 +427,21 @@ class DMChainCanInterface(MotorChain):
         self._rate_recorder = RateRecorder(name=self, report_interval=report_interval)
 
         self.same_bus_device_states = None
-
         self.same_bus_device_lock = threading.Lock()
-        if get_same_bus_device_driver is not None:
-            self.same_bus_device_driver = get_same_bus_device_driver(self.motor_interface)
-        else:
-            self.same_bus_device_driver = None
 
-        self.absolute_positions = None
-        self._motor_on()
+        with self.same_bus_device_lock:
+            if get_same_bus_device_driver is not None:
+                self.same_bus_device_driver = get_same_bus_device_driver(self.motor_interface)
+            else:
+                self.same_bus_device_driver = None
+
+            if self.same_bus_device_driver is not None:
+                drained = self.motor_interface._drain_bus(timeout_s=0.2)
+                if drained:
+                    logging.info(f"Drained {drained} stale frames before motor bring-up")
+
+            self.absolute_positions = None
+            self._motor_on()
         starting_command = []
         for motor_state in self.state:
             starting_command.append(MotorCmd(torque=motor_state.torque))
@@ -499,8 +505,7 @@ class DMChainCanInterface(MotorChain):
 
     def _motor_on(self) -> None:
         motor_feedback = []
-        for _ in range(7):
-            self.motor_interface.try_receive_message(timeout=0.001)
+        self.motor_interface._drain_bus(timeout_s=0.05)
         for motor_id, motor_type in self.motor_list:
             logging.info(f"Turning on motor_id: {motor_id}, motor_type: {motor_type}")
             time.sleep(0.003)
@@ -510,9 +515,12 @@ class DMChainCanInterface(MotorChain):
         self.running = True
 
     def start_thread(self) -> None:
+        if self.start_thread_flag:
+            return
         logging.info("starting separate thread for control loop")
         thread = threading.Thread(target=self._set_torques_and_update_state)
         thread.start()
+        self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
             time.sleep(0.1)

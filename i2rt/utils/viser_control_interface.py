@@ -19,9 +19,18 @@ from typing import Any, Dict, List, Optional
 import mujoco
 import numpy as np
 
+from i2rt.motor_drivers.dm_driver import PassiveEncoderInfo
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
+
+# Teaching-handle button indicator visuals (mirrors mujoco_control_interface.py)
+_BTN_OFF_RGB = (89, 89, 89)
+_BTN_ON_RGB = (26, 230, 26)
+_BTN_RADIUS = 0.022
+# World-vertical offsets (meters along +Z) above the TCP. Index 0 = SYNC (top), 1 = RECORD (bottom).
+_BTN_Z_OFFSETS = [0.10, 0.04]
+_BTN_LABELS = ["SYNC", "RECORD"]
 
 
 class ViserControlInterface:
@@ -63,6 +72,9 @@ class ViserControlInterface:
         self._kd: np.ndarray = info.get("kd", np.full(n, 1.0)).copy()
         self._gripper_index: Optional[int] = info.get("gripper_index")
         self._gripper_limits: Optional[np.ndarray] = info.get("gripper_limits")
+        self._is_sim: bool = info.get("sim", False)
+        # tcp_site is exclusive to the teaching handle; covers sim where motor_chain is absent.
+        self._with_teaching_handle: bool = ee_site == "tcp_site" or self._has_teaching_handle(robot)
 
         # Mesh data — filled by _collect_mesh_geoms()
         self._mesh_geom_ids: List[int] = []
@@ -185,6 +197,37 @@ class ViserControlInterface:
                 ranges.append((float(np.degrees(lo)), float(np.degrees(hi))))
         return ranges
 
+    # ---- Teaching-handle helpers ---------------------------------------------
+
+    @staticmethod
+    def _has_teaching_handle(robot: Robot) -> bool:
+        """Return True if robot has a teaching handle (passive encoder on the same CAN bus)."""
+        chain = getattr(robot, "motor_chain", None)
+        if chain is None:
+            return False
+        return (
+            hasattr(chain, "get_same_bus_device_states")
+            and hasattr(chain, "same_bus_device_driver")
+            and chain.same_bus_device_driver is not None
+        )
+
+    def _get_teaching_handle_state(self) -> Optional[PassiveEncoderInfo]:
+        """Read the latest teaching-handle encoder snapshot, or None if unavailable."""
+        if self._is_sim:
+            return None
+        chain = getattr(self._robot, "motor_chain", None)
+        if chain is None or not hasattr(chain, "get_same_bus_device_states"):
+            return None
+        if getattr(chain, "same_bus_device_driver", None) is None:
+            return None
+        states = chain.get_same_bus_device_states()
+        return states[0] if states else None
+
+    def _get_button_states(self) -> Optional[List[bool]]:
+        """Read teaching-handle button states from real hardware, or None if unavailable."""
+        state = self._get_teaching_handle_state()
+        return list(state.io_inputs) if state is not None else None
+
     # ---- Main -----------------------------------------------------------------
 
     def run(self) -> None:
@@ -206,6 +249,30 @@ class ViserControlInterface:
             scale=0.15,
             visible=False,
         )
+
+        # Teaching-handle button spheres: viser icospheres are immutable in colour, so
+        # add an "off" (gray) and "on" (green) sphere per position and toggle visibility.
+        # Positions are refreshed each frame to track the TCP along world +Z.
+        btn_spheres_off: List[Any] = []
+        btn_spheres_on: List[Any] = []
+        if self._with_teaching_handle:
+            for i in range(len(_BTN_LABELS)):
+                btn_spheres_off.append(
+                    server.scene.add_icosphere(
+                        f"/teaching_handle/btn_{i}_off",
+                        radius=_BTN_RADIUS,
+                        color=_BTN_OFF_RGB,
+                        visible=True,
+                    )
+                )
+                btn_spheres_on.append(
+                    server.scene.add_icosphere(
+                        f"/teaching_handle/btn_{i}_on",
+                        radius=_BTN_RADIUS,
+                        color=_BTN_ON_RGB,
+                        visible=False,
+                    )
+                )
 
         # ---- Shared mutable state (read by loop, written by callbacks) --------
         state: Dict[str, Any] = {"enabled": False, "mode": "vis"}
@@ -246,6 +313,18 @@ class ViserControlInterface:
             with server.gui.add_folder("Gripper"):
                 gripper_slider = server.gui.add_slider("Position", min=0.0, max=1.0, step=0.01, initial_value=0.0)
                 gripper_slider.disabled = True
+
+        # ---- GUI — teaching-handle indicators -------------------------------
+        handle_btn_md: List[Any] = []
+        handle_grip_slider: Optional[Any] = None
+        if self._with_teaching_handle:
+            with server.gui.add_folder("Teaching Handle"):
+                for label in _BTN_LABELS:
+                    handle_btn_md.append(server.gui.add_markdown(f"**{label}** [○]"))
+                handle_grip_slider = server.gui.add_slider(
+                    "Gripper Position", min=0.0, max=1.0, step=0.01, initial_value=0.0
+                )
+                handle_grip_slider.disabled = True
 
         # ---- GUI — PD gains --------------------------------------------------
         kp_sliders: List[Any] = []
@@ -348,6 +427,24 @@ class ViserControlInterface:
                 T = self._ee_pose_4x4()
                 ee_frame.position = T[:3, 3]
                 ee_frame.wxyz = self._mat3_to_wxyz(T[:3, :3])
+
+                if self._with_teaching_handle:
+                    handle_state = self._get_teaching_handle_state()
+                    buttons = list(handle_state.io_inputs) if handle_state is not None else [False, False]
+                    for i, md in enumerate(handle_btn_md):
+                        pressed = bool(buttons[i]) if i < len(buttons) else False
+                        marker = "[●]" if pressed else "[○]"
+                        md.content = f"**{_BTN_LABELS[i]}** {marker}"
+                    ee_pos = T[:3, 3]
+                    for i in range(len(btn_spheres_off)):
+                        pressed = bool(buttons[i]) if i < len(buttons) else False
+                        sphere_pos = ee_pos + np.array([0.0, 0.0, _BTN_Z_OFFSETS[i]])
+                        btn_spheres_off[i].position = sphere_pos
+                        btn_spheres_on[i].position = sphere_pos
+                        btn_spheres_off[i].visible = not pressed
+                        btn_spheres_on[i].visible = pressed
+                    if handle_grip_slider is not None and handle_state is not None:
+                        handle_grip_slider.value = float(np.clip(1.0 - float(handle_state.position), 0.0, 1.0))
 
                 if not state["enabled"]:
                     # Read-only: update sliders to reflect live robot state

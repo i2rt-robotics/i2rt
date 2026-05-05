@@ -11,7 +11,7 @@ import tyro
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import GripperType
+from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
 DEFAULT_ROBOT_PORT = 11333
 
@@ -105,23 +105,39 @@ class YAMLeaderRobot:
 
 @dataclass
 class Args:
-    gripper: Literal["crank_4310", "linear_3507", "linear_4310", "yam_teaching_handle", "no_gripper"] = (
-        "yam_teaching_handle"
-    )
+    arm: Literal["yam", "yam_pro", "yam_ultra", "big_yam", "no_arm"] = "yam"
+    gripper: Literal[
+        "crank_4310", "linear_3507", "linear_4310", "flexible_4310", "yam_teaching_handle", "no_gripper"
+    ] = "yam_teaching_handle"
     mode: Literal["follower", "leader", "visualizer_local", "visualizer_remote"] = "follower"
     server_host: str = "localhost"
     server_port: int = DEFAULT_ROBOT_PORT
     can_channel: str = "can0"
     bilateral_kp: float = 0.0
+    sim: bool = False
+    """Use SimRobot instead of real hardware."""
     ee_mass: Optional[float] = None
     """Override end-effector (link_6) mass in kg for gravity compensation. Defaults to the value in the XML."""
 
 
 def main(args: Args) -> None:
+    arm_type = ArmType.from_string_name(args.arm)
     gripper_type = GripperType.from_string_name(args.gripper)
 
+    if arm_type == ArmType.NO_ARM and gripper_type == GripperType.NO_GRIPPER:
+        raise ValueError("--gripper cannot be 'no_gripper' when --arm is 'no_arm'")
+
+    if args.mode == "leader" and args.sim:
+        raise ValueError("Leader mode requires real hardware (--sim is not supported)")
+
     if "remote" not in args.mode:
-        robot = get_yam_robot(channel=args.can_channel, gripper_type=gripper_type, ee_mass=args.ee_mass)
+        robot = get_yam_robot(
+            channel=args.can_channel,
+            arm_type=arm_type,
+            gripper_type=gripper_type,
+            ee_mass=args.ee_mass,
+            sim=args.sim,
+        )
 
     if args.mode == "follower":
         server_robot = ServerRobot(robot, args.server_port)
@@ -172,7 +188,7 @@ def main(args: Args) -> None:
     elif "visualizer" in args.mode:
         if args.mode == "visualizer_remote":
             robot = ClientRobot(args.server_port, host=args.server_host)
-        xml_path = gripper_type.get_xml_path()
+        xml_path = combine_arm_and_gripper_xml(arm_type, gripper_type)
         model = mujoco.MjModel.from_xml_path(xml_path)
         data = mujoco.MjData(model)
 
@@ -189,10 +205,27 @@ def main(args: Args) -> None:
             while viewer.is_running():
                 step_start = time.time()
                 joint_pos = robot.get_joint_pos()
-                data.qpos[:] = joint_pos[: model.nq]
+                nq = model.nq
+                n = min(len(joint_pos), nq)
+                data.qpos[:n] = joint_pos[:n]
 
-                # sync the model state
-                mujoco.mj_kinematics(model, data)
+                for j in range(model.njnt):
+                    adr = model.jnt_qposadr[j]
+                    if adr >= n:
+                        continue
+                    if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
+                        lo, hi = model.jnt_range[j]
+                        data.qpos[adr] = lo + data.qpos[adr] * (hi - lo)
+
+                for i in range(model.neq):
+                    if model.eq_type[i] != mujoco.mjtEq.mjEQ_JOINT:
+                        continue
+                    adr1 = model.jnt_qposadr[model.eq_obj1id[i]]
+                    adr2 = model.jnt_qposadr[model.eq_obj2id[i]]
+                    coef = model.eq_data[i, :5]
+                    data.qpos[adr2] = np.polyval(coef[::-1], data.qpos[adr1])
+
+                mujoco.mj_forward(model, data)
                 viewer.sync()
                 time_until_next_step = dt - (time.time() - step_start)
                 if time_until_next_step > 0:

@@ -451,8 +451,9 @@ class PassiveJointEncoder:
                 # Validate firmware version
                 actual_version = f"{firmware_info.major}.{firmware_info.minor}.{firmware_info.patch}"
                 if not check_firmware_version(actual_version, expected_config.firmware):
-                    expected_version = parse_firmware_version(expected_config.firmware)
-                    errors.append(f"Encoder {device_id}: Firmware {actual_version} != {expected_version}")
+                    errors.append(
+                        f"Encoder {device_id}: Firmware {actual_version} does not satisfy {expected_config.firmware}"
+                    )
 
             # Auto-fix frequencies if any encoder needs it (check once after reading all data)
             if any(all_data[device_id]["adc_freq"] != expected_config.adc_freq for device_id in all_data):
@@ -463,6 +464,7 @@ class PassiveJointEncoder:
             if any(all_data[device_id]["report_freq"] != expected_config.report_freq for device_id in all_data):
                 logging.info(f"Auto-fixing report frequency to {expected_config.report_freq}")
                 encoder.set_report_frequency(expected_config.report_freq)
+                time.sleep(0.1)
 
             if errors:
                 raise RuntimeError(f"Encoder validation failed for {channel}:\n" + "\n".join(errors))
@@ -471,6 +473,9 @@ class PassiveJointEncoder:
             return all_data
 
         finally:
+            deadline = time.time() + 0.05
+            while time.time() < deadline and bus.recv(timeout=0.001) is not None:
+                pass
             bus.shutdown()
 
 
