@@ -26,7 +26,7 @@ export default defineConfig({
       { text: 'Get Started', link: '/getting-started/installation' },
       { text: 'SDK', link: '/sdk/' },
       { text: 'Examples', link: '/examples/' },
-      { text: 'Releases', link: '/releases/v1.0' },
+      { text: 'Releases', link: '/releases/v1.1' },
       { text: 'i2rt.com', link: 'https://i2rt.com', target: '_blank' },
     ],
 
@@ -93,6 +93,8 @@ export default defineConfig({
             { text: 'Record & Replay', link: '/examples/record-replay' },
             { text: 'Motor Control', link: '/examples/motor-control' },
             { text: 'MuJoCo Control', link: '/examples/control-with-mujoco' },
+            { text: 'Viser Control', link: '/examples/control-with-viser' },
+            { text: 'Minimum Gello', link: '/examples/minimum-gello' },
           ],
         },
       ],
@@ -100,6 +102,7 @@ export default defineConfig({
         {
           text: 'Release Notes',
           items: [
+            { text: 'v1.1', link: '/releases/v1.1' },
             { text: 'v1.0', link: '/releases/v1.0' },
           ],
         },

@@ -1,6 +1,6 @@
 # Grippers
 
-YAM supports five interchangeable end-effector options. The gripper type is specified when creating the robot:
+YAM supports six interchangeable end-effector options. The gripper type is specified when creating the robot:
 
 ```python
 from i2rt.robots.get_robot import get_yam_robot
@@ -72,6 +72,25 @@ Standard linear gripper with the heavier DM4310 motor. Slightly more gripping fo
 
 ---
 
+### `flexible_4310`
+
+Linear gripper with flexible soft fingertips. Identical drivetrain to `linear_4310` (DM4310 motor, same stroke), but the compliant tips conform to the workpiece — useful for grasping fragile or irregular objects without precise pose alignment.
+
+<MediaPlaceholder
+  type="photo"
+  description="flexible_4310 gripper showing the soft compliant fingertips deforming around an irregular object."
+/>
+
+| Property | Value |
+|----------|-------|
+| Motor | DM4310 |
+| Mechanism | Linear actuator with flexible tips |
+| Calibration | **Required** — same auto-calibration as `linear_4310` |
+| PD Gains | kp=20, kd=0.5 |
+| Best for | Fragile or irregular objects, tolerant grasping |
+
+---
+
 ### `yam_teaching_handle`
 
 The leader arm handle — not a manipulation gripper, but a hand controller for teleoperation.
@@ -117,6 +136,10 @@ i2rt/robot_models/gripper/
 ├── linear_4310/
 │   ├── linear_4310.xml
 │   └── assets/  gripper.stl  tip_left.stl  tip_right.stl
+├── flexible_4310/
+│   ├── flexible_4310.xml
+│   ├── flexible_4310.urdf
+│   └── assets/
 ├── yam_teaching_handle/
 │   └── yam_teaching_handle.xml
 └── no_gripper/
