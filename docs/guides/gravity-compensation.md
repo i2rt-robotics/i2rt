@@ -96,10 +96,17 @@ Start from the per-arm defaults and adjust in this order:
 3. **Set `grav_comp_kd` only if needed.** If a joint chatters or limit-cycles after release, raise its `grav_comp_kd`. Most joints don't need it (defaults near 0.05–0.1); only J4 typically needs more on bigger wrists.
 
 ::: tip Quick test loop
-Use the zero-gravity entry point for fast iteration:
+Run the arm in gravity-comp idle from any of these entry points — all three accept `--arm`, `--gripper`, and `--channel`:
 
 ```bash
-python i2rt/robots/get_robot.py --channel can0 --gripper linear_4310
+# Headless: just brings the arm up in grav-comp idle (add --log for a live joint/torque table)
+python i2rt/robots/motor_chain_robot.py --arm yam --gripper linear_4310 --channel can0
+
+# Browser viewer (Viser) — mirror, IK drag, per-joint sliders
+python examples/control_with_viser/control_with_viser.py --arm yam --gripper linear_4310 --channel can0
+
+# MuJoCo viewer — VIS/CONTROL toggle, auto-calls enter_gravity_comp_idle() on toggle
+python examples/control_with_mujoco/control_with_mujoco.py --arm yam --gripper linear_4310 --channel can0
 ```
 
 Edit the YAML, re-run, repeat. No code changes needed.
