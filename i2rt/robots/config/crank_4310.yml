@@ -1,5 +1,3 @@
-# Last-joint mounting geometry (set on the deepest arm link at runtime)
-# Per-arm transforms account for different wrist geometries.
 last_joint_mount:
   yam:
     pos: "0.0 -0.0398 0.0412"

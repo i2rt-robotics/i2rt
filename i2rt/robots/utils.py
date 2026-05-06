@@ -107,6 +107,8 @@ class _ArmHWConfig:
     kp: np.ndarray  # position gain, one per arm joint
     kd: np.ndarray  # damping gain,  one per arm joint
     gravity_comp_factor: np.ndarray  # per-joint factor, one per arm joint (6 elements)
+    grav_comp_kd: np.ndarray  # motor MIT-mode kd used only in grav-comp idle mode (6 elements)
+    coulomb_friction: np.ndarray  # per-joint Coulomb friction magnitude (Nm), one per arm joint (6 elements)
 
 
 @lru_cache(maxsize=None)
@@ -122,12 +124,19 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
     kp = np.array(raw["kp"], dtype=float)
     kd = np.array(raw["kd"], dtype=float)
     gravity_comp_factor = np.array(raw["gravity_comp_factor"], dtype=float)
+    grav_comp_kd = np.array(raw["grav_comp_kd"], dtype=float)
+    coulomb_friction = np.array(raw["coulomb_friction"], dtype=float)
+    assert (coulomb_friction >= 0).all(), (
+        f"coulomb_friction values must be non-negative in {config_path}: {coulomb_friction}"
+    )
 
     logger.info(f"  motor_list:          {motor_list}")
     logger.info(f"  directions:          {directions}")
     logger.info(f"  kp:                  {kp}")
     logger.info(f"  kd:                  {kd}")
     logger.info(f"  gravity_comp_factor: {gravity_comp_factor}")
+    logger.info(f"  grav_comp_kd:        {grav_comp_kd}")
+    logger.info(f"  coulomb_friction:    {coulomb_friction}")
 
     return _ArmHWConfig(
         motor_list=motor_list,
@@ -135,6 +144,8 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         kp=kp,
         kd=kd,
         gravity_comp_factor=gravity_comp_factor,
+        grav_comp_kd=grav_comp_kd,
+        coulomb_friction=coulomb_friction,
     )
 
 

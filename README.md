@@ -10,9 +10,11 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 
 - Plug-and-play Python interface for YAM arms and Flow Base
 - Real-time robot control via CAN bus (DM series motors)
-- MuJoCo gravity compensation, simulation, and URDF/MJCF models
+- MuJoCo gravity + Coulomb friction compensation, with sim-side parity
+- Threaded MuJoCo control loop with self-collision detection (`examples/control_with_mujoco/`)
 - Gripper force control and auto-calibration
 - Bimanual teleoperation and trajectory record & replay
+- URDF / MJCF models for every arm and gripper
 - Policy-deployment ready — works with standard robot learning pipelines
 
 ## Installation
@@ -97,6 +99,15 @@ python scripts/run_yam_leader.py --channel $CAN_CHANNEL
 ```bash
 python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
+
+### Gravity & friction compensation
+
+YAM ships with hand-tuned per-arm YAML knobs in `i2rt/robots/config/<arm>.yml`:
+`gravity_comp_factor`, `grav_comp_kd` (motor-side idle damping), and
+`coulomb_friction` (applied as `friction · sign(q_dot)`). The same control law
+runs in `SimRobot` via a background physics thread, so sim and hardware feel
+the same. See [`docs/guides/gravity-compensation.md`](./docs/guides/gravity-compensation.md)
+for the tuning workflow.
 
 ## Gripper Types
 

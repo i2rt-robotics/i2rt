@@ -72,6 +72,10 @@ class MotorChainRobot(Robot):
         gripper_index: Optional[int] = None,  # Zero starting index: if you have a 6 dof arm and last one is gripper: 6
         kp: Union[float, List[float]] = 10.0,
         kd: Union[float, List[float]] = 1.0,
+        grav_comp_kd: Optional[np.ndarray] = None,  # per-joint MIT-mode kd, active only in grav-comp idle
+        coulomb_friction: Optional[
+            np.ndarray
+        ] = None,  # per-joint Coulomb friction (Nm); applied as coulomb_friction * sign(q_dot)
         joint_limits: Optional[np.ndarray] = None,  # if provided, override the mujoco xml joint limits
         gripper_limits: Optional[np.ndarray] = None,  # [closed, open]
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
@@ -178,6 +182,18 @@ class MotorChainRobot(Robot):
             if isinstance(kd, float)
             else np.array(kd)
         )
+        self._grav_comp_kd = (
+            np.array(grav_comp_kd, dtype=float) if grav_comp_kd is not None else np.zeros(len(motor_chain))
+        )
+        assert len(self._grav_comp_kd) == len(motor_chain), (
+            f"grav_comp_kd length {len(self._grav_comp_kd)} != motor_chain length {len(motor_chain)}"
+        )
+        self._coulomb_friction = (
+            np.array(coulomb_friction, dtype=float) if coulomb_friction is not None else np.zeros(len(motor_chain))
+        )
+        assert len(self._coulomb_friction) == len(motor_chain), (
+            f"coulomb_friction length {len(self._coulomb_friction)} != motor_chain length {len(motor_chain)}"
+        )
 
         self._joint_limits: Optional[np.ndarray] = None
         if xml_path is not None:
@@ -211,6 +227,8 @@ class MotorChainRobot(Robot):
             time.sleep(0.05)
             self._joint_state = self._motor_state_to_joint_state(self.motor_chain.read_states())
         self._commands = JointCommands.init_all_zero(len(motor_chain))
+        if zero_gravity_mode:
+            self._commands.kd = self._grav_comp_kd.copy()
         # For SWE-454, check if the current qpos is in the joint limits
         self._check_current_qpos_in_joint_limits()
 
@@ -279,6 +297,8 @@ class MotorChainRobot(Robot):
             "gripper_type": self._gripper_type,
             "kp": self._kp,
             "kd": self._kd,
+            "grav_comp_kd": self._grav_comp_kd,
+            "coulomb_friction": self._coulomb_friction,
             "joint_limits": self._joint_limits,
             "gripper_limits": self._gripper_limits,
             "gravity_comp_factor": self.gravity_comp_factor,
@@ -327,7 +347,8 @@ class MotorChainRobot(Robot):
             joint_commands = copy.deepcopy(self._commands)
         with self._state_lock:
             g = self._compute_gravity_compensation(self._joint_state)
-            motor_torques = joint_commands.torques + g * self.gravity_comp_factor
+            friction_comp = self._coulomb_friction * np.sign(self._joint_state.vel)
+            motor_torques = joint_commands.torques + g * self.gravity_comp_factor + friction_comp
             motor_torques = np.clip(motor_torques, -self._clip_motor_torque, self._clip_motor_torque)
             self._last_motor_torques = motor_torques.copy()
 
@@ -604,6 +625,20 @@ class MotorChainRobot(Robot):
         assert kp.shape == self._kp.shape == kd.shape
         self._kp = kp
         self._kd = kd
+
+    def enter_gravity_comp_idle(self) -> None:
+        """Reset active commands to gravity-comp idle.
+
+        Sets ``self._commands`` to zeros with ``kd = self._grav_comp_kd``,
+        mirroring the ``zero_gravity_mode=True`` branch in ``__init__``. Use
+        this after running PD control (e.g. ``command_joint_pos``) to re-enter
+        grav-comp idle without leaving the previous target pose/gains active.
+        Leaves ``self._kp`` / ``self._kd`` unchanged so subsequent control
+        commands still use the configured control gains.
+        """
+        with self._command_lock:
+            self._commands = JointCommands.init_all_zero(len(self.motor_chain))
+            self._commands.kd = self._grav_comp_kd.copy()
 
     def start_recording(self, save_dir: str) -> bool:
         """Start recording joint state data asynchronously."""

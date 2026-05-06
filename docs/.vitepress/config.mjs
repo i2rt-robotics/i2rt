@@ -25,8 +25,9 @@ export default defineConfig({
       { text: 'Products', link: '/products/' },
       { text: 'Get Started', link: '/getting-started/installation' },
       { text: 'SDK', link: '/sdk/' },
+      { text: 'Guides', link: '/guides/gravity-compensation' },
       { text: 'Examples', link: '/examples/' },
-      { text: 'Releases', link: '/releases/v1.1' },
+      { text: 'Releases', link: '/releases/v1.1.1' },
       { text: 'i2rt.com', link: 'https://i2rt.com', target: '_blank' },
     ],
 
@@ -102,8 +103,17 @@ export default defineConfig({
         {
           text: 'Release Notes',
           items: [
-            { text: 'v1.1', link: '/releases/v1.1' },
-            { text: 'v1.0', link: '/releases/v1.0' },
+            { text: 'v1.1.1', link: '/releases/v1.1.1' },
+            { text: 'v1.1.0', link: '/releases/v1.1.0' },
+            { text: 'v1.0.0', link: '/releases/v1.0.0' },
+          ],
+        },
+      ],
+      '/guides/': [
+        {
+          text: 'Guides',
+          items: [
+            { text: 'Gravity & Friction Compensation', link: '/guides/gravity-compensation' },
           ],
         },
       ],
