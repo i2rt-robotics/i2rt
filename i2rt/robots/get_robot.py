@@ -188,6 +188,8 @@ def get_yam_robot(
     directions = list(hw.directions)
     kp = hw.kp.copy()
     kd = hw.kd.copy()
+    grav_comp_kd = hw.grav_comp_kd.copy()
+    coulomb_friction = hw.coulomb_friction.copy()
     motor_offsets = [0.0] * len(motor_list)
 
     if with_gripper:
@@ -201,6 +203,8 @@ def get_yam_robot(
         directions.append(gripper_type.get_motor_direction(arm_type))
         kp = np.append(kp, _gripper_kp)
         kd = np.append(kd, _gripper_kd)
+        grav_comp_kd = np.append(grav_comp_kd, 0.0)
+        coulomb_friction = np.append(coulomb_friction, 0.0)
 
     if gripper_limits_override is not None and with_gripper:
         gripper_limits = np.asarray(gripper_limits_override)
@@ -217,12 +221,15 @@ def get_yam_robot(
         if with_gripper and sim_gripper_limits is None:
             sim_gripper_limits = np.array([0.0, 1.0])
 
+        sim_grav_comp = np.ones(len(motor_list))
+
         return SimRobot(
             xml_path=model_path,
             n_dofs=len(motor_list),
             joint_limits=joint_limits,
             gripper_index=n_arm_joints if with_gripper else None,
             gripper_limits=sim_gripper_limits,
+            gravity_comp_factor=sim_grav_comp,
         )
 
     # --- Real hardware path ---------------------------------------------------
@@ -266,6 +273,8 @@ def get_yam_robot(
         joint_limits=joint_limits,
         kp=kp,
         kd=kd,
+        grav_comp_kd=grav_comp_kd,
+        coulomb_friction=coulomb_friction,
         zero_gravity_mode=zero_gravity_mode,
         joint_state_saver_factory=joint_state_saver_factory,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,

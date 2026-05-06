@@ -18,6 +18,7 @@ See examples/control_with_mujoco/ for a runnable entry-point and README.
 import logging
 import os
 import tempfile
+import threading
 import time
 import xml.etree.ElementTree as ET
 from enum import Enum, auto
@@ -162,12 +163,17 @@ class MujocoControlInterface:
         ee_site: str = "grasp_site",
         dt: float = 0.02,
         log: bool = False,
+        control_dt: float = 0.005,
     ):
         self._robot = robot
         self._ee_site = ee_site
         self._dt = dt
+        self._control_dt = control_dt
         self._mode = Mode.VIS
         self._logging = log
+
+        self._viewer: Optional[mujoco.viewer.Handle] = None
+        self._stop_event = threading.Event()
 
         n_dofs = robot.num_dofs()
         robot_info = robot.get_robot_info() if hasattr(robot, "get_robot_info") else {}
@@ -220,8 +226,9 @@ class MujocoControlInterface:
         ee_site: str = "grasp_site",
         dt: float = 0.02,
         log: bool = False,
+        control_dt: float = 0.005,
     ) -> "MujocoControlInterface":
-        return cls(robot, robot.xml_path, ee_site, dt, log=log)
+        return cls(robot, robot.xml_path, ee_site, dt, log=log, control_dt=control_dt)
 
     # ---- model construction ---------------------------------------------------
 
@@ -580,106 +587,178 @@ class MujocoControlInterface:
     def _on_key(self, key: int) -> None:
         if key != 32:  # SPACE
             return
-        if self._is_sim:
-            # Sim mode: always stay in CONTROL mode
-            return
-        if self._mode is Mode.VIS:
-            self._mode = Mode.CONTROL
-            self._sync_mocap_to_ee()
-            self._set_marker_color(self._CTRL_RGBA)
-            # Seed sliders with current robot joint positions
-            self._sync_sliders_to_robot()
-            print("[control] CONTROL mode — use sliders for per-joint control,")
-            print("[control]   or double-click target + ctrl+drag for IK")
-        else:
-            self._mode = Mode.VIS
-            self._set_marker_color(self._VIS_RGBA)
-            if isinstance(self._robot, MotorChainRobot):
-                n = self._robot.num_dofs()
-                self._robot.update_kp_kd(np.zeros(n), np.zeros(n))
-            print("[control] VIS mode — gravity comp, mirroring robot")
+        viewer = self._viewer
+        if viewer is None:
+            return  # Fired before run() finished setting up — ignore.
+        with viewer.lock():
+            if self._mode is Mode.VIS:
+                self._mode = Mode.CONTROL
+                self._set_marker_color(self._CTRL_RGBA)
+                if self._is_sim and hasattr(self._robot, "disable_gravity_comp"):
+                    self._robot.disable_gravity_comp()
+                self._sync_mocap_to_ee()
+                # Seed sliders with current robot joint positions
+                self._sync_sliders_to_robot()
+                print("[control] CONTROL mode — use sliders for per-joint control,")
+                print("[control]   or double-click target + ctrl+drag for IK")
+            else:
+                self._mode = Mode.VIS
+                self._set_marker_color(self._VIS_RGBA)
+                if self._is_sim and hasattr(self._robot, "enable_gravity_comp"):
+                    self._robot.enable_gravity_comp()
+                elif isinstance(self._robot, MotorChainRobot):
+                    self._robot.enter_gravity_comp_idle()
+                print("[control] VIS mode — gravity comp, mirroring robot")
 
     # ---- main loop ------------------------------------------------------------
 
     def run(self) -> None:
-        """Open the viewer and run the vis / control loop."""
+        """Open the viewer and run the vis / control loop.
+
+        The viewer runs on the main thread (MuJoCo requirement). A dedicated
+        daemon thread (:meth:`_control_loop`) owns the user-intent → robot
+        command pipeline — slider / mocap change detection, IK, self-collision
+        checks, and ``robot.command_joint_pos(...)`` — so a slow render or a
+        blocking UI event in ``viewer.sync()`` does not stall commands to the
+        robot.
+        """
         if self._is_sim:
-            self._mode = Mode.CONTROL
-            print("[control] Starting in CONTROL mode (sim)")
+            if hasattr(self._robot, "start_server"):
+                self._robot.start_server()
+            self._mode = Mode.VIS
+            print("[control] Starting in VIS (gravity comp) mode (sim)")
+            print("[control] Press SPACE to toggle CONTROL mode")
         else:
             print("[control] Starting in VIS (gravity comp) mode")
             print("[control] Press SPACE to toggle CONTROL mode")
 
+        self._stop_event.clear()
         with mujoco.viewer.launch_passive(
             self._model,
             self._data,
             key_callback=self._on_key,
         ) as viewer:
+            self._viewer = viewer
             viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
             if self._is_sim:
-                self._set_marker_color(self._CTRL_RGBA)
+                self._set_marker_color(self._VIS_RGBA)
                 self._mirror_robot()
                 self._sync_mocap_to_ee()
                 self._sync_sliders_to_robot()
+
+            control_thread = threading.Thread(
+                target=self._control_loop,
+                name="mujoco_control",
+                daemon=True,
+            )
+            control_thread.start()
             try:
                 while viewer.is_running():
-                    self._mirror_robot()
+                    with viewer.lock():
+                        self._mirror_robot()
+                        self._update_button_indicators()
+                        if self._mode is Mode.VIS:
+                            self._sync_mocap_to_ee()
                     if self._logging:
                         self._log()
-                    self._update_button_indicators()
-
-                    if self._mode is Mode.VIS:
-                        self._sync_mocap_to_ee()
-                    else:
-                        sliders_moved = self._sliders_changed()
-                        mocap_moved = self._mocap_changed()
-
-                        if sliders_moved:
-                            # User moved a slider — command joints directly from slider values
-                            cmd = self._cmd_from_sliders()
-                            n = min(len(cmd), self._nq)
-                            if self._has_self_collision(cmd, n):
-                                if not self._in_collision:
-                                    print("[control] Collision detected — command blocked")
-                                    self._in_collision = True
-                            else:
-                                self._robot.command_joint_pos(cmd)
-                                logger.info(f"joint command: {cmd}")
-                                if self._in_collision:
-                                    print("[control] Collision cleared — commands resumed")
-                                    self._in_collision = False
-                            # Update mocap target to follow the new slider FK
-                            self._sync_mocap_to_sliders()
-                        elif mocap_moved:
-                            # User dragged the mocap target — solve IK
-                            target = self._mocap_pose_4x4()
-                            init_q = self._data.qpos[: self._nq].copy()
-                            ok, ik_q = self._kin.ik(target, self._ee_site, init_q=init_q)
-                            if ok:
-                                cmd = self._robot.get_joint_pos().copy()
-                                cmd[: self._n_arm] = ik_q[: self._n_arm]
-                                n = min(len(cmd), self._nq)
-                                if self._has_self_collision(cmd, n):
-                                    if not self._in_collision:
-                                        print("[control] Collision detected — command blocked")
-                                        self._in_collision = True
-                                else:
-                                    self._robot.command_joint_pos(cmd)
-                                    logger.info(f"IK joint command: {cmd}")
-                                    # Update sliders to reflect the IK solution
-                                    self._sync_sliders_to_ik(ik_q)
-                                    if self._in_collision:
-                                        print("[control] Collision cleared — commands resumed")
-                                        self._in_collision = False
-
-                        # Snapshot for next iteration's change detection
-                        self._prev_ctrl[:] = self._data.ctrl
-                        self._prev_mocap_pos[:] = self._data.mocap_pos[self._mocap_id]
-                        self._prev_mocap_quat[:] = self._data.mocap_quat[self._mocap_id]
-
                     viewer.sync()
                     time.sleep(self._dt)
             except KeyboardInterrupt:
                 pass
+            finally:
+                self._stop_event.set()
+                control_thread.join(timeout=1.0)
+                self._viewer = None
 
         print("[control] Viewer closed")
+
+    def _control_loop(self) -> None:
+        """Background loop: slider/mocap → IK → collision → command_joint_pos.
+
+        Runs at ``self._control_dt`` cadence, independent of the viewer's
+        ``self._dt``. Acquires ``viewer.lock()`` only for brief snapshot and
+        write-back sections; the expensive FK/IK/collision work runs outside
+        the lock so the viewer thread is never blocked on CPU.
+        """
+        viewer = self._viewer
+        assert viewer is not None, "_control_loop started before viewer was set"
+
+        while not self._stop_event.is_set() and viewer.is_running():
+            if self._mode is not Mode.CONTROL:
+                time.sleep(self._control_dt)
+                continue
+
+            with viewer.lock():
+                ctrl_snap = np.array(self._data.ctrl, copy=True)
+                mocap_pos_snap = np.array(self._data.mocap_pos[self._mocap_id], copy=True)
+                mocap_quat_snap = np.array(self._data.mocap_quat[self._mocap_id], copy=True)
+                init_q = self._data.qpos[: self._nq].copy()
+                prev_ctrl = self._prev_ctrl.copy()
+                prev_mocap_pos = self._prev_mocap_pos.copy()
+                prev_mocap_quat = self._prev_mocap_quat.copy()
+
+            sliders_moved = not np.allclose(ctrl_snap, prev_ctrl, atol=1e-6)
+            mocap_moved = not np.allclose(mocap_pos_snap, prev_mocap_pos, atol=1e-6) or not np.allclose(
+                mocap_quat_snap, prev_mocap_quat, atol=1e-6
+            )
+
+            ik_solution: Optional[np.ndarray] = None  # arm-joint IK result
+            new_mocap_pos: Optional[np.ndarray] = None
+            new_mocap_quat: Optional[np.ndarray] = None
+
+            if sliders_moved:
+                cmd = self._robot.get_joint_pos().copy()
+                nu = min(len(cmd), self._model.nu)
+                cmd[:nu] = ctrl_snap[:nu]
+                n = min(len(cmd), self._nq)
+                if self._has_self_collision(cmd, n):
+                    if not self._in_collision:
+                        print("[control] Collision detected — command blocked")
+                        self._in_collision = True
+                else:
+                    self._robot.command_joint_pos(cmd)
+                    if self._in_collision:
+                        print("[control] Collision cleared — commands resumed")
+                        self._in_collision = False
+                q = self._robot_cmd_to_qpos(cmd)
+                pose = self._kin.fk(q, self._ee_site)
+                new_mocap_pos = pose[:3, 3].copy()
+                new_mocap_quat = np.empty(4)
+                mujoco.mju_mat2Quat(new_mocap_quat, pose[:3, :3].flatten())
+            elif mocap_moved:
+                target = np.eye(4)
+                target[:3, 3] = mocap_pos_snap
+                rot = np.empty(9)
+                mujoco.mju_quat2Mat(rot, mocap_quat_snap)
+                target[:3, :3] = rot.reshape(3, 3)
+                ok, ik_q = self._kin.ik(target, self._ee_site, init_q=init_q)
+                if ok:
+                    cmd = self._robot.get_joint_pos().copy()
+                    cmd[: self._n_arm] = ik_q[: self._n_arm]
+                    n = min(len(cmd), self._nq)
+                    if self._has_self_collision(cmd, n):
+                        if not self._in_collision:
+                            print("[control] Collision detected — command blocked")
+                            self._in_collision = True
+                    else:
+                        self._robot.command_joint_pos(cmd)
+                        if self._in_collision:
+                            print("[control] Collision cleared — commands resumed")
+                            self._in_collision = False
+                        ik_solution = ik_q
+
+            with viewer.lock():
+                if ik_solution is not None:
+                    nu = min(len(ik_solution), self._model.nu)
+                    for i in range(nu):
+                        if i == self._gripper_index:
+                            continue
+                        self._data.ctrl[i] = ik_solution[i]
+                if new_mocap_pos is not None and new_mocap_quat is not None:
+                    self._data.mocap_pos[self._mocap_id] = new_mocap_pos
+                    self._data.mocap_quat[self._mocap_id] = new_mocap_quat
+                self._prev_ctrl[:] = self._data.ctrl
+                self._prev_mocap_pos[:] = self._data.mocap_pos[self._mocap_id]
+                self._prev_mocap_quat[:] = self._data.mocap_quat[self._mocap_id]
+
+            time.sleep(self._control_dt)

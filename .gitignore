@@ -98,3 +98,4 @@ docs/.vitepress/cache/
 docs/public/models/
 
 CLAUDE.md
+*.mjb
