@@ -4,7 +4,7 @@
 
 Interactive MuJoCo viewer for i2rt robots. Visualises the robot in real time and lets you move it by dragging a target marker via inverse kinematics — no hardware required in simulation mode.
 
-The control loop runs in a background thread, performs self-collision detection (commands that would self-collide are blocked), and applies gravity compensation when running on real hardware. Pass `--log` to print joint state and torques every loop iteration.
+The sliders / mocap → IK → self-collision → `command_joint_pos` pipeline runs on a daemon control thread at `control_dt = 5 ms` (200 Hz), guarded by short `viewer.lock()` sections so viewer rendering never stalls commands and vice versa. Commands that would self-collide are blocked. On real hardware the arm holds itself under gravity compensation; in simulation the same loop drives a `SimRobot` physics thread that mirrors the hardware behaviour. Pass `--log` to print joint state and torques every loop iteration.
 
 ## Hardware Required
 
@@ -17,11 +17,15 @@ The interface has two modes toggled with **SPACE**:
 
 ```
 VIS mode (default):
-  Robot joint states  ──►  MuJoCo viewer  (gravity comp active on real hw)
+  Robot joint states  ──►  MuJoCo viewer
+  (real hw: gravity comp idle    sim: physics thread on, grav-comp active)
 
 CONTROL mode (press SPACE):
   Drag target marker  ──►  IK solver  ──►  Command arm
+  (real hw: PD tracks target      sim: physics paused; arm teleports)
 ```
+
+In `--sim`, SPACE additionally calls `SimRobot.enable_gravity_comp()` / `disable_gravity_comp()` so the simulated arm settles under gravity in VIS and follows the IK target instantly in CONTROL — matching the hardware feel. Returning to VIS calls `MotorChainRobot.enter_gravity_comp_idle()` (real hw) or re-enables the physics thread (sim) so the arm is left in a clean float, not holding the last PD target.
 
 ## Running
 
@@ -82,3 +86,8 @@ All YAM-family arm × gripper combinations are supported:
 | `yam_ultra` | same as yam |
 | `big_yam` | same as yam |
 | `no_arm` | any gripper except `no_gripper` (gripper-only test rig) |
+
+## See Also
+
+- [Gravity & Friction Compensation](/guides/gravity-compensation) — what SPACE actually toggles, and how to tune it.
+- [YAM Arm SDK reference](/sdk/yam-arm) — `get_yam_robot()` arguments and `MotorChainRobot` API.

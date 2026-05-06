@@ -136,6 +136,18 @@ Update the PD gains at runtime.
 robot.update_kp_kd(kp=new_kp_array, kd=new_kd_array)
 ```
 
+### `enter_gravity_comp_idle() → None`
+
+Reset the command buffer to zeros with `kd = grav_comp_kd` (from the arm's YAML), returning the arm to gravity-comp idle. `self._kp` and `self._kd` are left untouched, so a later `command_joint_pos` keeps its tracking gains.
+
+```python
+robot.command_joint_pos(target)
+# ... do work ...
+robot.enter_gravity_comp_idle()  # arm floats again, with motor-side idle damping
+```
+
+The MuJoCo viewer (`examples/control_with_mujoco/`) calls this automatically on every CONTROL → VIS toggle. See [Gravity & Friction Compensation](/guides/gravity-compensation) for details.
+
 ### `close() → None`
 
 Safely shuts down the robot: stops the control thread and closes the CAN interface.
@@ -246,8 +258,26 @@ Higher `--bilateral-kp` = leader arm feels heavier (more force feedback from fol
 
 ---
 
+## Per-Arm YAML Configuration
+
+Hardware tuning lives in `i2rt/robots/config/<arm>.yml` — one file per arm variant. The fields most users adjust:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `kp` / `kd` | 6-element list | Per-joint PD gains used by `command_joint_pos` / `command_joint_state`. |
+| `gravity_comp_factor` | 6-element list | Per-joint multiplier on the model gravity torque. May be overridden per-call via `get_yam_robot(gravity_comp_factor=...)`. |
+| `grav_comp_kd` | 6-element list | Motor-side MIT-mode kd applied **only** in gravity-comp idle. Tunes how stiff the arm feels when released. YAML-only. |
+| `coulomb_friction` | 6-element list, Nm | Magnitude of `friction · sign(q_dot)` injected alongside gravity comp. Cancels static stiction. YAML-only. |
+
+The gripper slot is automatically padded with `0.0` for `grav_comp_kd` and `coulomb_friction` in `i2rt/robots/get_robot.py` — gripper joints don't need passive compensation.
+
+See [Gravity & Friction Compensation](/guides/gravity-compensation) for the full physics, tuning workflow, and troubleshooting.
+
+---
+
 ## See Also
 
 - [Quick Start](/getting-started/quick-start)
 - [Grippers](/sdk/grippers)
+- [Gravity & Friction Compensation](/guides/gravity-compensation)
 - [Bimanual Teleoperation Example](/examples/bimanual-teleoperation)
