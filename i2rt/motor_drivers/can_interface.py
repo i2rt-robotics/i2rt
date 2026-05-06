@@ -17,6 +17,7 @@ class CanInterface:
         receive_mode: ReceiveMode = ReceiveMode.p16,
         use_buffered_reader: bool = False,
     ):
+        self.channel = channel
         self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
         self.busstate = self.bus.state
         self.name = name
@@ -84,6 +85,26 @@ class CanInterface:
             return self._receive_message(motor_id, timeout, supress_warning=True)
         except AssertionError:
             return None
+
+    def _drain_bus(self, timeout_s: float = 0.05, idle_count: int = 10) -> int:
+        """Drain pending CAN frames until the bus is idle.
+
+        Loops `try_receive_message(timeout=0.001)` until either `idle_count`
+        consecutive 1 ms reads return None or `timeout_s` wall-clock has
+        elapsed. Used at init handovers (e.g. between encoder validation and
+        motor bring-up) to flush stale frames that would otherwise be misread
+        as the next motor's reply. Returns the number of frames consumed.
+        """
+        drained = 0
+        idle = 0
+        deadline = time.time() + timeout_s
+        while time.time() < deadline and idle < idle_count:
+            if self.try_receive_message(timeout=0.001) is None:
+                idle += 1
+            else:
+                idle = 0
+                drained += 1
+        return drained
 
     def _receive_message(
         self, motor_id: Optional[int] = None, timeout: float = 0.009, supress_warning: bool = False

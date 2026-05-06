@@ -11,6 +11,7 @@ The `i2rt` package provides Python interfaces for all I2RT hardware. Everything 
 | `i2rt.robots.robot` | `Robot` protocol — abstract interface for all robots |
 | `i2rt.robots.sim_robot` | `SimRobot` — MuJoCo-based simulation robot |
 | `i2rt.robots.utils` | `ArmType`, `GripperType` enums, XML combiner, gripper utilities |
+| `i2rt.robots.config` | YAML hardware configs for arms and grippers (motor lists, directions, PD gains, gravity-comp factors) |
 | `i2rt.flow_base.flow_base_controller` | Flow Base on-board control (runs on Pi) |
 | `i2rt.flow_base.flow_base_client` | Flow Base remote network client |
 | `i2rt.motor_drivers` | Low-level DM series motor communication (CAN bus) |

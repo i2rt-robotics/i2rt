@@ -6,16 +6,12 @@ All examples live in the [`examples/`](https://github.com/i2rt-robotics/i2rt/tre
 
 | Example | Hardware Needed | Complexity |
 |---------|----------------|------------|
-| [Bimanual Teleoperation](/examples/bimanual-teleoperation) | 4 YAM arms + 4 CANable | Intermediate |
-| [Record & Replay Trajectory](/examples/record-replay) | 1+ YAM arm | Beginner |
+| [Minimum Gello](/examples/minimum-gello) | 1+ YAM arm (or sim) | Beginner |
 | [Single Motor PD Control](/examples/motor-control) | 1 DM motor | Beginner |
+| [Record & Replay Trajectory](/examples/record-replay) | 1+ YAM arm | Beginner |
 | [MuJoCo Control Interface](/examples/control-with-mujoco) | None (sim) / 1 YAM arm | Beginner |
-
-::: tip More examples
-Additional examples in the repository (not yet documented here):
-- `examples/control_with_viser/` — Web-based robot visualization with Viser
-- `examples/minimum_gello/` — Core leader-follower teleoperation script
-:::
+| [Viser Control Interface](/examples/control-with-viser) | None (sim) / 1 YAM arm | Beginner |
+| [Bimanual Teleoperation](/examples/bimanual-teleoperation) | 4 YAM arms + 4 CANable | Intermediate |
 
 ## Running an Example
 

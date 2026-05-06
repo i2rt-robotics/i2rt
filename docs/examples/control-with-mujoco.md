@@ -4,6 +4,8 @@
 
 Interactive MuJoCo viewer for i2rt robots. Visualises the robot in real time and lets you move it by dragging a target marker via inverse kinematics — no hardware required in simulation mode.
 
+The control loop runs in a background thread, performs self-collision detection (commands that would self-collide are blocked), and applies gravity compensation when running on real hardware. Pass `--log` to print joint state and torques every loop iteration.
+
 ## Hardware Required
 
 - None for simulation (`--sim` flag)
@@ -34,6 +36,12 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 
 # Arm only, no gripper
 python examples/control_with_mujoco/control_with_mujoco.py --arm yam --gripper no_gripper --sim
+
+# Soft-tip gripper, no arm (gripper-only test rig)
+python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
+
+# Stream joint state + torques to the terminal each loop iteration
+python examples/control_with_mujoco/control_with_mujoco.py --sim --log
 ```
 
 ### Real Hardware
@@ -47,12 +55,13 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam` |
-| `--gripper` | `linear_4310` | Gripper: `linear_4310`, `linear_3507`, `crank_4310`, `yam_teaching_handle`, `no_gripper` |
+| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm` |
+| `--gripper` | `linear_4310` | Gripper: `linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
 | `--channel` | `can0` | CAN interface name (real hardware only) |
 | `--sim` | off | Use simulation instead of real hardware |
 | `--dt` | `0.02` | Control loop timestep in seconds |
-| `--site` | `grasp_site` | MuJoCo site name used as end-effector |
+| `--site` | auto | MuJoCo site name used as end-effector. Auto-detects `grasp_site` (or `tcp_site` for `yam_teaching_handle`) when omitted. |
+| `--log` | off | Log joint state and torques each loop iteration |
 
 ## Viewer Controls
 
@@ -68,7 +77,8 @@ All YAM-family arm × gripper combinations are supported:
 
 | Arm | Grippers |
 |-----|---------|
-| `yam` | `linear_4310`, `linear_3507`, `crank_4310`, `yam_teaching_handle`, `no_gripper` |
+| `yam` | `linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
 | `yam_pro` | same as yam |
 | `yam_ultra` | same as yam |
 | `big_yam` | same as yam |
+| `no_arm` | any gripper except `no_gripper` (gripper-only test rig) |

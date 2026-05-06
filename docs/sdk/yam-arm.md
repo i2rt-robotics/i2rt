@@ -26,17 +26,21 @@ robot = get_yam_robot(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `channel` | `str` | `"can0"` | CAN interface name (e.g. `can0`, `can_follower_l`). Ignored in sim mode. |
-| `arm_type` | `ArmType` | `ArmType.YAM` | Arm variant: `YAM`, `YAM_PRO`, `YAM_ULTRA`, `BIG_YAM` |
+| `arm_type` | `ArmType` | `ArmType.YAM` | Arm variant: `YAM`, `YAM_PRO`, `YAM_ULTRA`, `BIG_YAM`, or `NO_ARM` (gripper-only) |
 | `gripper_type` | `GripperType` | `GripperType.LINEAR_4310` | Gripper type. See [Grippers](/sdk/grippers) |
 | `zero_gravity_mode` | `bool` | `True` | Enable gravity compensation on init |
 | `ee_mass` | `float \| None` | `None` | End-effector mass override (kg) for MuJoCo inertial |
 | `ee_inertia` | `np.ndarray \| None` | `None` | End-effector inertia override — 10-element array `[ipos(3), quat(4), diaginertia(3)]` |
+| `gravity_comp_factor` | `np.ndarray \| None` | `None` | Per-joint gravity-compensation factor (6 elements, arm joints only). Overrides the arm-type default when provided. |
+| `gripper_limits_override` | `np.ndarray \| None` | `None` | `[closed, open]` limits in radians. When set, the gripper skips auto-calibration. |
+| `gripper_kp` | `float \| None` | `None` | Override the gripper's default kp (per-call). |
+| `gripper_kd` | `float \| None` | `None` | Override the gripper's default kd (per-call). |
 | `sim` | `bool` | `False` | If `True`, return a `SimRobot` (no hardware needed) |
 
 **Returns:** `MotorChainRobot` instance (or `SimRobot` when `sim=True`).
 
 ::: tip Arm types
-Since v1.0, all arm variants use the same factory function. Pass `arm_type=ArmType.BIG_YAM` instead of the removed `get_big_yam_robot()`.
+Since v1.0, all arm variants use the same factory function. Pass `arm_type=ArmType.BIG_YAM` instead of the removed `get_big_yam_robot()`. Pass `arm_type=ArmType.NO_ARM` for gripper-only setups (no arm joints, gripper only).
 :::
 
 ::: tip Zero-gravity vs PD mode
@@ -198,6 +202,7 @@ i2rt/robot_models/
     ├── crank_4310/crank_4310.xml
     ├── linear_3507/linear_3507.xml
     ├── linear_4310/linear_4310.xml
+    ├── flexible_4310/flexible_4310.xml
     ├── yam_teaching_handle/yam_teaching_handle.xml
     └── no_gripper/no_gripper.xml
 ```
@@ -217,13 +222,16 @@ python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 usage: minimum_gello.py [options]
 
+  --arm TYPE            Arm type: yam | yam_pro | yam_ultra | big_yam | no_arm (default: yam)
   --gripper TYPE        Gripper type (default: linear_4310)
-  --mode MODE           follower | leader | visualizer_local
+  --mode MODE           follower | leader | visualizer_local | visualizer_remote
   --can-channel CHAN    CAN interface (default: can0)
-  --bilateral_kp FLOAT  Bilateral stiffness 0.1–0.3 (default: 0.2)
+  --bilateral-kp FLOAT  Bilateral stiffness 0.1–0.3 (default: 0.0)
+  --ee-mass FLOAT       Optional end-effector mass override (kg)
+  --sim                 Run against SimRobot — no CAN hardware needed
 ```
 
-Higher `bilateral_kp` = leader arm feels heavier (more force feedback from follower load).
+Higher `--bilateral-kp` = leader arm feels heavier (more force feedback from follower load). For a full walkthrough see [Minimum Gello](/examples/minimum-gello).
 
 ---
 
