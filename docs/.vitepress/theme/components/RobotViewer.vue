@@ -54,14 +54,12 @@ onMounted(async () => {
 
     // ── Scene ─────────────────────────────────────────────────────────────────
     const isDark = document.documentElement.classList.contains('dark')
-    const bgColor = isDark ? 0x1a1612 : 0xf7f5f2
-    const fogColor = isDark ? 0x1a1612 : 0xf7f5f2
+    const bgColor = isDark ? 0x1a1612 : 0xD3D3D3   // match i2rt.com page bg
+    const fogColor = isDark ? 0x1a1612 : 0xD3D3D3
     scene = new THREE.Scene()
-    // Set background on the scene (works with alpha:true — CSS bg shows through where fog clears it)
     scene.background = new THREE.Color(bgColor)
     scene.fog = new THREE.FogExp2(fogColor, 0.22)
-    // Set canvas background via CSS for Safari (the alpha:true renderer blends with CSS bg)
-    renderer.domElement.style.background = isDark ? '#1a1612' : '#f7f5f2'
+    renderer.domElement.style.background = isDark ? '#1a1612' : '#D3D3D3'
 
     // ── Camera ────────────────────────────────────────────────────────────────
     camera = new THREE.PerspectiveCamera(40, W / H, 0.005, 30)
@@ -367,10 +365,10 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 540px;
-  border-radius: 16px;
+  border-radius: 4px;           /* i2rt.com: very low radius */
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(17, 21, 28, 0.10);
+  box-shadow: 0 2px 16px rgba(17, 21, 28, 0.06);
   /* Safari fix: force GPU compositing layer so WebGL canvas renders correctly
      inside overflow:hidden + border-radius containers */
   -webkit-transform: translateZ(0);
@@ -416,8 +414,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: rgba(247, 245, 242, 0.92);
-  color: rgba(0, 0, 0, 0.4);
+  background: rgba(211, 211, 211, 0.92);  /* match #D3D3D3 page bg */
+  color: rgba(17, 21, 28, 0.40);
   font-size: 0.85rem;
   letter-spacing: 0.05em;
 }

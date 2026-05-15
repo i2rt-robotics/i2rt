@@ -1,44 +1,56 @@
 /* ============================================================
    I2RT Robotics — Custom VitePress Theme
-   Brand: Brown #855832 | Teal #4C6762 | Charcoal #11151C
-   Inspired by i2rt.com — warm, minimal, professional
+   Aligned with i2rt.com design system
+   Palette: #D3D3D3 bg · #11151C foreground · #855832 brand · #4C6762 teal
+   Heading font: Platypi (serif, same as i2rt.com)
+   Body font: system-ui stack
    ============================================================ */
 
 :root {
+  /* ── Brand ────────────────────────────────────────── */
   --vp-c-brand-1: #855832;
   --vp-c-brand-2: #6e4828;
   --vp-c-brand-3: #5a3b20;
   --vp-c-brand-soft: rgba(133, 88, 50, 0.12);
 
-  --vp-c-bg: #ffffff;
-  --vp-c-bg-soft: #f7f5f2;
-  --vp-c-bg-mute: #edeae6;
+  /* ── Backgrounds (i2rt.com: #D3D3D3 base) ────────── */
+  --vp-c-bg: #D3D3D3;
+  --vp-c-bg-soft: #E8E8E6;   /* code blocks, cards — clearly lighter */
+  --vp-c-bg-mute: #C8C8C6;   /* muted areas, inline code */
 
-  --vp-c-text-1: #1a1a1a;
-  --vp-c-text-2: #5c5c5c;
-  --vp-c-text-3: #8a8a8a;
+  /* ── Text (i2rt.com: #11151C base, then opacity) ─── */
+  --vp-c-text-1: #11151C;
+  --vp-c-text-2: rgba(17, 21, 28, 0.65);
+  --vp-c-text-3: rgba(17, 21, 28, 0.45);
 
-  --vp-c-divider: rgba(0, 0, 0, 0.08);
+  /* ── Dividers ─────────────────────────────────────── */
+  --vp-c-divider: rgba(17, 21, 28, 0.10);
 
-  --vp-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* ── Typography ───────────────────────────────────── */
+  /* System UI for body (like i2rt.com); Platypi for headings */
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
   --vp-font-family-mono: 'IBM Plex Mono', 'Fira Code', monospace;
 
+  /* ── Nav ──────────────────────────────────────────── */
+  --vp-nav-bg-color: rgba(211, 211, 211, 0.92);
+
+  /* ── Layout ───────────────────────────────────────── */
+  --vp-layout-max-width: 1600px;
+
+  /* ── Hero ─────────────────────────────────────────── */
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(135deg, #855832 0%, #4C6762 100%);
   --vp-home-hero-image-background-image: radial-gradient(circle, rgba(133,88,50,0.15) 0%, rgba(76,103,98,0.08) 50%, transparent 70%);
   --vp-home-hero-image-filter: blur(72px);
 
-  --vp-nav-bg-color: rgba(255, 255, 255, 0.92);
-
-  /* Wider layout so nav bar uses more horizontal space */
-  --vp-layout-max-width: 1600px;
-
-  /* Tip / Warning custom block colors */
+  /* ── Custom blocks ────────────────────────────────── */
   --vp-custom-block-tip-bg: rgba(76, 103, 98, 0.06);
-  --vp-custom-block-tip-border: rgba(76, 103, 98, 0.3);
+  --vp-custom-block-tip-border: rgba(76, 103, 98, 0.30);
   --vp-custom-block-tip-text: #3a5a52;
 }
 
+/* ── Dark mode ────────────────────────────────────────── */
 .dark {
   --vp-c-bg: #1a1612;
   --vp-c-bg-soft: #231e18;
@@ -51,26 +63,36 @@
   --vp-sidebar-bg-color: #1e1914;
 }
 
+/* ── Headings: Platypi (i2rt.com's brand font) ─────────── */
+h1, h2, h3, h4,
+.VPHero .name,
+.VPHero .tagline {
+  font-family: 'Platypi', Georgia, 'Times New Roman', serif !important;
+}
+
+h1 { font-weight: 600; letter-spacing: -0.025em; }
+h2 { font-weight: 600; letter-spacing: -0.02em; }
+h3 { font-weight: 500; letter-spacing: -0.01em; }
+
 /* ── Scrollbar ────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(133, 88, 50, 0.25); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(133, 88, 50, 0.5); }
+::-webkit-scrollbar-thumb { background: rgba(17, 21, 28, 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(17, 21, 28, 0.35); }
+.dark ::-webkit-scrollbar-thumb { background: rgba(133, 88, 50, 0.25); }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(133, 88, 50, 0.5); }
 
 /* ── Navbar ───────────────────────────────────────────── */
 .VPNav {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+  border-bottom: 1px solid rgba(17, 21, 28, 0.10) !important;
 }
 
-/* Widen the search button in the navbar */
-.VPNavBarSearch .DocSearch-Button,
-.VPNavBarSearch button[aria-label="Search"] {
-  min-width: 260px !important;
+.dark .VPNav {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 
-/* Stretch nav container edge-to-edge with comfortable padding */
 .VPNavBar > .wrapper {
   max-width: 100% !important;
   padding: 0 32px !important;
@@ -80,9 +102,33 @@
 }
 
 .VPNavBarTitle .title {
-  font-weight: 700;
+  font-family: 'Platypi', Georgia, serif;
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: #855832;
+}
+
+/* Nav links: muted at rest, full opacity on hover (i2rt.com style) */
+.VPNavBarMenu .VPNavBarMenuLink {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(17, 21, 28, 0.60) !important;
+  transition: color 0.15s ease;
+}
+.VPNavBarMenu .VPNavBarMenuLink:hover {
+  color: rgba(17, 21, 28, 1) !important;
+}
+.dark .VPNavBarMenu .VPNavBarMenuLink {
+  color: rgba(232, 228, 223, 0.55) !important;
+}
+.dark .VPNavBarMenu .VPNavBarMenuLink:hover {
+  color: rgba(232, 228, 223, 1) !important;
+}
+
+/* Widen search */
+.VPNavBarSearch .DocSearch-Button,
+.VPNavBarSearch button[aria-label="Search"] {
+  min-width: 220px !important;
 }
 
 /* ── Sidebar ──────────────────────────────────────────── */
@@ -90,7 +136,6 @@
   color: var(--vp-c-brand-1);
   font-weight: 600;
 }
-
 .VPSidebarItem.is-active > .item {
   border-left: 2px solid var(--vp-c-brand-1);
   padding-left: 12px;
@@ -98,22 +143,21 @@
 
 /* ── Code blocks ──────────────────────────────────────── */
 div[class*="language-"] {
-  background: #f7f5f2 !important;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 10px;
+  background: #F0F0EE !important;   /* clearly lighter than #D3D3D3 page bg */
+  border: 1px solid rgba(17, 21, 28, 0.08);
+  border-radius: 4px;               /* i2rt.com uses very low radius */
 }
 
 .vp-code-group .tabs {
-  background: #edeae6;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #E0E0DE;
+  border-bottom: 1px solid rgba(17, 21, 28, 0.08);
 }
 
 .dark div[class*="language-"] {
   background: #161210 !important;
-  border: 1px solid rgba(133, 88, 50, 0.1);
-  border-radius: 10px;
+  border: 1px solid rgba(133, 88, 50, 0.10);
+  border-radius: 4px;
 }
-
 .dark .vp-code-group .tabs {
   background: #1e1914;
   border-bottom: 1px solid rgba(133, 88, 50, 0.12);
@@ -124,101 +168,61 @@ code {
 }
 
 /* ── Badges ───────────────────────────────────────────── */
-.vp-badge.tip { background: rgba(76, 103, 98, 0.1); color: #4C6762; border: 1px solid rgba(76,103,98,0.25); }
-.vp-badge.warning { background: rgba(133, 88, 50, 0.1); color: #855832; border: 1px solid rgba(133,88,50,0.25); }
-.vp-badge.danger { background: rgba(220, 38, 38, 0.1); color: #dc2626; border: 1px solid rgba(220,38,38,0.2); }
-
-/* ── Home hero ────────────────────────────────────────── */
-.VPHero .name {
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  line-height: 1.1;
-  letter-spacing: -0.04em;
-}
-
-.VPHero .tagline {
-  font-size: clamp(1rem, 2.5vw, 1.25rem);
-  opacity: 0.75;
-  margin-top: 8px;
-}
-
-/* ── Features ─────────────────────────────────────────── */
-.VPFeature {
-  background: var(--vp-c-bg-soft) !important;
-  border: 1px solid rgba(0, 0, 0, 0.06) !important;
-  border-radius: 12px !important;
-  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
-}
-
-.VPFeature:hover {
-  border-color: rgba(133, 88, 50, 0.3) !important;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(133, 88, 50, 0.06);
-}
+.vp-badge.tip    { background: rgba(76,103,98,0.10); color:#4C6762; border:1px solid rgba(76,103,98,0.25); }
+.vp-badge.warning{ background: rgba(133,88,50,0.10); color:#855832; border:1px solid rgba(133,88,50,0.25); }
+.vp-badge.danger { background: rgba(220,38,38,0.10); color:#dc2626; border:1px solid rgba(220,38,38,0.20); }
 
 /* ── Tables ───────────────────────────────────────────── */
-table {
-  border-collapse: collapse;
-}
-
+table { border-collapse: collapse; }
 th {
-  background: rgba(133, 88, 50, 0.05);
-  color: var(--vp-c-brand-1);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(17, 21, 28, 0.06);
+  color: rgba(17, 21, 28, 0.85);
+  border: 1px solid rgba(17, 21, 28, 0.10);
+  font-family: 'Platypi', Georgia, serif;
+  font-weight: 500;
 }
-
-td {
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-tr:hover td {
-  background: rgba(133, 88, 50, 0.03);
-}
+td  { border: 1px solid rgba(17, 21, 28, 0.08); }
+tr:hover td { background: rgba(17, 21, 28, 0.03); }
 
 .dark th {
-  background: rgba(133, 88, 50, 0.1);
+  background: rgba(133, 88, 50, 0.10);
   border: 1px solid rgba(133, 88, 50, 0.15);
+  color: rgba(232, 228, 223, 0.85);
 }
+.dark td { border: 1px solid rgba(255, 255, 255, 0.06); }
+.dark tr:hover td { background: rgba(133, 88, 50, 0.05); }
 
-.dark td {
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.dark tr:hover td {
-  background: rgba(133, 88, 50, 0.05);
-}
-
-/* ── Tip / warning / danger blocks ───────────────────── */
+/* ── Custom blocks ────────────────────────────────────── */
 .custom-block.tip {
-  background: rgba(76, 103, 98, 0.05);
-  border-color: rgba(76, 103, 98, 0.3);
+  background: rgba(76, 103, 98, 0.07);
+  border-color: rgba(76, 103, 98, 0.30);
 }
-
 .custom-block.warning {
-  background: rgba(133, 88, 50, 0.05);
-  border-color: rgba(133, 88, 50, 0.3);
+  background: rgba(133, 88, 50, 0.07);
+  border-color: rgba(133, 88, 50, 0.30);
 }
-
 .custom-block.danger {
-  background: rgba(220, 38, 38, 0.05);
+  background: rgba(220, 38, 38, 0.06);
   border-color: rgba(220, 38, 38, 0.25);
 }
+.dark .custom-block.tip     { background: rgba(76,103,98,0.08);   border-color: rgba(76,103,98,0.35); }
+.dark .custom-block.warning { background: rgba(133,88,50,0.08);  border-color: rgba(133,88,50,0.35); }
+.dark .custom-block.danger  { background: rgba(220,38,38,0.08);  border-color: rgba(220,38,38,0.30); }
 
-.dark .custom-block.tip {
-  background: rgba(76, 103, 98, 0.08);
-  border-color: rgba(76, 103, 98, 0.35);
+/* ── Features (i2rt.com: 1px gap grid trick) ──────────── */
+.VPFeature {
+  background: var(--vp-c-bg-soft) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  transition: background 0.15s !important;
+}
+.VPFeature:hover {
+  background: rgba(133, 88, 50, 0.06) !important;
+  transform: none;
+  box-shadow: none;
 }
 
-.dark .custom-block.warning {
-  background: rgba(133, 88, 50, 0.08);
-  border-color: rgba(133, 88, 50, 0.35);
-}
-
-.dark .custom-block.danger {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.3);
-}
-
-/* ── Home page: remove VitePress page-layout padding ─── */
+/* ── Home page: remove VitePress padding ──────────────── */
 .Layout .VPContent.is-home,
 .Layout[data-layout="page"] .VPContent {
   padding-top: 0 !important;
@@ -227,9 +231,9 @@ tr:hover td {
 /* ── Media placeholders ──────────────────────────────── */
 .media-placeholder {
   position: relative;
-  background: linear-gradient(135deg, #f7f5f2 0%, #edeae6 100%);
-  border: 1px dashed rgba(133, 88, 50, 0.3);
-  border-radius: 12px;
+  background: #E8E8E6;
+  border: 1px solid rgba(17, 21, 28, 0.12);
+  border-radius: 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -240,95 +244,47 @@ tr:hover td {
   margin: 24px 0;
   overflow: hidden;
 }
-
 .dark .media-placeholder {
-  background: linear-gradient(135deg, #1e1914 0%, #231e18 100%);
-  border-color: rgba(133, 88, 50, 0.25);
+  background: #1e1914;
+  border-color: rgba(133, 88, 50, 0.20);
 }
-
 .media-placeholder::before {
   content: '';
   position: absolute;
   inset: 0;
   background: radial-gradient(ellipse at 50% 50%, rgba(133,88,50,0.04) 0%, transparent 70%);
 }
-
-.media-placeholder .placeholder-icon {
-  font-size: 2.5rem;
-  filter: grayscale(0.3);
-  position: relative;
-}
-
+.media-placeholder .placeholder-icon  { font-size: 2.5rem; filter: grayscale(0.3); position: relative; }
 .media-placeholder .placeholder-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--vp-c-brand-1);
-  position: relative;
+  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(17,21,28,0.50); position: relative;
 }
-
-.media-placeholder .placeholder-desc {
-  font-size: 0.9rem;
-  color: var(--vp-c-text-2);
-  max-width: 400px;
-  line-height: 1.6;
-  position: relative;
+.dark .media-placeholder .placeholder-label { color: rgba(232,228,223,0.45); }
+.media-placeholder .placeholder-desc  {
+  font-size: 0.9rem; color: var(--vp-c-text-2); max-width: 400px; line-height: 1.6; position: relative;
 }
-
-.media-placeholder.video-placeholder {
-  min-height: 280px;
-}
-
-.media-placeholder.photo-placeholder {
-  min-height: 200px;
-}
-
-/* ── Spec table ───────────────────────────────────────── */
-.spec-table th:first-child { width: 40%; }
+.media-placeholder.video-placeholder { min-height: 280px; }
+.media-placeholder.photo-placeholder { min-height: 200px; }
 
 /* ── Product badge row ───────────────────────────────── */
-.product-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 16px 0;
-}
-
+.product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .product-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  border: 1px solid;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 2px; font-size: 0.78rem; font-weight: 500; border: 1px solid;
 }
+.product-badge.available  { color: #4C6762; border-color: rgba(76,103,98,0.35); background: rgba(76,103,98,0.08); }
+.product-badge.coming-soon{ color: rgba(17,21,28,0.45); border-color: rgba(17,21,28,0.15); background: rgba(17,21,28,0.04); }
 
-.product-badge.available {
-  color: #4C6762;
-  border-color: rgba(76, 103, 98, 0.35);
-  background: rgba(76, 103, 98, 0.06);
-}
-
-.product-badge.coming-soon {
-  color: #8a8a8a;
-  border-color: rgba(138, 138, 138, 0.25);
-  background: rgba(138, 138, 138, 0.04);
-}
-
-/* ── Dark mode nav ───────────────────────────────────── */
-.dark .VPNav {
-  border-bottom: 1px solid rgba(133, 88, 50, 0.12) !important;
-}
+/* ── dim-gallery (assembly step images) ─────────────── */
+.dim-gallery { display: flex; flex-direction: column; gap: 12px; margin: 16px 0 24px; }
+.dim-gallery figure { margin: 0; }
+.dim-gallery img { width: 100%; border-radius: 4px; background: #E8E8E6; padding: 0; box-sizing: border-box; }
 
 /* ── Light 3D viewer border ──────────────────────────── */
 :root:not(.dark) .hero-viewer > div {
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06) !important;
+  border: 1px solid rgba(17, 21, 28, 0.10) !important;
+  box-shadow: 0 2px 16px rgba(17, 21, 28, 0.08) !important;
 }
-
 .dark .hero-viewer > div {
   border: 1px solid rgba(133, 88, 50, 0.15) !important;
   box-shadow: 0 0 60px rgba(133, 88, 50, 0.05), 0 0 120px rgba(76, 103, 98, 0.03) !important;
