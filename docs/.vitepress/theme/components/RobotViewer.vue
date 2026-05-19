@@ -54,12 +54,12 @@ onMounted(async () => {
 
     // ── Scene ─────────────────────────────────────────────────────────────────
     const isDark = document.documentElement.classList.contains('dark')
-    const bgColor = isDark ? 0x1a1612 : 0xD3D3D3   // match i2rt.com page bg
-    const fogColor = isDark ? 0x1a1612 : 0xD3D3D3
+    const bgColor = isDark ? 0x1a1612 : 0xF5F4F2   // match i2rt.com page bg (white/off-white)
+    const fogColor = isDark ? 0x1a1612 : 0xF5F4F2
     scene = new THREE.Scene()
     scene.background = new THREE.Color(bgColor)
     scene.fog = new THREE.FogExp2(fogColor, 0.22)
-    renderer.domElement.style.background = isDark ? '#1a1612' : '#D3D3D3'
+    renderer.domElement.style.background = isDark ? '#1a1612' : '#F5F4F2'
 
     // ── Camera ────────────────────────────────────────────────────────────────
     camera = new THREE.PerspectiveCamera(40, W / H, 0.005, 30)
@@ -414,7 +414,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: rgba(211, 211, 211, 0.92);  /* match #D3D3D3 page bg */
+  background: rgba(245, 244, 242, 0.92);  /* match #F5F4F2 page bg */
   color: rgba(17, 21, 28, 0.40);
   font-size: 0.85rem;
   letter-spacing: 0.05em;
