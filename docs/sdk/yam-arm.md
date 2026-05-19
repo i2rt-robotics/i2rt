@@ -114,6 +114,42 @@ obs = robot.get_observations()
 #   obs["gripper_pos"] — (1,) gripper position
 #   obs["gripper_vel"] — (1,) gripper velocity
 #   obs["gripper_eff"] — (1,) gripper effort
+#
+# With temp_record_flag=True (passed to get_yam_robot):
+#   obs["temp_mos"]   — (N,) MOS temperature per motor (°C)
+#   obs["temp_rotor"] — (N,) rotor temperature per motor (°C)
+```
+
+Temperature fields are only included when the robot is constructed with `temp_record_flag=True` (pass via `get_yam_robot(..., temp_record_flag=True)`).
+
+### `get_robot_info() → dict`
+
+Returns robot configuration — useful for programmatic introspection (used internally by `ViserControlInterface` and `MujocoControlInterface`).
+
+```python
+info = robot.get_robot_info()
+# {
+#   "arm_type":           ArmType,
+#   "gripper_type":       GripperType,
+#   "kp":                 np.ndarray,   # (N,) PD position gains
+#   "kd":                 np.ndarray,   # (N,) PD velocity gains
+#   "grav_comp_kd":       np.ndarray,   # (N,) gravity-comp idle damping
+#   "coulomb_friction":   np.ndarray,   # (N,) Nm Coulomb friction
+#   "joint_limits":       np.ndarray,   # (2, N) [lower, upper] radians
+#   "gripper_limits":     np.ndarray,   # [closed, open] radians (or None)
+#   "gravity_comp_factor":np.ndarray,   # (6,) per-joint multiplier
+#   "gripper_index":      int | None,
+#   "limit_gripper_effort": float,      # only present when gripper_index is not None
+# }
+```
+
+### `get_motor_torques() → np.ndarray | None`
+
+Returns the last computed motor torques (gravity compensation + PD command torques combined) as sent to the hardware. Returns `None` before the first control loop iteration.
+
+```python
+torques = robot.get_motor_torques()
+# shape: (N,) Nm, one value per motor
 ```
 
 ### `move_joints(target, time_interval_s=2.0) → None`
@@ -147,6 +183,25 @@ robot.enter_gravity_comp_idle()  # arm floats again, with motor-side idle dampin
 ```
 
 The MuJoCo viewer (`examples/control_with_mujoco/`) calls this automatically on every CONTROL → VIS toggle. See [Gravity & Friction Compensation](/guides/gravity-compensation) for details.
+
+### `start_recording(save_dir: str) → bool`
+
+Starts asynchronous joint state recording to disk. Requires the robot to have been constructed with a `joint_state_saver_factory` (internal use — this is wired up automatically when using the bimanual `TwoArmEnv`).
+
+```python
+robot.start_recording("/tmp/session_001")
+```
+
+Raises `RuntimeError` if no saver factory was provided at construction.
+
+### `stop_recording(prefix: str = "") → tuple[bool, str]`
+
+Stops an active recording and returns `(success, message)`.
+
+```python
+ok, msg = robot.stop_recording(prefix="take_1")
+print(ok, msg)  # True  "Recording stopped successfully"
+```
 
 ### `close() → None`
 

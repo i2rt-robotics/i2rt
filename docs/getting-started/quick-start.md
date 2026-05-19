@@ -69,7 +69,7 @@ python examples/minimum_gello/minimum_gello.py \
   --gripper linear_4310 \
   --mode follower \
   --can-channel can0 \
-  --bilateral_kp 0.2
+  --bilateral-kp 0.2
 ```
 
 **Terminal 2 — leader:**
@@ -79,7 +79,7 @@ python examples/minimum_gello/minimum_gello.py \
   --gripper yam_teaching_handle \
   --mode leader \
   --can-channel can1 \
-  --bilateral_kp 0.2
+  --bilateral-kp 0.2
 ```
 
 Press the **top button** on the teaching handle to enable synchronization.

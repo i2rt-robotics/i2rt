@@ -61,15 +61,21 @@ python examples/record_replay_trajectory/record_replay_trajectory.py --channel c
 
 ## Output Format
 
-Trajectories are saved as NumPy arrays:
+Trajectories are saved as a NumPy pickled dictionary (not a plain array):
 
 ```python
 import numpy as np
 
-# Shape: (T, 6) — T timesteps, 6 joints
-trajectory = np.load("trajectory.npy")
-print(trajectory.shape)  # (500, 6)
+data = np.load("trajectory.npy", allow_pickle=True).item()
+
+trajectory = data["trajectory"]   # np.ndarray, shape (T, 7) — T timesteps × joints
+timestamps = data["timestamps"]   # np.ndarray, shape (T,)   — seconds since epoch
+frequency  = data["frequency"]    # float — target control frequency in Hz
 ```
+
+::: warning `allow_pickle=True` required
+The file is saved with `np.save(path, dict)` which uses Python pickling. Loading with plain `np.load()` will raise a `ValueError`. Always pass `allow_pickle=True` and call `.item()` to extract the dict.
+:::
 
 ## See Also
 
