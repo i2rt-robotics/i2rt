@@ -12,14 +12,9 @@ import { withBase } from 'vitepress'
 
 **Linear Bot** is the [Flow Base](/products/flow-base) combined with a vertical linear rail actuator. The linear rail adds a height axis to the omnidirectional base, enabling the mounted YAM arm to reach objects at varying heights — from floor-level to shelf-height — without repositioning.
 
-<div class="product-gallery">
+<div class="product-gallery hero-single">
   <figure>
-    <img :src="withBase('/images/linear_rail.webp')"  alt="Linear Bot full system" />
-    
-  </figure>
-  <figure>
-    <img :src="withBase('/images/yam-mobile/YAM-Mobile-only.webp')"  alt="Linear Bot mobile frame" />
-    
+    <img :src="withBase('/images/linearbot/lb-1.webp')" alt="Linear Bot full system" />
   </figure>
 </div>
 
@@ -62,8 +57,22 @@ The three subsystems are controlled together through a unified Python API, givin
 
 <div class="product-gallery">
   <figure>
-    <img :src="withBase('/images/yam-mobile/YAM-Mobile-only.webp')"  alt="Linear Bot frame close-up" />
-    
+    <img :src="withBase('/images/linearbot/lb-2.webp')" alt="Linear Bot — view 2" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/linearbot/lb-3.webp')" alt="Linear Bot — view 3" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/linearbot/lb-arm-ultra.webp')" alt="Linear Bot with YAM Ultra arm" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/linearbot/lb-arm.webp')" alt="Linear Bot arm close-up" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/linearbot/lb-base-panel.webp')" alt="Linear Bot base panel" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/linearbot/lb-cable-rail.webp')" alt="Linear Bot cable rail detail" />
   </figure>
 </div>
 
@@ -124,4 +133,5 @@ Starting at **$18,999**. Contact [sales@i2rt.com](mailto:sales@i2rt.com) for con
 .product-gallery figure { flex: 1 1 220px; margin: 0; }
 .product-gallery img { width: 100%; border-radius: 8px; }
 .product-gallery figcaption { font-size: 0.8rem; color: var(--vp-c-text-2); text-align: center; margin-top: 6px; }
+.product-gallery.hero-single figure { flex: 1 1 100%; }
 </style>

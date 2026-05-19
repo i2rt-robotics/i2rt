@@ -13,10 +13,9 @@ import { withBase } from 'vitepress'
 
 **Flow Base** is I2RT's omnidirectional holonomic mobile platform. Designed to pair with YAM arms, it enables precise whole-body mobile manipulation for tasks that demand exact positioning and free orientation.
 
-<div class="product-gallery">
+<div class="product-gallery hero-single">
   <figure>
-    <img :src="withBase('/images/flow_base.webp')"  alt="Flow Base standalone" />
-    
+    <img :src="withBase('/images/flow_base/fb-hero.webp')" alt="Flow Base MB-4310-ST" />
   </figure>
 </div>
 
@@ -52,15 +51,27 @@ import { withBase } from 'vitepress'
 
 <div class="product-gallery">
   <figure>
-    <img :src="withBase('/images/flow_base_panel.webp')"  alt="Flow Base control panel" />
-    
+    <img :src="withBase('/images/flow_base/fb-1.webp')" alt="Flow Base MB-4310-ST — view 1" />
   </figure>
   <figure>
-    <img :src="withBase('/images/remote.webp')"  alt="Flow Base remote controller" />
-    
+    <img :src="withBase('/images/flow_base/fb-3.webp')" alt="Flow Base MB-4310-ST — view 3" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/flow_base/fb-4.webp')" alt="Flow Base MB-4310-ST — view 4" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/flow_base/fb-5.webp')" alt="Flow Base MB-4310-ST — view 5" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/flow_base/fb-6.webp')" alt="Flow Base MB-4310-ST — view 6" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/flow_base/fb-7.webp')" alt="Flow Base MB-4310-ST — view 7" />
+  </figure>
+  <figure>
+    <img :src="withBase('/images/flow_base/fb-controller.webp')" alt="Flow Base remote controller" />
   </figure>
 </div>
-
 
 <MediaPlaceholder
   type="video"
@@ -206,4 +217,5 @@ To bypass the on-board Pi and control the base from an external computer:
 .product-gallery figure { flex: 1 1 220px; margin: 0; }
 .product-gallery img { width: 100%; border-radius: 8px; }
 .product-gallery figcaption { font-size: 0.8rem; color: var(--vp-c-text-2); text-align: center; margin-top: 6px; }
+.product-gallery.hero-single figure { flex: 1 1 100%; }
 </style>

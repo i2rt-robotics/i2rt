@@ -4,7 +4,7 @@
   "scripts": {
     "docs:dev": "bash scripts/copy_doc_models.sh && vitepress dev docs",
     "docs:build": "bash scripts/copy_doc_models.sh && vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs --port 4173"
   },
   "devDependencies": {
     "vitepress": "^1.6.3"

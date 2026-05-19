@@ -41,22 +41,25 @@ onMounted(async () => {
     const H = el.clientHeight
 
     // ── Renderer ──────────────────────────────────────────────────────────────
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+    // Use alpha:true for better Safari compatibility (avoids WebGL context issues
+    // when combined with overflow:hidden + border-radius containers)
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     renderer.setSize(W, H)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.1
+    renderer.shadowMap.type = THREE.PCFShadowMap  // PCFSoftShadowMap requires WebGL2 extensions
+    renderer.toneMapping = THREE.LinearToneMapping // More compatible than ACESFilmic across browsers
+    renderer.toneMappingExposure = 1.0
     el.appendChild(renderer.domElement)
 
     // ── Scene ─────────────────────────────────────────────────────────────────
     const isDark = document.documentElement.classList.contains('dark')
-    const bgColor = isDark ? 0x1a1612 : 0xf7f5f2
-    const fogColor = isDark ? 0x1a1612 : 0xf7f5f2
+    const bgColor = isDark ? 0x1a1612 : 0xF5F4F2   // match i2rt.com page bg (white/off-white)
+    const fogColor = isDark ? 0x1a1612 : 0xF5F4F2
     scene = new THREE.Scene()
     scene.background = new THREE.Color(bgColor)
     scene.fog = new THREE.FogExp2(fogColor, 0.22)
+    renderer.domElement.style.background = isDark ? '#1a1612' : '#F5F4F2'
 
     // ── Camera ────────────────────────────────────────────────────────────────
     camera = new THREE.PerspectiveCamera(40, W / H, 0.005, 30)
@@ -362,10 +365,15 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 540px;
-  border-radius: 16px;
+  border-radius: 4px;           /* i2rt.com: very low radius */
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(17, 21, 28, 0.10);
+  box-shadow: 0 2px 16px rgba(17, 21, 28, 0.06);
+  /* Safari fix: force GPU compositing layer so WebGL canvas renders correctly
+     inside overflow:hidden + border-radius containers */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 
 .robot-canvas { width: 100%; height: 100%; }
@@ -406,8 +414,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: rgba(247, 245, 242, 0.92);
-  color: rgba(0, 0, 0, 0.4);
+  background: rgba(245, 244, 242, 0.92);  /* match #F5F4F2 page bg */
+  color: rgba(17, 21, 28, 0.40);
   font-size: 0.85rem;
   letter-spacing: 0.05em;
 }
