@@ -32,16 +32,42 @@ export default defineConfig({
     siteTitle: 'I2RT Docs',
 
     nav: [
+      { text: 'Get Started', link: '/getting-started/sw-setup' },
       { text: 'Products', link: '/products/' },
-      { text: 'Get Started', link: '/getting-started/installation' },
-      { text: 'SDK', link: '/sdk/' },
-      { text: 'Guides', link: '/guides/gravity-compensation' },
-      { text: 'Examples', link: '/examples/' },
-      { text: 'Releases', link: '/releases/v1.1.1' },
       { text: 'i2rt.com', link: 'https://i2rt.com', target: '_blank' },
     ],
 
     sidebar: {
+      '/getting-started/': [
+        {
+          text: 'Get Started',
+          items: [
+            { text: 'SW Setup', link: '/getting-started/sw-setup' },
+          ],
+        },
+        {
+          text: 'Hardware Setup',
+          items: [
+            { text: 'YAM Arm', link: '/getting-started/hardware/yam' },
+            { text: 'YAM Cell', link: '/getting-started/hardware/yam-cell' },
+            { text: 'YAM Box', link: '/getting-started/hardware/yam-box' },
+            { text: 'Flow Base', link: '/getting-started/hardware/flow-base' },
+            { text: 'Linear Bot', link: '/getting-started/hardware/linear-bot' },
+            { text: 'Motors', link: '/getting-started/hardware/motors' },
+          ],
+        },
+        {
+          text: 'Quick Start Demos',
+          items: [
+            { text: 'YAM — Gravity Comp', link: '/getting-started/demos/yam' },
+            { text: 'YAM Cell — Bimanual', link: '/getting-started/demos/yam-cell' },
+            { text: 'YAM Box', link: '/getting-started/demos/yam-box' },
+            { text: 'Flow Base — Teleop', link: '/getting-started/demos/flow-base' },
+            { text: 'Linear Bot — Mobile', link: '/getting-started/demos/linear-bot' },
+            { text: 'Motors — PD Control', link: '/getting-started/demos/motors' },
+          ],
+        },
+      ],
       '/products/': [
         {
           text: 'Product Family',
@@ -70,68 +96,8 @@ export default defineConfig({
         {
           text: 'Motors',
           items: [
+            { text: 'Motors Overview', link: '/products/motors' },
             { text: 'Rovomotor ↗', link: 'https://rovomotor.com', target: '_blank' },
-          ],
-        },
-      ],
-      '/getting-started/': [
-        {
-          text: 'Getting Started',
-          items: [
-            { text: 'Installation', link: '/getting-started/installation' },
-            { text: 'Hardware Setup', link: '/getting-started/hardware-setup' },
-            { text: 'Quick Start', link: '/getting-started/quick-start' },
-          ],
-        },
-      ],
-      '/sdk/': [
-        {
-          text: 'SDK Reference',
-          items: [
-            { text: 'Overview', link: '/sdk/' },
-            { text: 'YAM Arm API', link: '/sdk/yam-arm' },
-            { text: 'Flow Base API', link: '/sdk/flow-base' },
-            { text: 'Grippers', link: '/sdk/grippers' },
-          ],
-        },
-      ],
-      '/examples/': [
-        {
-          text: 'Examples',
-          items: [
-            { text: 'Overview', link: '/examples/' },
-            { text: 'Bimanual Teleoperation', link: '/examples/bimanual-teleoperation' },
-            { text: 'Record & Replay', link: '/examples/record-replay' },
-            { text: 'Motor Control', link: '/examples/motor-control' },
-            { text: 'MuJoCo Control', link: '/examples/control-with-mujoco' },
-            { text: 'Viser Control', link: '/examples/control-with-viser' },
-            { text: 'Minimum Gello', link: '/examples/minimum-gello' },
-          ],
-        },
-      ],
-      '/releases/': [
-        {
-          text: 'Release Notes',
-          items: [
-            { text: 'v1.1.1', link: '/releases/v1.1.1' },
-            { text: 'v1.1.0', link: '/releases/v1.1.0' },
-            { text: 'v1.0.0', link: '/releases/v1.0.0' },
-          ],
-        },
-      ],
-      '/guides/': [
-        {
-          text: 'Guides',
-          items: [
-            { text: 'Gravity & Friction Compensation', link: '/guides/gravity-compensation' },
-          ],
-        },
-      ],
-      '/support/': [
-        {
-          text: 'Support',
-          items: [
-            { text: 'Troubleshooting', link: '/support/troubleshooting' },
           ],
         },
       ],

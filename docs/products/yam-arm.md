@@ -53,7 +53,7 @@ The **YAM Arm** is the follower/manipulation arm in the YAM family — a 6-DOF, 
 | `linear_3507` | DM3507 | Lightweight linear; requires closed-position calibration |
 | `linear_4310` | DM4310 | Standard linear; slightly higher force |
 
-See [Grippers](/sdk/grippers) for calibration and model details.
+See [Grippers](/products/yam#grippers) for calibration and model details.
 
 ## 3D Model
 
@@ -94,9 +94,9 @@ robot.command_joint_pos(np.zeros(6))
 ## See Also
 
 - [YAM Leader](/products/yam-leader) — teaching handle for teleoperation
-- [YAM Arm API](/sdk/yam-arm)
-- [Grippers](/sdk/grippers)
-- [Hardware Setup](/getting-started/hardware-setup)
+- [YAM Arm API](/products/yam#api-reference)
+- [Grippers](/products/yam#grippers)
+- [Hardware Setup](/getting-started/sw-setup#_3-can-bus-setup)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }

@@ -121,8 +121,9 @@ Starting at **$18,999**. Contact [sales@i2rt.com](mailto:sales@i2rt.com) for con
 
 ## See Also
 
-- [Flow Base](/products/flow-base) — base-only configuration
-- [Flow Base API](/sdk/flow-base)
+- [Flow Base](/products/flow-base) — base-only configuration, full Flow Base SDK reference
+- [Linear Bot hardware setup](/getting-started/hardware/linear-bot)
+- [Linear Bot demo](/getting-started/demos/linear-bot)
 - [YAM Arm Series](/products/yam)
 
 <style scoped>

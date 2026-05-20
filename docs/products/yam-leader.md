@@ -88,7 +88,7 @@ python examples/minimum_gello/minimum_gello.py \
   --can-channel can_leader_l
 ```
 
-For full bimanual setup see [Bimanual Teleoperation](/examples/bimanual-teleoperation).
+For full bimanual setup see [Bimanual Teleoperation](/products/yam-cell#bimanual-teleoperation).
 
 ## Videos
 
@@ -101,8 +101,8 @@ For full bimanual setup see [Bimanual Teleoperation](/examples/bimanual-teleoper
 
 - [YAM Arm](/products/yam-arm) — the follower arm
 - [YAM Cell](/products/yam-cell) — full bimanual teleoperation station
-- [Bimanual Teleoperation](/examples/bimanual-teleoperation)
-- [Grippers](/sdk/grippers)
+- [Bimanual Teleoperation](/products/yam-cell#bimanual-teleoperation)
+- [Grippers](/products/yam#grippers)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }

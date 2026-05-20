@@ -19,7 +19,7 @@ import { withBase } from 'vitepress'
       teleoperation-ready, policy-deployment-ready, and battle-tested in the real world.
     </p>
     <div class="hero-actions">
-      <a class="btn-primary" :href="withBase('/getting-started/installation')">Get Started →</a>
+      <a class="btn-primary" :href="withBase('/getting-started/sw-setup')">Get Started →</a>
       <a class="btn-ghost"   :href="withBase('/products/')">Explore Products</a>
       <a class="btn-ghost"   href="https://github.com/i2rt-robotics/i2rt" target="_blank">GitHub</a>
     </div>
@@ -55,7 +55,7 @@ import { withBase } from 'vitepress'
     <p>Bilateral leader-follower teleop. YAM Cell collects bimanual demonstrations for embodied AI.</p>
     <span class="feat-link">Learn more →</span>
   </a>
-  <a class="feat" :href="withBase('/getting-started/quick-start')">
+  <a class="feat" :href="withBase('/getting-started/demos/yam')">
     <span class="feat-icon">🐍</span>
     <h3>Python-First SDK</h3>
     <p>Plug-and-play API: gravity compensation, PD control, trajectory recording, and simulation.</p>
@@ -112,7 +112,7 @@ import { withBase } from 'vitepress'
   <div class="qs-text">
     <h2>Up and running in minutes</h2>
     <p>Install the Python SDK, plug in the CAN adapter, and start controlling the arm in a single script.</p>
-    <a class="btn-primary" :href="withBase('/getting-started/quick-start')">Full Quick Start →</a>
+    <a class="btn-primary" :href="withBase('/getting-started/demos/yam')">Full Quick Start →</a>
   </div>
   <div class="qs-code">
 
@@ -135,7 +135,7 @@ robot.command_joint_pos(np.zeros(7))
 </section>
 
 <section class="cta-row">
-  <a class="btn-primary" :href="withBase('/getting-started/installation')">Get Started →</a>
+  <a class="btn-primary" :href="withBase('/getting-started/sw-setup')">Get Started →</a>
   <a class="btn-ghost"   href="https://i2rt.com" target="_blank">i2rt.com</a>
   <a class="btn-ghost"   href="mailto:support@i2rt.com">support@i2rt.com</a>
 </section>

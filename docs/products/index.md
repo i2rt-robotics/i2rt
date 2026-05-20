@@ -22,4 +22,4 @@ I2RT Robotics builds an open ecosystem of robotic arms, mobile bases, and teleop
 | `yam_teaching_handle` | — | — | Leader arm with trigger + 2 buttons |
 | `flexpoint_4310` | DM4310 | — | Adaptive compliant gripper for extreme-condition grasping |
 
-See [Grippers SDK](/sdk/grippers) for API details.
+See [Grippers SDK](/products/yam#grippers) for API details.

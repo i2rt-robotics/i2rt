@@ -14,30 +14,24 @@ import { withBase } from 'vitepress'
 
 <div class="product-gallery">
   <figure>
-    <img :src="withBase('/images/yam-station/DS-ST-1.webp')"  alt="YAM Cell full workstation" />
-    
+    <img :src="withBase('/images/yam-station/DS-ST-1.webp')" alt="YAM Cell full workstation" />
   </figure>
   <figure>
-    <img :src="withBase('/images/yam-station/DS-ST-2.webp')"  alt="YAM Cell side view" />
-    
+    <img :src="withBase('/images/yam-station/DS-ST-2.webp')" alt="YAM Cell side view" />
   </figure>
   <figure>
-    <img :src="withBase('/images/yam-station/DS-ST-3.webp')"  alt="YAM Cell detail" />
-    
+    <img :src="withBase('/images/yam-station/DS-ST-3.webp')" alt="YAM Cell detail" />
   </figure>
 </div>
-
 
 #### Mobile Variant
 
 <div class="product-gallery">
   <figure>
-    <img :src="withBase('/images/yam-mobile/YAM-Mobile-1.webp')"  alt="YAM Cell Mobile system" />
-    
+    <img :src="withBase('/images/yam-mobile/YAM-Mobile-1.webp')" alt="YAM Cell Mobile system" />
   </figure>
   <figure>
-    <img :src="withBase('/images/yam-mobile/YAM-Mobile-2.webp')"  alt="YAM Cell Mobile 3/4 view" />
-    
+    <img :src="withBase('/images/yam-mobile/YAM-Mobile-2.webp')" alt="YAM Cell Mobile 3/4 view" />
   </figure>
 </div>
 
@@ -62,7 +56,7 @@ Operator ──► Leader (YAM + teaching handle)
 
 ## CAN Bus Layout
 
-Each arm requires a dedicated CAN channel. Assign persistent names using udev rules (see [Hardware Setup](/getting-started/hardware-setup)):
+Each arm requires a dedicated CAN channel. Assign persistent names using udev rules (see the [SW Setup → Persistent CAN names](/getting-started/sw-setup#_4-persistent-can-names-multi-arm-only) section):
 
 | Arm | CAN name |
 |-----|----------|
@@ -82,19 +76,29 @@ Each arm requires a dedicated CAN channel. Assign persistent names using udev ru
   <source :src="withBase('/images/yam-station/DS-ST.mp4')" type="video/mp4" />
 </video>
 
+## Getting Started
 
-## Quick Start
+1. Finish [SW Setup](/getting-started/sw-setup)
+2. Follow [YAM Cell hardware setup](/getting-started/hardware/yam-cell)
+3. Run the [YAM Cell demo](/getting-started/demos/yam-cell)
+4. Review the [Bimanual Teleoperation](#bimanual-teleoperation) section below for full details
 
-### 1. Configure CAN IDs
+---
 
-Plug one CANable device at a time and assign each arm a persistent name:
+## Bimanual Teleoperation
 
-```bash
-# Follow the instructions in:
-doc/set_persist_id_socket_can.md
-```
+**Location:** `examples/bimanual_lead_follower/`
 
-### 2. Verify connectivity
+Run coordinated dual-arm teleoperation with two leader and two follower YAM arms. This is the primary example for the YAM Cell.
+
+### Setup
+
+<MediaPlaceholder
+  type="photo"
+  description="Bimanual YAM Cell setup on a table: leader arms on the left (operator side), follower arms on the right (task side). All four arms visible, cables routed neatly."
+/>
+
+#### 1. Verify all four interfaces
 
 ```bash
 ip a | grep can
@@ -105,46 +109,152 @@ ip a | grep can
 # can_leader_l    UP
 ```
 
-### 3. Launch bimanual teleoperation
+#### 2. Activate the virtual environment
 
 ```bash
-cd /path/to/i2rt
 source .venv/bin/activate
+```
+
+#### 3. Launch
+
+```bash
 python examples/bimanual_lead_follower/bimanual_lead_follower.py
 ```
 
-### 4. Enable synchronization
-
-Press the **top button** on either teaching handle once to begin tracking. Press again to pause.
-
-## Control Reference
+### Operation
 
 | Action | Result |
 |--------|--------|
-| Move leader arm | Follower mirrors motion |
-| Squeeze trigger | Follower gripper closes |
-| Top button (1×) | Enable sync |
-| Top button (2×) | Pause sync |
-| `--bilateral_kp` flag | Increase for more force feedback (default 0.2) |
+| Move either leader arm | Corresponding follower mirrors motion |
+| Squeeze trigger on teaching handle | Follower gripper closes |
+| **Top button (press once)** | **Enable synchronization** |
+| **Top button (press again)** | **Disable synchronization** |
 
-::: tip Bilateral stiffness
-Start with `--bilateral_kp 0.1` and increase gradually. Values above `0.3` make the leader arm feel noticeably heavy.
+::: tip Start position
+Before enabling sync, move the leader arms to roughly match the follower arm positions. Large position errors on first sync can cause abrupt motion.
 :::
+
+### Video
+
+<MediaPlaceholder
+  type="video"
+  description="Bimanual teleoperation demo: operator moves two leader arms to pick up objects with two follower arms simultaneously. Tasks shown: pick-and-place, handoff, assembly. 2–3 minutes."
+/>
+
+<MediaPlaceholder
+  type="video"
+  description="Close-up: leader arm teaching handle trigger being used to operate the follower gripper while picking a small object."
+/>
+
+### Architecture
+
+The example launches two `minimum_gello.py` instances internally — one per arm pair — sharing the same enable/disable logic through the top button.
+
+```python
+# Conceptually equivalent to:
+python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can_follower_l --bilateral-kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can_leader_l --bilateral-kp 0.2
+# (mirrored for right pair)
+```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Missing CAN interface | Check `ip a`, replug adapters one at a time |
+| Arm not following | Ensure sync is enabled (top button) |
+| Jittery motion | Lower `--bilateral-kp` to `0.1` |
+| Motor timeout errors | Reduce loop latency; check USB-CAN adapter |
+
+---
+
+## Minimum Gello (Single-Pair Teleoperation)
+
+**Location:** `examples/minimum_gello/`
+
+The minimal leader–follower teleoperation script. Supports any YAM-family arm + gripper assembly, simulation mode, and local or remote visualization. This is the foundation that the [Bimanual Teleoperation](#bimanual-teleoperation) example builds on.
+
+### Modes
+
+| Mode | What it does |
+|------|--------------|
+| `follower` *(default)* | Drives the local robot from commands received over a portal server. Used as the receiving side in a leader→follower pair. |
+| `leader` | Reads a local teaching handle and sends commands to a remote follower. **Requires real hardware** — `--sim` is not supported in leader mode. |
+| `visualizer_local` | MuJoCo viewer mirrors the local robot's live state. No motion is commanded. |
+| `visualizer_remote` | MuJoCo viewer mirrors a remote robot's state via the portal server. |
+
+### Quick Start
+
+```bash
+# Follower (default) on real hardware
+python examples/minimum_gello/minimum_gello.py --can-channel can0
+
+# Follower in simulation — no hardware required
+python examples/minimum_gello/minimum_gello.py --sim
+
+# Live MuJoCo viewer for the local robot
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
+
+# Try a different arm + gripper combination in sim
+python examples/minimum_gello/minimum_gello.py --arm big_yam --gripper linear_4310 --sim
+python examples/minimum_gello/minimum_gello.py --arm yam_pro --gripper flexible_4310 --sim
+```
+
+### Leader → Follower Setup
+
+Run the follower on one terminal (or machine):
+
+```bash
+python examples/minimum_gello/minimum_gello.py \
+    --gripper linear_4310 --mode follower --can-channel can0
+```
+
+Run the leader on another (separate CAN bus, real hardware only):
+
+```bash
+python examples/minimum_gello/minimum_gello.py \
+    --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral-kp 0.2
+```
+
+Press **button 0** on the teaching handle to sync the leader to the follower. Press again to desync.
+
+::: tip Bilateral force feedback
+`--bilateral-kp` (default 0.0) controls how much the follower's load is reflected back to the leader. Try 0.1–0.3 to feel object weight; values >0.3 can feel sluggish.
+:::
+
+### Arguments
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm` |
+| `--gripper` | `yam_teaching_handle` | Gripper: `crank_4310`, `linear_3507`, `linear_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
+| `--mode` | `follower` | Operation mode (see table above) |
+| `--sim` | off | Use `SimRobot` instead of real hardware (follower / visualizer only) |
+| `--can-channel` | `can0` | CAN interface name |
+| `--server-host` | `localhost` | Portal server host (used by leader / remote visualizer) |
+| `--server-port` | `11333` | Portal server port |
+| `--bilateral-kp` | `0.0` | Bilateral force feedback gain (leader mode) |
+| `--ee-mass` | model default | Override end-effector mass (kg) for gravity comp |
+
+### Overriding Handle Weight
+
+3-D-printed teaching handles vary in mass. The default model assumes 0.258 kg. If your handle is heavier or lighter, pass `--ee-mass` so gravity compensation matches the real hardware:
+
+```bash
+python examples/minimum_gello/minimum_gello.py --ee-mass 0.350 --can-channel can0
+```
+
+---
 
 ## Data Logging
 
-Trajectory recording is built into the example:
-
-```python
-from i2rt.robots.motor_chain_robot import get_yam_robot
-# See examples/record_replay_trajectory/ for full dataset collection pipeline
-```
+For dataset collection, see the [Record & Replay Trajectory](/products/yam#record-replay-trajectory) section on the YAM product page — the same recording pipeline applies to any YAM arm used in a Cell.
 
 ## See Also
 
-- [Bimanual Teleoperation Example](/examples/bimanual-teleoperation)
-- [Record & Replay](/examples/record-replay)
-- [YAM Arm API](/sdk/yam-arm)
+- [YAM Arm — full SDK & API reference](/products/yam)
+- [YAM Leader Arm](/products/yam-leader) — teaching handle details
+- [YAM Cell demo](/getting-started/demos/yam-cell)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }
