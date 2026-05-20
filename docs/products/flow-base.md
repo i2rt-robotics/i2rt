@@ -82,11 +82,101 @@ import { withBase } from 'vitepress'
   description="YAM arm mounted on Flow Base, doing a mobile pick-and-place from a shelf. Showcases the full mobile manipulation capability."
 />
 
-## Getting Started
+## Hardware Setup
 
-1. Follow [Flow Base hardware setup](/getting-started/hardware/flow-base)
-2. Run the [Flow Base demo](/getting-started/demos/flow-base)
-3. See the [API Reference](#api-reference) below for full SDK details
+Get the Flow Base omnidirectional mobile platform unboxed, powered, and joystick-ready.
+
+::: tip Prerequisite
+SW Setup is **not required** — the Flow Base ships with a Raspberry Pi pre-configured with the SDK. You only need network access to SSH in.
+:::
+
+### 1. Unbox
+
+- [ ] Flow Base chassis
+- [ ] Battery pack (already installed)
+- [ ] Joystick remote controller
+- [ ] Ethernet cable (for wired SSH)
+- [ ] Charger
+
+### 2. Power on
+
+- [ ] Twist the **E-stop button** counter-clockwise to release it
+- [ ] Set the **CAN selector switch** to **UP** position (selects the on-board Pi as CAN master)
+- [ ] Press the power button — the Pi display should light up
+- [ ] Wait ~30 seconds for the Pi to finish booting
+
+### 3. Connect to the Pi
+
+```bash
+# Wired (recommended) — static IP
+ssh i2rt@172.6.2.20
+# Password: root
+```
+
+::: tip Wi-Fi setup
+If you prefer Wi-Fi, connect a keyboard + monitor to the Pi the first time and run `sudo raspi-config` to join your network.
+:::
+
+### 4. Verify the SDK is current
+
+```bash
+cd ~/i2rt && git pull
+```
+
+### 5. Test with the joystick
+
+On the Pi:
+
+```bash
+python i2rt/flow_base/flow_base_controller.py
+```
+
+- [ ] Left joystick → base translates (XY)
+- [ ] Right joystick X → base rotates (yaw)
+- [ ] Press **Left2** to override API commands (safety)
+
+---
+
+## Quick Start Demo
+
+Drive the Flow Base with the joystick remote, then control it programmatically.
+
+### 1. Joystick demo (on the Pi)
+
+```bash
+ssh i2rt@172.6.2.20
+python i2rt/flow_base/flow_base_controller.py
+```
+
+See the [Remote Control Layout](#remote-control-layout) below for the full button reference.
+
+### 2. Python API — drive forward from a laptop
+
+From your laptop (on the same network):
+
+```python
+from i2rt.flow_base.flow_base_client import FlowBaseClient
+import numpy as np
+import time
+
+client = FlowBaseClient(host="172.6.2.20")
+
+# Drive forward at 0.1 m/s for 2 seconds
+start = time.time()
+while time.time() - start < 2.0:
+    client.set_target_velocity(np.array([0.1, 0.0, 0.0]), frame="local")
+    time.sleep(0.05)
+
+# Read odometry
+print(client.get_odometry())
+client.close()
+```
+
+::: warning Velocity timeout
+The base stops automatically if no command arrives within **0.25 seconds**. The client maintains a heartbeat thread (20 ms) while connected.
+:::
+
+For the full SDK (linear rail, frame conventions, advanced commands), see the [API Reference](#api-reference) section below.
 
 ## Remote Control Layout
 
@@ -301,8 +391,8 @@ To bypass the on-board Pi and control the base from an external computer:
 ## See Also
 
 - [Linear Bot](/products/linear-bot) — Flow Base + linear rail lift + YAM arm
-- [Flow Base hardware setup](/getting-started/hardware/flow-base)
-- [Flow Base demo](/getting-started/demos/flow-base)
+- [Flow Base hardware setup](/products/flow-base#hardware-setup)
+- [Flow Base demo](/products/flow-base#quick-start-demo)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }

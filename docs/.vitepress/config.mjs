@@ -33,12 +33,14 @@ export default defineConfig({
 
     nav: [
       { text: 'Get Started', link: '/getting-started/sw-setup' },
-      { text: 'Products', link: '/products/' },
+      { text: 'GitHub', link: 'https://github.com/i2rt-robotics/i2rt', target: '_blank' },
       { text: 'i2rt.com', link: 'https://i2rt.com', target: '_blank' },
     ],
 
     sidebar: {
-      '/getting-started/': [
+      // Use the same sidebar for /getting-started/ and /products/ so users can
+      // navigate between SW Setup and product pages without changing context.
+      '/': [
         {
           text: 'Get Started',
           items: [
@@ -46,57 +48,26 @@ export default defineConfig({
           ],
         },
         {
-          text: 'Hardware Setup',
+          text: 'Products',
           items: [
-            { text: 'YAM Arm', link: '/getting-started/hardware/yam' },
-            { text: 'YAM Cell', link: '/getting-started/hardware/yam-cell' },
-            { text: 'YAM Box', link: '/getting-started/hardware/yam-box' },
-            { text: 'Flow Base', link: '/getting-started/hardware/flow-base' },
-            { text: 'Linear Bot', link: '/getting-started/hardware/linear-bot' },
-            { text: 'Motors', link: '/getting-started/hardware/motors' },
-          ],
-        },
-        {
-          text: 'Quick Start Demos',
-          items: [
-            { text: 'YAM — Gravity Comp', link: '/getting-started/demos/yam' },
-            { text: 'YAM Cell — Bimanual', link: '/getting-started/demos/yam-cell' },
-            { text: 'YAM Box', link: '/getting-started/demos/yam-box' },
-            { text: 'Flow Base — Teleop', link: '/getting-started/demos/flow-base' },
-            { text: 'Linear Bot — Mobile', link: '/getting-started/demos/linear-bot' },
-            { text: 'Motors — PD Control', link: '/getting-started/demos/motors' },
-          ],
-        },
-      ],
-      '/products/': [
-        {
-          text: 'Product Family',
-          items: [
-            { text: 'Overview', link: '/products/' },
-          ],
-        },
-        {
-          text: 'YAM Series',
-          collapsed: false,
-          items: [
-            { text: 'YAM Series Overview', link: '/products/yam' },
+            { text: 'Product Family Overview', link: '/products/' },
+            { text: 'YAM Arm Series', link: '/products/yam' },
             { text: 'YAM Arm', link: '/products/yam-arm' },
             { text: 'YAM Leader Arm', link: '/products/yam-leader' },
             { text: 'YAM Cell', link: '/products/yam-cell' },
             { text: 'YAM Box', link: '/products/yam-box' },
-          ],
-        },
-        {
-          text: 'Mobile',
-          items: [
             { text: 'Flow Base', link: '/products/flow-base' },
             { text: 'Linear Bot', link: '/products/linear-bot' },
+            { text: 'Motors', link: '/products/motors' },
           ],
         },
         {
-          text: 'Motors',
+          text: 'Motor Details',
+          collapsed: true,
           items: [
-            { text: 'Motors Overview', link: '/products/motors' },
+            { text: 'GF43X10-10', link: '/products/motor-gf43x10-10' },
+            { text: 'GF43X40-10', link: '/products/motor-gf43x40-10' },
+            { text: 'GF43X40-16', link: '/products/motor-gf43x40-16' },
             { text: 'Rovomotor ↗', link: 'https://rovomotor.com', target: '_blank' },
           ],
         },

@@ -76,12 +76,98 @@ Each arm requires a dedicated CAN channel. Assign persistent names using udev ru
   <source :src="withBase('/images/yam-station/DS-ST.mp4')" type="video/mp4" />
 </video>
 
-## Getting Started
+## Hardware Setup
 
-1. Finish [SW Setup](/getting-started/sw-setup)
-2. Follow [YAM Cell hardware setup](/getting-started/hardware/yam-cell)
-3. Run the [YAM Cell demo](/getting-started/demos/yam-cell)
-4. Review the [Bimanual Teleoperation](#bimanual-teleoperation) section below for full details
+Set up a 4-arm bimanual teleoperation cell: 2 leader arms + 2 follower arms, each on its own CAN channel.
+
+::: tip Prerequisites
+- Finish [SW Setup](/getting-started/sw-setup) first
+- Two YAM follower arms (any gripper) + two YAM leader arms (`yam_teaching_handle` gripper)
+- Four CANable USB-CAN adapters
+:::
+
+### 1. Mount the 4 arms
+
+- [ ] Mount **both followers** to the front workbench
+- [ ] Mount **both leaders** to the operator-side workbench (within arm's reach of the operator)
+- [ ] Maintain mirror symmetry — left leader ↔ left follower, right leader ↔ right follower
+
+### 2. Wire CAN + power
+
+- [ ] Connect a separate CANable adapter to each arm (4 total)
+- [ ] Plug all 4 CANable adapters into the host PC's USB ports
+- [ ] Power each arm independently from its 24 V supply
+
+### 3. Assign persistent CAN names
+
+Without persistent names you can't tell which `can0…can3` belongs to which arm. Follow the [persistent CAN names](/getting-started/sw-setup#_4-persistent-can-names-multi-arm-only) section in SW Setup to set up the layout from the [CAN Bus Layout](#can-bus-layout) section above.
+
+### 4. Verify all 4 arms
+
+```bash
+ip link show | grep can_
+```
+
+All 4 named interfaces should be **UP**.
+
+### 5. Quick floating test (one arm at a time)
+
+```bash
+python i2rt/robots/get_robot.py --channel can_follower_l --gripper linear_4310
+```
+
+Repeat for each arm to confirm each CAN channel maps to the expected arm.
+
+---
+
+## Quick Start Demo
+
+Drive 2 follower arms with 2 leader arms — full bimanual leader-follower teleop with bilateral force feedback.
+
+### Launch — one terminal per arm
+
+**Terminal 1 — left follower:**
+```bash
+python examples/minimum_gello/minimum_gello.py \
+  --gripper linear_4310 --mode follower \
+  --can-channel can_follower_l --bilateral-kp 0.2
+```
+
+**Terminal 2 — right follower:**
+```bash
+python examples/minimum_gello/minimum_gello.py \
+  --gripper linear_4310 --mode follower \
+  --can-channel can_follower_r --bilateral-kp 0.2
+```
+
+**Terminal 3 — left leader:**
+```bash
+python examples/minimum_gello/minimum_gello.py \
+  --gripper yam_teaching_handle --mode leader \
+  --can-channel can_leader_l --bilateral-kp 0.2
+```
+
+**Terminal 4 — right leader:**
+```bash
+python examples/minimum_gello/minimum_gello.py \
+  --gripper yam_teaching_handle --mode leader \
+  --can-channel can_leader_r --bilateral-kp 0.2
+```
+
+### Engage
+
+Press the **top button on each teaching handle** to enable leader-follower sync. The followers track the leaders in real time.
+
+### What `--bilateral-kp` does
+
+| Value | Behavior |
+|---|---|
+| `0.0` | Open-loop — leader feels nothing |
+| `0.1` | Soft force feedback |
+| `0.2` | Recommended — leader feels follower load |
+| `0.3+` | Stiff — risk of oscillation |
+
+For deep teleop details (architecture, troubleshooting), see [Bimanual Teleoperation](#bimanual-teleoperation) below.
 
 ---
 
@@ -254,7 +340,7 @@ For dataset collection, see the [Record & Replay Trajectory](/products/yam#recor
 
 - [YAM Arm — full SDK & API reference](/products/yam)
 - [YAM Leader Arm](/products/yam-leader) — teaching handle details
-- [YAM Cell demo](/getting-started/demos/yam-cell)
+- [YAM Cell demo](/products/yam-cell#quick-start-demo)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }

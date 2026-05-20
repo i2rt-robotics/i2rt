@@ -179,6 +179,32 @@ After all wiring is complete, verify every connection is firm and there are no l
 
 ---
 
+## Quick Start Demo
+
+After assembly, YAM Box runs the same SDK as a standalone YAM arm. Test with:
+
+```bash
+python i2rt/robots/get_robot.py --channel can0 --gripper linear_4310
+```
+
+The arm should float in zero-gravity mode inside the enclosure. Push it through reachable space to verify nothing collides with the walls or top frame.
+
+Then try the Python API:
+
+```python
+from i2rt.robots.get_robot import get_yam_robot
+import numpy as np
+
+robot = get_yam_robot(channel="can0")
+print(robot.get_observations())
+robot.command_joint_pos(np.zeros(7))
+robot.close()
+```
+
+For the full SDK reference, MuJoCo / Viser visualizers, and gravity-comp tuning, see the [YAM Arm product page](/products/yam#api-reference).
+
+---
+
 ## Pricing
 
 Starting at **$3,500**. Contact [sales@i2rt.com](mailto:sales@i2rt.com) for custom configurations.

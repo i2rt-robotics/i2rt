@@ -86,7 +86,108 @@ The three subsystems are controlled together through a unified Python API, givin
   description="Time-lapse or sped-up footage of Linear Bot performing repeated fetch tasks in a simulated warehouse environment."
 />
 
-## Python API
+## Hardware Setup
+
+Linear Bot = Flow Base + vertical linear rail + mounted YAM arm.
+
+::: tip Prerequisite
+Finish [Flow Base setup](/products/flow-base#hardware-setup) first — the chassis is identical.
+:::
+
+### 1. Verify the Flow Base section works
+
+- [ ] Battery installed, E-stop released
+- [ ] CAN selector switch **UP** (Pi mode)
+- [ ] Successfully SSH into the Pi (`ssh i2rt@172.6.2.20`)
+- [ ] Joystick moves the base in XY
+
+### 2. Linear rail homing
+
+The vertical rail homes to its **lower limit switch** on boot.
+
+- [ ] Clear the space below the rail
+- [ ] Power-cycle — rail should drive down until it hits the limit, then stop
+- [ ] Verify both limit switches with:
+  ```bash
+  python i2rt/flow_base/flow_base_client.py --command get_linear_rail_state --host 172.6.2.20
+  ```
+
+### 3. Mount the YAM arm
+
+- [ ] Bolt the arm to the rail carriage top plate
+- [ ] Route the arm's CAN cable through the rail cable chain
+- [ ] Connect to the on-board CANable adapter
+
+### 4. Power on the arm
+
+- [ ] Verify all CAN devices are visible from the Pi
+- [ ] Test arm floating mode:
+  ```bash
+  ssh i2rt@172.6.2.20
+  python i2rt/robots/get_robot.py --channel can0 --gripper linear_4310
+  ```
+
+---
+
+## Quick Start Demo
+
+Drive the Flow Base, lift the rail, and command the YAM arm — all from one Python script.
+
+### 1. Joystick (base + rail)
+
+```bash
+ssh i2rt@172.6.2.20
+python i2rt/flow_base/flow_base_controller.py
+```
+
+| Input | Action |
+|---|---|
+| Left joystick | Base XY translation |
+| Right joystick X | Base rotation |
+| **Right joystick Y** | **Linear rail lift** |
+| Left2 | Override API commands |
+
+### 2. Combined Python API — drive + raise rail + arm
+
+```python
+from i2rt.flow_base.flow_base_client import FlowBaseClient
+from i2rt.robots.get_robot import get_yam_robot
+import numpy as np
+import time
+
+# Enable linear rail support on the client
+client = FlowBaseClient(host="172.6.2.20", with_linear_rail=True)
+robot = get_yam_robot(channel="can0")
+
+# 4D velocity command: [vx, vy, theta_dot, rail_velocity]
+client.set_target_velocity(np.array([0.1, 0.0, 0.0, 0.2]), frame="local")
+time.sleep(2.0)
+
+# Stop everything
+client.set_target_velocity(np.zeros(4), frame="local")
+
+# Inspect rail state
+print(client.get_linear_rail_state())
+
+client.close()
+robot.close()
+```
+
+### 3. Rail-only control
+
+```python
+client.set_linear_rail_velocity(0.5)   # rad/s — raise
+client.set_linear_rail_velocity(0.0)   # stop
+client.set_linear_rail_velocity(-0.5)  # lower
+```
+
+::: tip Linear rail safety
+The rail homes to the lower limit on init and has hardware limit switches. Commands time out after **0.25 s** of inactivity.
+:::
+
+## Python API Reference
+
+For the full SDK (FlowBaseClient methods, frame conventions, etc.), see the [Flow Base API Reference](/products/flow-base#api-reference) — Linear Bot uses the same client with `with_linear_rail=True`.
 
 ```python
 from i2rt.flow_base.flow_base_client import FlowBaseClient
@@ -122,8 +223,8 @@ Starting at **$18,999**. Contact [sales@i2rt.com](mailto:sales@i2rt.com) for con
 ## See Also
 
 - [Flow Base](/products/flow-base) — base-only configuration, full Flow Base SDK reference
-- [Linear Bot hardware setup](/getting-started/hardware/linear-bot)
-- [Linear Bot demo](/getting-started/demos/linear-bot)
+- [Linear Bot hardware setup](/products/linear-bot#hardware-setup)
+- [Linear Bot demo](/products/linear-bot#quick-start-demo)
 - [YAM Arm Series](/products/yam)
 
 <style scoped>

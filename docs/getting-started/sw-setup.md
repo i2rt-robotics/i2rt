@@ -1,6 +1,6 @@
 # SW Setup
 
-Set up the i2rt Python SDK and CAN bus environment. This is a **one-time setup** that all I2RT products share — once it's done, you can move on to the per-product [Hardware Setup](/getting-started/hardware/yam) checklists.
+Set up the i2rt Python SDK and CAN bus environment. This is a **one-time setup** that all I2RT products share — once it's done, you can move on to the per-product [Hardware Setup](/products/yam#hardware-setup) checklists.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ Set up the i2rt Python SDK and CAN bus environment. This is a **one-time setup**
 | Build tools | `build-essential`, `python3-dev` |
 
 ::: tip Raspberry Pi users
-The Flow Base ships with a Raspberry Pi pre-configured with the SDK. You can skip this page entirely and jump to [Flow Base Hardware Setup](/getting-started/hardware/flow-base).
+The Flow Base ships with a Raspberry Pi pre-configured with the SDK. You can skip this page entirely and jump to [Flow Base Hardware Setup](/products/flow-base#hardware-setup).
 :::
 
 ## 1. Install from source
@@ -150,9 +150,9 @@ ip link show
 
 Pick the product you're setting up:
 
-- [YAM Arm](/getting-started/hardware/yam)
-- [YAM Cell](/getting-started/hardware/yam-cell)
-- [YAM Box](/getting-started/hardware/yam-box)
-- [Flow Base](/getting-started/hardware/flow-base)
-- [Linear Bot](/getting-started/hardware/linear-bot)
-- [Motors](/getting-started/hardware/motors)
+- [YAM Arm](/products/yam#hardware-setup)
+- [YAM Cell](/products/yam-cell#hardware-setup)
+- [YAM Box](/products/yam-box#assembly-guide)
+- [Flow Base](/products/flow-base#hardware-setup)
+- [Linear Bot](/products/linear-bot#hardware-setup)
+- [Motors](/products/motors#hardware-setup)

@@ -42,11 +42,89 @@ GF  43  X  40  -  16
 └────────────────── GF joint module series
 ```
 
-## Getting Started
+## Hardware Setup
 
-1. Follow [Motors hardware setup](/getting-started/hardware/motors)
-2. Run the [Motors demo](/getting-started/demos/motors)
-3. See the [single motor PD control](#single-motor-pd-control) example below for a full walkthrough
+Using a motor **standalone** for development or testing.
+
+::: tip Prerequisite
+Finish [SW Setup](/getting-started/sw-setup) first.
+:::
+
+### 1. Inventory
+
+- [ ] Motor
+- [ ] Motor cable (CAN + power)
+- [ ] CANable USB-CAN adapter
+- [ ] 24 V or 48 V power supply (check motor label)
+
+### 2. Wire it up
+
+- [ ] Connect the motor's CAN cable to your CANable adapter
+- [ ] Connect the motor's power input to the supply
+- [ ] Plug the CANable into the host PC's USB
+
+### 3. Bring up CAN
+
+```bash
+sudo ip link set can0 up type can bitrate 1000000
+ls -l /sys/class/net/can*
+```
+
+### 4. (If needed) Set the motor ID
+
+Each motor needs a unique ID on the bus (1–6 for YAM, custom for standalone).
+
+```bash
+python i2rt/motor_config_tool/set_id.py --channel can0 --old-id 1 --new-id 2
+```
+
+### 5. (If needed) Zero the motor offset
+
+```bash
+python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
+```
+
+---
+
+## Quick Start Demo
+
+### Read motor state
+
+```python
+from i2rt.motor_drivers.dm_driver import DMChainCanInterface, MotorType
+
+motor_chain = DMChainCanInterface(
+    motor_list=[(1, MotorType.DM4310)],
+    motor_offsets=[0.0],
+    motor_directions=[1],
+    channel="can0",
+)
+
+state = motor_chain.read_states()
+print(state)
+# JointState(pos=..., vel=..., eff=..., temp_mos=..., temp_rotor=...)
+```
+
+### MIT-mode position command
+
+```python
+import numpy as np
+
+# Command motor 1 to position 0 rad with PD gains
+motor_chain.set_commands(
+    kp=np.array([5.0]),
+    kd=np.array([0.5]),
+    pos=np.array([0.0]),
+    vel=np.array([0.0]),
+    torque=np.array([0.0]),
+)
+```
+
+::: danger Safety timeout
+By default each motor has a **400 ms safety timeout**. If no command arrives for 400 ms, the motor switches to damping mode automatically. Disable only when you have a reliable PD loop running — see the [Set safety timeout](#set-safety-timeout) section below.
+:::
+
+For a full interactive PD-control teleop example (arrow-key control, live state display), see the [Single Motor PD Control](#single-motor-pd-control) section below.
 
 ---
 
@@ -159,8 +237,8 @@ After running `set_zero.py` or `set_timeout.py`, power-cycle the motor for the n
 ## See Also
 
 - [YAM Arm](/products/yam) — full motor chain usage in an arm
-- [Motors hardware setup](/getting-started/hardware/motors)
-- [Motors demo](/getting-started/demos/motors)
+- [Motors hardware setup](/products/motors#hardware-setup)
+- [Motors demo](/products/motors#quick-start-demo)
 
 <style scoped>
 .product-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }

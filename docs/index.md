@@ -55,7 +55,7 @@ import { withBase } from 'vitepress'
     <p>Bilateral leader-follower teleop. YAM Cell collects bimanual demonstrations for embodied AI.</p>
     <span class="feat-link">Learn more →</span>
   </a>
-  <a class="feat" :href="withBase('/getting-started/demos/yam')">
+  <a class="feat" :href="withBase('/products/yam#quick-start-demo')">
     <span class="feat-icon">🐍</span>
     <h3>Python-First SDK</h3>
     <p>Plug-and-play API: gravity compensation, PD control, trajectory recording, and simulation.</p>
@@ -112,7 +112,7 @@ import { withBase } from 'vitepress'
   <div class="qs-text">
     <h2>Up and running in minutes</h2>
     <p>Install the Python SDK, plug in the CAN adapter, and start controlling the arm in a single script.</p>
-    <a class="btn-primary" :href="withBase('/getting-started/demos/yam')">Full Quick Start →</a>
+    <a class="btn-primary" :href="withBase('/products/yam#quick-start-demo')">Full Quick Start →</a>
   </div>
   <div class="qs-code">
 

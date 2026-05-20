@@ -70,26 +70,116 @@ i2rt/robot_models/arm/yam/
   <source :src="withBase('/images/yam-standard/YAM-ST-GP-video.mp4')" type="video/mp4" />
 </video>
 
-## Getting Started
+## Hardware Setup
 
-1. [Install the SDK](/getting-started/sw-setup)
-2. [Set up the hardware](/getting-started/hardware/yam)
-3. Try the [YAM demo](/getting-started/demos/yam)
-4. Use the [API Reference](#api-reference) below for the full Python SDK
+Get a single YAM arm out of the box, wired, powered, and ready to run a demo.
+
+::: tip Prerequisite
+Finish [SW Setup](/getting-started/sw-setup) first — Python SDK + CAN environment must be ready.
+:::
+
+### 1. Unbox
+
+- [ ] Take the arm and base plate out of the foam
+- [ ] Verify accessories: CANable USB-CAN adapter, power supply, gripper
+- [ ] Inspect for shipping damage on the joint covers and cables
+
+### 2. Mount on a stable surface
+
+- [ ] Bolt the base plate to a workbench (or place on a heavy table)
+- [ ] Keep at least 1 m clearance in all directions for the arm's reach
+- [ ] Route the CAN + power cables away from the workspace
+
+### 3. Wire it up
+
+- [ ] Connect the **CAN cable** between the arm and your CANable adapter
+- [ ] Plug the CANable into a USB port on the host computer
+- [ ] Connect the **24 V power supply** to the arm's power input
+
+### 4. Power on
+
+- [ ] Flip the supply switch — joints should hum briefly as motors initialize
+- [ ] Verify the CAN device shows up:
+  ```bash
+  ls -l /sys/class/net/can*
+  ```
+
+### 5. Verify
+
+```bash
+# Bring up CAN if not auto-enabled
+sudo ip link set can0 up type can bitrate 1000000
+
+# Quick zero-gravity test — the arm should float
+python i2rt/robots/get_robot.py --channel can0 --gripper linear_4310
+```
+
+Push the arm gently — it should hold position when released.
+
+---
+
+## Quick Start Demo
+
+Run your first YAM arm demo in 5 minutes.
+
+### 1. Test without hardware (sim mode)
+
+You don't even need an arm. Launch the MuJoCo viewer:
+
+```bash
+python examples/minimum_gello/minimum_gello.py --mode visualizer_local
+```
+
+A 3D window opens showing the YAM model. Use this to verify your install before plugging in hardware.
+
+### 2. Zero-gravity mode (with hardware)
+
+The arm enters a **gravity-compensated floating state** — push it freely, it stays where you leave it.
+
+```bash
+python i2rt/robots/get_robot.py --channel can0 --gripper linear_4310
+```
+
+Press `Ctrl+C` to exit.
+
+### 3. Python API — read state and move
 
 ```python
 from i2rt.robots.get_robot import get_yam_robot
 import numpy as np
 
-# Connect to the arm (zero-gravity mode on by default)
+# Connect (zero-gravity ON by default)
 robot = get_yam_robot(channel="can0", zero_gravity_mode=True)
 
-# Read current joint positions
-joints = robot.get_joint_pos()  # shape: (6,) radians
+# Read current observations
+obs = robot.get_observations()
+print("Arm joints:", obs["joint_pos"])   # (6,) radians
+print("Gripper:",    obs["gripper_pos"])  # (1,) normalized
 
-# Command a target configuration
-robot.command_joint_pos(np.zeros(6))
+# Command home position (6 arm joints + 1 gripper)
+robot.command_joint_pos(np.zeros(7))
+
+robot.close()
 ```
+
+### 4. Different arm variants
+
+```python
+from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import ArmType
+
+robot = get_yam_robot(arm_type=ArmType.BIG_YAM, channel="can0")
+```
+
+| Arm type | Constant |
+|---|---|
+| Standard | `ArmType.YAM` |
+| Pro | `ArmType.YAM_PRO` |
+| Ultra | `ArmType.YAM_ULTRA` |
+| Big | `ArmType.BIG_YAM` |
+| Gripper-only | `ArmType.NO_ARM` |
+
+For the full SDK and advanced examples, see the [API Reference](#api-reference) section below.
 
 ---
 
