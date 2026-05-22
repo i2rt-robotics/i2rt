@@ -4,8 +4,6 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 
 [![I2RT](https://github.com/user-attachments/assets/025ac3f0-7af1-4e6f-ab9f-7658c5978f92)](https://i2rt.com/)
 
-> **Full documentation:** see the [`docs/`](./docs) folder or the hosted web docs.
-
 ## Features
 
 - Plug-and-play Python interface for YAM arms and Flow Base
@@ -48,8 +46,6 @@ sudo sh devices/install_devices.sh
 # Reset unresponsive adapter
 sh scripts/reset_all_can.sh
 ```
-
-For persistent CAN names across multi-arm setups (YAM Cell), see [`docs/getting-started/hardware-setup.md`](./docs/getting-started/hardware-setup.md#persistent-can-ids).
 
 ## YAM Arm
 
@@ -106,8 +102,7 @@ YAM ships with hand-tuned per-arm YAML knobs in `i2rt/robots/config/<arm>.yml`:
 `gravity_comp_factor`, `grav_comp_kd` (motor-side idle damping), and
 `coulomb_friction` (applied as `friction · sign(q_dot)`). The same control law
 runs in `SimRobot` via a background physics thread, so sim and hardware feel
-the same. See [`docs/guides/gravity-compensation.md`](./docs/guides/gravity-compensation.md)
-for the tuning workflow.
+the same.
 
 ## Gripper Types
 
@@ -116,7 +111,7 @@ for the tuning workflow.
 | `crank_4310` | DM4310 | Zero-linkage crank — minimises gripper width |
 | `linear_3507` | DM3507 | Lightweight linear; start closed or run calibration |
 | `linear_4310` | DM4310 | Standard linear; slightly more force than 3507 |
-| `yam_teaching_handle` | — | Leader arm handle with trigger + 2 buttons. See [`docs/products/yam-leader.md`](./docs/products/yam-leader.md) |
+| `yam_teaching_handle` | — | Leader arm handle with trigger + 2 buttons. |
 
 The linear grippers require calibration because their motor travels more than 2π radians over the full stroke — either start with the gripper fully closed, or run the calibration routine.
 
@@ -134,16 +129,14 @@ client = FlowBaseClient(host="172.6.2.20")
 client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 ```
 
-Full setup, remote layout, API reference, and linear rail docs: [`docs/products/flow-base.md`](./docs/products/flow-base.md).
-
 ## Examples
 
-| Example | Location | Docs |
-|---------|----------|------|
-| Bimanual lead-follower | `examples/bimanual_lead_follower/` | [`docs/examples/bimanual-teleoperation.md`](./docs/examples/bimanual-teleoperation.md) |
-| Record & replay trajectory | `examples/record_replay_trajectory/` | [`docs/examples/record-replay.md`](./docs/examples/record-replay.md) |
-| Single motor PD control | `examples/single_motor_position_pd_control/` | [`docs/examples/motor-control.md`](./docs/examples/motor-control.md) |
-| MuJoCo control interface | `examples/control_with_mujoco/` | [`docs/examples/control-with-mujoco.md`](./docs/examples/control-with-mujoco.md) |
+| Example | Location |
+|---------|----------|
+| Bimanual lead-follower | `examples/bimanual_lead_follower/` |
+| Record & replay trajectory | `examples/record_replay_trajectory/` |
+| Single motor PD control | `examples/single_motor_position_pd_control/` |
+| MuJoCo control interface | `examples/control_with_mujoco/` |
 
 ## Advanced: Motor Configuration
 
