@@ -90,9 +90,7 @@ i2rt.egg-info/
 # Ignore temporary scripts or generated files
 scripts/temp_*/
 
-# Docs build artifacts
 node_modules/
-# STL files are copied at build time from i2rt/robot_models/ — do not commit
 
 CLAUDE.md
 *.mjb
