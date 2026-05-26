@@ -4,23 +4,26 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "i2rt"
-version = "1.1.0"
+version = "1.1.2"
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "click<8.2.0",
+    "dash>=4.1.0",
     "dm-env==1.6",
     "evdev==1.9.2 ; sys_platform == 'linux'",
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",
+    "plotly>=6.7.0",
     "portal==3.7.3",
     "pydantic>=2.0",
     "pygame==2.6.1",
     "python-can==4.5.0",
     "pyyaml>=6.0.0",
     "qpsolvers[quadprog]==4.7.1",
+    "redis>=7.4.0",
     "ruckig==0.15.3",
     "threadpoolctl==3.6.0",
     "tyro==0.9.26",
