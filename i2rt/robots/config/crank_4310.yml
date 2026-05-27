@@ -21,9 +21,9 @@ motor_type: "DM4310"
 motor_kp: 20.0
 motor_kd: 0.5
 
-# Gripper limits
-gripper_limits: [0.0, -2.7]
-needs_calibration: false
+# Gripper limits — null triggers runtime auto-calibration (see motor_chain_robot.py)
+gripper_limits: null
+needs_calibration: true
 
 # Force limiter config
 limiter:
