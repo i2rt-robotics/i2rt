@@ -4,14 +4,13 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "i2rt"
-version = "1.1.0"
+version = "1.1.2"
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "click<8.2.0",
     "dm-env==1.6",
-    "evdev==1.9.2 ; sys_platform == 'linux'",
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",

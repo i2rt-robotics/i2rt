@@ -4,7 +4,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 import can
 import numpy as np
@@ -60,7 +60,7 @@ class PassiveEncoderInfo:
     id: int
     """The device number, uint8."""
     position: float
-    """Position, in radian."""
+    """Position, in radian (encoder) or axis [-1, 1] center 0 (joystick analog)."""
     velocity: float
     """Velocity, in radian/s."""
     io_inputs: List[bool]
@@ -82,7 +82,11 @@ class PassiveEncoderReader:
         self.range_rad = range_rad
         self.receive_mode = receive_mode
         # check the encoder config, the report frequency must be set to 0 for passive mode
-        result = PassiveJointEncoder.validate_encoders(self.can_interface.channel, encoder_config)
+        # Keep the validate_encoders result so callers can read per-encoder
+        # firmware versions without re-probing the CAN bus (ROB-1311).
+        self.encoder_info: Dict[int, Dict[str, Any]] = PassiveJointEncoder.validate_encoders(
+            self.can_interface.channel, encoder_config
+        )
 
     def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
         # this encoder's trigger message is 0x02
@@ -535,6 +539,7 @@ class DMChainCanInterface(MotorChain):
         step_time_exceed_count = 0
         step_time_sum = 0.0
         step_time_count = 0
+        max_step_time = 0.0
         report_start_time = time.time()
         with self._rate_recorder:
             while self.running:
@@ -546,6 +551,7 @@ class DMChainCanInterface(MotorChain):
                     # Statistics
                     step_time_sum += step_time
                     step_time_count += 1
+                    max_step_time = max(max_step_time, step_time)
                     if step_time > EXPECTED_CONTROL_PERIOD:
                         step_time_exceed_count += 1
 
@@ -553,11 +559,12 @@ class DMChainCanInterface(MotorChain):
                     if step_time_exceed_count > 0 and curr_time - report_start_time >= self._report_interval:
                         mean_step_time = step_time_sum / step_time_count if step_time_count > 0 else 0.0
                         logging.info(
-                            f"[{self} {self._report_interval}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s"
+                            f"[{self} {self._report_interval}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s, max step_time: {max_step_time:.6f} s"
                         )
                         step_time_exceed_count = 0
                         step_time_sum = 0.0
                         step_time_count = 0
+                        max_step_time = 0.0
                         report_start_time = curr_time
 
                     # Update state
@@ -812,7 +819,9 @@ if __name__ == "__main__":
         motor_chain_name=motor_chain_name,
         receive_mode=ReceiveMode.p16,
         report_interval=args.report_interval,
+        start_thread=False,
     )
+    motor_chain.start_thread()
     while True:
         motor_chain.set_commands(np.zeros(len(motor_list)))
         if args.print_state:
