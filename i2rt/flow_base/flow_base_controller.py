@@ -754,9 +754,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", type=str, default="can0")
     parser.add_argument(
-        "--no-linear-rail",
+        "--linear-rail",
         action="store_true",
-        help="Disable linear rail (use only 8 base motors)",
+        help="Enable linear rail (9th motor). Disabled by default.",
+    )
+    parser.add_argument(
+        "--gamepad",
+        action="store_true",
+        help="Enable gamepad/joystick teleop. Disabled by default (remote commands only).",
     )
     parser.add_argument(
         "--control-freq",
@@ -764,33 +769,35 @@ if __name__ == "__main__":
         default=CONTROL_FREQ,
         help=f"Control loop frequency in Hz (default: {CONTROL_FREQ})",
     )
+    args = parser.parse_args()
 
-    # Initialize pygame and joystick
-    pygame.init()
-    pygame.joystick.init()
-    if pygame.joystick.get_count() == 0:
-        print("No joystick/gamepad connected!")
-        exit()
-
-    joy = pygame.joystick.Joystick(0)
     CALIBRATION_RETRY_DELAY = 1
     DEADZONE = 0.05  # Deadzone for base control (x, y, theta)
     RAIL_DEADZONE = 0.15  # Larger deadzone for linear rail to prevent unwanted movement
-    args = parser.parse_args()
+
+    # Initialize pygame and joystick only when gamepad teleop is enabled
+    joy = None
+    if args.gamepad:
+        pygame.init()
+        pygame.joystick.init()
+        if pygame.joystick.get_count() == 0:
+            print("No joystick/gamepad connected!")
+            exit()
+        joy = pygame.joystick.Joystick(0)
 
     max_vel = np.array([0.8, 0.8, 3.0])
     max_accel = np.array([0.8, 0.8, 3.0])
     lift_max_vel = 14.0  # Maximum velocity for linear rail (rad/s)
 
     # Use LinearRailVehicle instead of Vehicle
-    # Use --no-linear-rail flag if you only have base (8 motors) without linear rail
+    # Pass --linear-rail to enable the 9th (lift) motor; otherwise only the 8 base motors are used.
     vehicle = LinearRailVehicle(
         vehicle_max_vel=max_vel,
         vehicle_max_accel=max_accel,
         lift_max_vel=lift_max_vel,
         channel=args.channel,
         auto_home=True,
-        enable_linear_rail=not args.no_linear_rail,  # Enable by default, disable with --no-linear-rail
+        enable_linear_rail=args.linear_rail,  # Disabled by default, enable with --linear-rail
         control_freq=args.control_freq,
     )
 
@@ -855,25 +862,29 @@ if __name__ == "__main__":
 
     server.start(block=False)
 
-    print(f"Joystick Name: {joy.get_name()}")
-    print(f"Number of Axes: {joy.get_numaxes()}")
-    print(f"Number of Buttons: {joy.get_numbuttons()}")
+    gamepad = None
+    if args.gamepad:
+        print(f"Joystick Name: {joy.get_name()}")
+        print(f"Number of Axes: {joy.get_numaxes()}")
+        print(f"Number of Buttons: {joy.get_numbuttons()}")
 
-    # Check all x, y, th are 0 at the beginning, if not ask user to check joystick
-    while True:
-        # Pump events to update joystick state
-        pygame.event.pump()
-        four_axis = [joy.get_axis(1), joy.get_axis(0), joy.get_axis(2), joy.get_axis(3)]
-        if all(np.abs(axis) < DEADZONE for axis in four_axis):
-            logger.info("Joystick is at rest, please check joystick")
-            break
-        else:
-            logger.warning(f"four_axis: {four_axis}")
-            logger.warning("Joystick's rest position is not at the center, please check joystick")
-            time.sleep(CALIBRATION_RETRY_DELAY)
+        # Check all x, y, th are 0 at the beginning, if not ask user to check joystick
+        while True:
+            # Pump events to update joystick state
+            pygame.event.pump()
+            four_axis = [joy.get_axis(1), joy.get_axis(0), joy.get_axis(2), joy.get_axis(3)]
+            if all(np.abs(axis) < DEADZONE for axis in four_axis):
+                logger.info("Joystick is at rest, please check joystick")
+                break
+            else:
+                logger.warning(f"four_axis: {four_axis}")
+                logger.warning("Joystick's rest position is not at the center, please check joystick")
+                time.sleep(CALIBRATION_RETRY_DELAY)
 
-    # Main loop to read joystick inputs
-    gamepad = Gamepad()
+        gamepad = Gamepad()
+    else:
+        logger.info("Gamepad disabled; running with remote commands only.")
+
     gamepad_command_frame = "local"
     gamepad_command_override = True
 
@@ -883,37 +894,38 @@ if __name__ == "__main__":
     RAIL_LOG_INTERVAL = 1.0  # Log linear rail position every 1 second
     try:
         while True:
-            gamepad_cmd = gamepad.get_user_cmd()  # 3D: [x, y, theta]
-            gamepad_button = gamepad.get_button_reading()
+            cmd_4d = np.zeros(4)
+            gamepad_override_button = False
+            if args.gamepad:
+                gamepad_cmd = gamepad.get_user_cmd()  # 3D: [x, y, theta]
+                gamepad_button = gamepad.get_button_reading()
 
-            if gamepad_button["key_mode"] and not last_gampad_mode_togged:
-                last_gampad_mode_togged = True
-                gamepad_command_frame = "global" if gamepad_command_frame == "local" else "local"
-            else:
-                last_gampad_mode_togged = False
+                if gamepad_button["key_mode"] and not last_gampad_mode_togged:
+                    last_gampad_mode_togged = True
+                    gamepad_command_frame = "global" if gamepad_command_frame == "local" else "local"
+                else:
+                    last_gampad_mode_togged = False
 
-            # Handle reset odometry (key_left_1)
-            if gamepad_button["key_left_1"]:
-                vehicle.reset_odometry()
+                # Handle reset odometry (key_left_1)
+                if gamepad_button["key_left_1"]:
+                    vehicle.reset_odometry()
 
-            lift_vel = 0.0
-            if joy.get_numaxes() > 3:
-                right_stick_y = joy.get_axis(3)  # Right stick Y-axis
-                # Apply larger deadzone for linear rail to prevent unwanted movement
-                # Invert: up (negative axis value) = positive velocity
-                if np.abs(right_stick_y) > RAIL_DEADZONE:
-                    lift_vel = -right_stick_y  # Invert: up (negative axis) = positive velocity
+                lift_vel = 0.0
+                if joy.get_numaxes() > 3:
+                    right_stick_y = joy.get_axis(3)  # Right stick Y-axis
+                    # Apply larger deadzone for linear rail to prevent unwanted movement
+                    # Invert: up (negative axis value) = positive velocity
+                    if np.abs(right_stick_y) > RAIL_DEADZONE:
+                        lift_vel = -right_stick_y  # Invert: up (negative axis) = positive velocity
 
-            cmd_4d = np.append(gamepad_cmd, lift_vel)
+                cmd_4d = np.append(gamepad_cmd, lift_vel)
+                gamepad_override_button = gamepad_button["key_left_2"]
 
             is_remote_command_valid = remote_command.is_command_valid()
 
             if is_remote_command_valid:
                 user_cmd, user_frame = remote_command.get_command()
-                gamepad_command_override = False
-
-                if gamepad_button["key_left_2"]:
-                    gamepad_command_override = True
+                gamepad_command_override = gamepad_override_button
             else:
                 gamepad_command_override = True
             if not vehicle.running():
@@ -932,11 +944,11 @@ if __name__ == "__main__":
                 sys.stdout.write(f"\rframe: {frame} cmd: {cmd[0]:.1f} {cmd[1]:.1f} {cmd[2]:.1f} rail: {cmd[3]:.1f}")
                 sys.stdout.flush()
 
-            # Log linear rail position and velocity every 1 second
+            # Log linear rail position and velocity every 1 second (only when rail is enabled)
             current_time = time.time()
             if current_time - last_rail_log_time >= RAIL_LOG_INTERVAL:
-                try:
-                    if hasattr(vehicle, "linear_rail"):
+                if vehicle.linear_rail is not None:
+                    try:
                         rail_state = vehicle.get_linear_rail_state()
                         position = rail_state.get("position")
                         velocity = rail_state.get("velocity")
@@ -944,8 +956,8 @@ if __name__ == "__main__":
                             print(f"Linear rail - pos: {position:.4f} rad, vel: {velocity:.4f} rad/s")
                         else:
                             print(f"Linear rail - pos: {position}, vel: {velocity}")
-                except Exception as e:
-                    print(f"Failed to get linear rail state: {e}")
+                    except Exception as e:
+                        print(f"Failed to get linear rail state: {e}")
                 last_rail_log_time = current_time
 
             count += 1
@@ -969,4 +981,5 @@ if __name__ == "__main__":
             vehicle.close()
         except Exception as e:
             logger.error(f"Error during close: {e}")
-        pygame.quit()
+        if args.gamepad:
+            pygame.quit()
