@@ -26,7 +26,9 @@ dependencies = [
     "tyro==0.9.26",
     "viser>=0.2.0",
     # Raspberry Pi GPIO (linear-rail brake + limit switches). Pi-only via PEP 508 markers.
-    "RPi.GPIO>=0.7.1; sys_platform == 'linux' and (platform_machine == 'aarch64' or platform_machine == 'armv7l' or platform_machine == 'armv6l')",
+    # rpi-lgpio is a drop-in for `from RPi import GPIO` that works on Pi 5 (BCM2712);
+    # legacy RPi.GPIO fails with "cannot determine peripheral soc base addr" on Pi 5.
+    "rpi-lgpio>=0.6; sys_platform == 'linux' and (platform_machine == 'aarch64' or platform_machine == 'armv7l' or platform_machine == 'armv6l')",
 ]
 
 [project.optional-dependencies]
