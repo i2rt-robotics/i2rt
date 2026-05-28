@@ -181,7 +181,9 @@ def main(args: Args) -> None:
         while True:
             odo = backend.get_odometry()
             pos = odo["position"]
-            x, y = float(pos["translation"][0]), float(pos["translation"][1])
+            x = float(pos["translation"][0])
+            y = float(pos["translation"][1])
+            z = float(pos["translation"][2])
             theta = float(pos["rotation"])
             vw, vb = odo["velocity"]["world"], odo["velocity"]["body"]
             wheels = backend.get_wheel_speeds()
@@ -198,12 +200,15 @@ def main(args: Args) -> None:
 
             rr.log("pose/x", rr.Scalars(x))
             rr.log("pose/y", rr.Scalars(y))
+            rr.log("pose/z", rr.Scalars(z))
             rr.log("pose/theta_deg", rr.Scalars(np.degrees(theta)))
             rr.log("vel_world/vx", rr.Scalars(float(vw["translation"][0])))
             rr.log("vel_world/vy", rr.Scalars(float(vw["translation"][1])))
+            rr.log("vel_world/vz", rr.Scalars(float(vw["translation"][2])))
             rr.log("vel_world/omega", rr.Scalars(float(vw["rotation"])))
             rr.log("vel_body/vx", rr.Scalars(float(vb["translation"][0])))
             rr.log("vel_body/vy", rr.Scalars(float(vb["translation"][1])))
+            rr.log("vel_body/vz", rr.Scalars(float(vb["translation"][2])))
             rr.log("vel_body/omega", rr.Scalars(float(vb["rotation"])))
             rr.log("loop/rate_hz", rr.Scalars(rate_hz))
             for i in range(4):
@@ -212,9 +217,9 @@ def main(args: Args) -> None:
 
             rr.log(
                 "/world/base",
-                rr.Transform3D(translation=[x, y, 0.0], rotation=rr.RotationAxisAngle([0, 0, 1], radians=theta)),
+                rr.Transform3D(translation=[x, y, z], rotation=rr.RotationAxisAngle([0, 0, 1], radians=theta)),
             )
-            trajectory.append([x, y, 0.0])
+            trajectory.append([x, y, z])
             rr.log("/world/trajectory", rr.LineStrips3D([list(trajectory)], colors=[[255, 170, 0]]))
 
             time.sleep(period)

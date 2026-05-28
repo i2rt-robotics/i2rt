@@ -87,6 +87,31 @@ class FlowBaseClient:
             self._thread.join(timeout=1.0)
 
 
+def _format_rail_state(rail_state: dict) -> str:
+    """Format a one-line summary of get_linear_rail_state() for the CLI."""
+    position = rail_state.get("position", {})
+    velocity = rail_state.get("velocity", {})
+    pos_motor = position.get("motor")
+    pos_linear = position.get("linear")
+    vel_motor = velocity.get("motor")
+    vel_linear = velocity.get("linear")
+    motor_part = (
+        f"motor: {pos_motor:+.3f} rad / {vel_motor:+.3f} rad/s"
+        if pos_motor is not None and vel_motor is not None
+        else f"motor: {pos_motor} rad / {vel_motor} rad/s"
+    )
+    linear_part = (
+        f"linear: {pos_linear:+.4f} m / {vel_linear:+.4f} m/s"
+        if pos_linear is not None and vel_linear is not None
+        else "linear: not calibrated"
+    )
+    return (
+        f"{motor_part}, {linear_part} "
+        f"upper_limit: {rail_state.get('upper_limit_triggered')} "
+        f"lower_limit: {rail_state.get('lower_limit_triggered')}"
+    )
+
+
 @dataclass
 class Args:
     command: Literal[
@@ -136,10 +161,13 @@ if __name__ == "__main__":
             pos = odo_reading["position"]
             vw = odo_reading["velocity"]["world"]
             vb = odo_reading["velocity"]["body"]
+            px, py, pz = pos["translation"]
+            wx, wy, wz = vw["translation"]
+            bx, by, bz = vb["translation"]
             sys.stdout.write(
-                f"\r pos.t: {pos['translation']} pos.r: {pos['rotation']:+.3f} "
-                f"world.t: {vw['translation']} world.r: {vw['rotation']:+.3f} "
-                f"body.t: {vb['translation']} body.r: {vb['rotation']:+.3f}"
+                f"\r pos.t: [{px:+.3f} {py:+.3f} {pz:+.3f}] pos.r: {pos['rotation']:+.3f} "
+                f"world.t: [{wx:+.3f} {wy:+.3f} {wz:+.3f}] world.r: {vw['rotation']:+.3f} "
+                f"body.t: [{bx:+.3f} {by:+.3f} {bz:+.3f}] body.r: {vb['rotation']:+.3f}"
             )
             sys.stdout.flush()
             time.sleep(0.02)
@@ -148,10 +176,7 @@ if __name__ == "__main__":
             client.set_linear_rail_velocity(0.5)
             while True:
                 rail_state = client.get_linear_rail_state()
-                sys.stdout.write(
-                    f"\r position: {rail_state['position']:.4f} velocity: {rail_state['velocity']:.4f} "
-                    f"upper_limit: {rail_state['upper_limit_triggered']} lower_limit: {rail_state['lower_limit_triggered']}"
-                )
+                sys.stdout.write("\r" + _format_rail_state(rail_state))
                 sys.stdout.flush()
                 time.sleep(0.1)
         except KeyboardInterrupt:
@@ -163,10 +188,7 @@ if __name__ == "__main__":
         try:
             while True:
                 rail_state = client.get_linear_rail_state()
-                sys.stdout.write(
-                    f"\r position: {rail_state['position']:.4f} velocity: {rail_state['velocity']:.4f} "
-                    f"upper_limit: {rail_state['upper_limit_triggered']} lower_limit: {rail_state['lower_limit_triggered']}"
-                )
+                sys.stdout.write("\r" + _format_rail_state(rail_state))
                 sys.stdout.flush()
                 time.sleep(1.0)
         except KeyboardInterrupt:

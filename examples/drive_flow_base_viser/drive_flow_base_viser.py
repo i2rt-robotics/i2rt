@@ -122,9 +122,9 @@ def main(args: Args) -> None:
             was_enabled = enabled
 
             odo = backend.get_odometry()
-            x, y = (float(v) for v in odo["position"]["translation"])
+            x, y, z = (float(v) for v in odo["position"]["translation"])
             theta = float(odo["position"]["rotation"])
-            base_frame.position = np.array([x, y, 0.0])
+            base_frame.position = np.array([x, y, z])
             base_frame.wxyz = yaw_to_wxyz(theta)
 
             now = time.time()
@@ -136,7 +136,7 @@ def main(args: Args) -> None:
             state = "ENABLED — sending commands" if enabled else "DISABLED — idle"
             status.content = (
                 f"**state**  {state}\n\n"
-                f"**pose**  x = {x:+.3f} m   y = {y:+.3f} m   θ = {np.degrees(theta):+.1f}°\n\n"
+                f"**pose**  x = {x:+.3f} m   y = {y:+.3f} m   z = {z:+.3f} m   θ = {np.degrees(theta):+.1f}°\n\n"
                 f"**cmd**  vx = {cmd[0]:+.2f}   vy = {cmd[1]:+.2f}   ω = {cmd[2]:+.2f}\n\n"
                 f"**comm**  {comm_hz:.1f} Hz"
             )

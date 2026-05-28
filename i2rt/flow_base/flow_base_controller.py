@@ -492,19 +492,21 @@ class Vehicle(Robot):
             self.command_queue.put(command, block=False)
 
     def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        # 3-D translations: z and vz are 0.0 on the bare Vehicle; LinearRailVehicle
+        # overrides this method to substitute the rail height / rate in m and m/s.
         with self._lock:
             return {
                 "position": {
-                    "translation": self.x[:2],
+                    "translation": np.array([self.x[0], self.x[1], 0.0]),
                     "rotation": self.x[2],
                 },
                 "velocity": {
                     "world": {
-                        "translation": self.dx[:2],
+                        "translation": np.array([self.dx[0], self.dx[1], 0.0]),
                         "rotation": self.dx[2],
                     },
                     "body": {
-                        "translation": self.dx_local[:2],
+                        "translation": np.array([self.dx_local[0], self.dx_local[1], 0.0]),
                         "rotation": self.dx_local[2],
                     },
                 },
@@ -576,6 +578,7 @@ class LinearRailVehicle(Vehicle):
         homing_timeout: float = 30.0,
         enable_linear_rail: bool = True,
         control_freq: float = CONTROL_FREQ,
+        total_stroke_m: float = 1.0,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -592,6 +595,9 @@ class LinearRailVehicle(Vehicle):
             homing_timeout: Timeout for homing procedure (seconds)
             enable_linear_rail: Whether to enable linear rail. If False, only base (8 motors) will be initialized.
             control_freq: Control loop frequency in Hz (drives the OTG period and CAN bandwidth check).
+            total_stroke_m: Physical stroke between the rail's upper and lower limit switches,
+                in meters. Used by the startup top-then-bottom calibration to derive
+                meters_per_rad from the motor encoder.
         """
         # Create base motor list (8 motors: 4 casters * 2 motors each)
         motor_list = []
@@ -664,6 +670,7 @@ class LinearRailVehicle(Vehicle):
                 rail_speed=lift_max_vel,
                 auto_home=False,  # Don't auto home yet, initialize GPIO first
                 homing_timeout=homing_timeout,
+                total_stroke_m=total_stroke_m,
             )
 
             # Initialize GPIO early, before starting homing
@@ -704,6 +711,22 @@ class LinearRailVehicle(Vehicle):
             raise ValueError(
                 f"Velocity must be 3D [x, y, theta] or 4D [x, y, theta, linear_rail_vel], got shape {velocity.shape}"
             )
+
+    def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Vehicle odometry with rail height (m) substituted into the z component.
+
+        The base only rotates about its vertical axis, so the rail's vertical motion is
+        identical in the world and body frames; the same vz is written to both.
+        """
+        odom = super().get_odometry(input_dict)
+        if self.linear_rail is not None and self.linear_rail.meters_per_rad is not None:
+            rail = self.linear_rail.get_state()
+            z = rail["position"]["linear"]
+            vz = rail["velocity"]["linear"]
+            odom["position"]["translation"][2] = z
+            odom["velocity"]["world"]["translation"][2] = vz
+            odom["velocity"]["body"]["translation"][2] = vz
+        return odom
 
     def get_linear_rail_state(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Get the current state of the linear rail.
@@ -950,12 +973,23 @@ if __name__ == "__main__":
                 if vehicle.linear_rail is not None:
                     try:
                         rail_state = vehicle.get_linear_rail_state()
-                        position = rail_state.get("position")
-                        velocity = rail_state.get("velocity")
-                        if position is not None and velocity is not None:
-                            print(f"Linear rail - pos: {position:.4f} rad, vel: {velocity:.4f} rad/s")
-                        else:
-                            print(f"Linear rail - pos: {position}, vel: {velocity}")
+                        position = rail_state.get("position", {})
+                        velocity = rail_state.get("velocity", {})
+                        pos_motor = position.get("motor")
+                        pos_linear = position.get("linear")
+                        vel_motor = velocity.get("motor")
+                        vel_linear = velocity.get("linear")
+                        motor_part = (
+                            f"motor: {pos_motor:.3f} rad / {vel_motor:.3f} rad/s"
+                            if pos_motor is not None and vel_motor is not None
+                            else f"motor: {pos_motor} rad / {vel_motor} rad/s"
+                        )
+                        linear_part = (
+                            f"linear: {pos_linear:.4f} m / {vel_linear:.4f} m/s"
+                            if pos_linear is not None and vel_linear is not None
+                            else "linear: not calibrated"
+                        )
+                        print(f"Linear rail - {motor_part}, {linear_part}")
                     except Exception as e:
                         print(f"Failed to get linear rail state: {e}")
                 last_rail_log_time = current_time
