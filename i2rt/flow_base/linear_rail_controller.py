@@ -103,6 +103,10 @@ class SingleMotorControlInterface:
         """Get motor state"""
         return self.motor_chain.read_states()[self.target_motor_idx]
 
+    def set_zero_position(self) -> None:
+        """Set the current motor position as the zero reference"""
+        self.motor_chain.set_zero_position(self.target_motor_idx)
+
     @classmethod
     def from_multi_motor_chain(
         cls, motor_chain: DMChainCanInterface, target_motor_idx: int
@@ -282,6 +286,7 @@ class LinearRailController:
             with self._lock:
                 if self.lower_limit_triggered:
                     logger.info("Linear rail is already at lower limit - ready for operation")
+                    self._set_home_zero()
                     self.initialized = True
                     return
 
@@ -313,6 +318,7 @@ class LinearRailController:
                     if self.lower_limit_triggered:
                         # Reached lower limit, stop motor
                         self.single_motor_control_interface.set_velocity(0.0)
+                        self._set_home_zero()
                         elapsed_time = current_time - start_time
                         logger.info(f"Homing success! Zero position found in {elapsed_time:.1f}s")
                         self._homing_event.clear()
@@ -342,6 +348,11 @@ class LinearRailController:
         self.single_motor_control_interface.set_velocity(0.0)
         self._homing_event.clear()
         self._homing_start_time = None
+
+    def _set_home_zero(self) -> None:
+        """Zero the encoder at the current lower-limit (home) position so encoder 0 == bottom of travel"""
+        self.single_motor_control_interface.set_zero_position()
+        logger.info("Linear rail encoder zeroed at lower limit (encoder 0 = home)")
 
     def is_homing(self) -> bool:
         """Check if linear rail is currently homing"""
@@ -396,6 +407,7 @@ class LinearRailController:
                 logger.warning("Lower limit triggered, cannot move backward")
                 self.single_motor_control_interface.set_velocity(0.0)
                 if self._homing_event.is_set():
+                    self._set_home_zero()
                     elapsed_time = time.time() - self._homing_start_time if self._homing_start_time else 0.0
                     logger.info(f"Homing success! Zero position found in {elapsed_time:.1f}s")
                     self._stop_homing()

@@ -383,6 +383,7 @@ class DMChainCanInterface(MotorChain):
         get_same_bus_device_driver: Optional[Callable] = None,
         use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
         report_interval: float = REPORT_INTERVAL,
+        control_freq: float = CONTROL_FREQ,  # Control loop frequency (Hz), used for the CAN bandwidth check
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -392,7 +393,8 @@ class DMChainCanInterface(MotorChain):
             f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
         )
         self.motor_list = motor_list
-        self.motor_offset = np.array(motor_offset)
+        # float dtype so a homing routine can write a radian zero offset (see set_zero_position)
+        self.motor_offset = np.array(motor_offset, dtype=float)
         self.motor_direction = np.array(motor_direction)
         self.channel = channel
         logging.info(f"Channel: {channel}, Bitrate: {bitrate}")
@@ -415,13 +417,13 @@ class DMChainCanInterface(MotorChain):
         # CAN bus bandwidth check with 1.1x safety factor
         CAN_FRAME_BITS = 130  # approximate bits per CAN 2.0A frame including overhead
         frames_per_cycle = len(motor_list) * 2  # send + receive per motor
-        bits_per_second = frames_per_cycle * CAN_FRAME_BITS * CONTROL_FREQ
+        bits_per_second = frames_per_cycle * CAN_FRAME_BITS * control_freq
         max_bits_per_second = bitrate / 1.1
         if bits_per_second > max_bits_per_second:
             max_safe_freq = max_bits_per_second / (frames_per_cycle * CAN_FRAME_BITS)
             logging.warning(
                 f"CAN bus bandwidth exceeded: {bits_per_second:.0f} bps > {max_bits_per_second:.0f} bps "
-                f"(bitrate={bitrate}, motors={len(motor_list)}, freq={CONTROL_FREQ}Hz). "
+                f"(bitrate={bitrate}, motors={len(motor_list)}, freq={control_freq}Hz). "
                 f"Max safe frequency: {max_safe_freq:.0f} Hz"
             )
 
@@ -453,7 +455,7 @@ class DMChainCanInterface(MotorChain):
         self.commands = starting_command
         self.command_lock = threading.RLock()
 
-        self.start_thread_flag = start_thread
+        self.start_thread_flag = False
         if start_thread:
             self.start_thread()
 
@@ -702,6 +704,14 @@ class DMChainCanInterface(MotorChain):
                     )
                 )
         return motor_infos
+
+    def set_zero_position(self, motor_idx: int) -> None:
+        """Set a motor's current position as zero by shifting its software offset.
+
+        Leaves the raw absolute-position accumulator intact so wrap-around unwrapping keeps working.
+        """
+        with self.state_lock:
+            self.motor_offset[motor_idx] = self.absolute_positions[motor_idx]
 
     def set_commands(
         self,

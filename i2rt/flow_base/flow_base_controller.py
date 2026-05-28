@@ -37,6 +37,11 @@ BASE_DEFAULT_PORT = 11323
 POLICY_CONTROL_FREQ = 10
 POLICY_CONTROL_PERIOD = 1.0 / POLICY_CONTROL_FREQ
 h_x, h_y = 0.2 * np.array([1.0, 1.0, -1.0, -1.0]), 0.2 * np.array([-1.0, 1.0, 1.0, -1.0])
+# Body-frame axis-sign correction: the i2rt base is mirrored about its x-axis relative to
+# the tidybot2 kinematic model, so y and yaw read reversed. Applied symmetrically to the
+# odometry output and the command input (AXIS_SIGN**2 == 1) so odom still equals the
+# command while physical motion follows the standard convention: +x fwd, +y left, +z CCW.
+AXIS_SIGN = np.array([1.0, -1.0, -1.0])  # (x, y, theta)
 
 
 def remove_pid_file(pid_file_path: str) -> None:
@@ -77,8 +82,7 @@ def create_pid_file(name: str) -> None:
 
 
 # Vehicle
-CONTROL_FREQ = 200
-CONTROL_PERIOD = 1.0 / CONTROL_FREQ  # 4 ms
+CONTROL_FREQ = 200  # Default control loop frequency (Hz); override per-instance via control_freq
 NUM_CASTERS = 4
 
 # Caster
@@ -244,9 +248,12 @@ class Vehicle(Robot):
         max_accel: Tuple[float, float, float] = (0.25, 0.25, 0.79),
         channel: str | DMChainCanInterface = "can_flow_base",
         auto_start: bool = True,
+        control_freq: float = CONTROL_FREQ,
     ):
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
+        self.control_freq = control_freq
+        self.control_period = 1.0 / control_freq
 
         # Use PID file to enforce single instance
         create_pid_file("base-controller")
@@ -268,6 +275,7 @@ class Vehicle(Robot):
         self.num_dofs = 3  # (x, y, theta)
         self.x = np.zeros(self.num_dofs)
         self.dx = np.zeros(self.num_dofs)
+        self.dx_local = np.zeros(self.num_dofs)
 
         # C matrix relating operational space velocities to joint velocities
         self.C = np.zeros((num_motors, self.num_dofs))
@@ -289,7 +297,7 @@ class Vehicle(Robot):
 
         # OTG (online trajectory generation)
         # Note: It would be better to couple x and y using polar coordinates
-        self.otg = Ruckig(self.num_dofs, CONTROL_PERIOD)
+        self.otg = Ruckig(self.num_dofs, self.control_period)
         self.otg_inp = InputParameter(self.num_dofs)
         self.otg_out = OutputParameter(self.num_dofs)
         self.otg_res = Result.Working
@@ -347,8 +355,9 @@ class Vehicle(Robot):
 
         # Odometry
         with self._lock:
-            dx_local = self.C_pinv @ self.dq
-            theta_avg = self.x[2] + 0.5 * dx_local[2] * CONTROL_PERIOD
+            dx_local = AXIS_SIGN * (self.C_pinv @ self.dq)
+            self.dx_local = dx_local
+            theta_avg = self.x[2] + 0.5 * dx_local[2] * self.control_period
             R = np.array(
                 [
                     [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
@@ -357,7 +366,7 @@ class Vehicle(Robot):
                 ]
             )
             self.dx = R @ dx_local
-            self.x += self.dx * CONTROL_PERIOD
+            self.x += self.dx * self.control_period
         time.sleep(0.0005)
 
     def start_control(self) -> None:
@@ -390,7 +399,7 @@ class Vehicle(Robot):
 
         while self.control_loop_running:
             # Maintain the desired control frequency
-            while time.time() - last_step_time < CONTROL_PERIOD:
+            while time.time() - last_step_time < self.control_period:
                 time.sleep(0.0001)
             curr_time = time.time()
             step_time = curr_time - last_step_time
@@ -465,7 +474,7 @@ class Vehicle(Robot):
                 dx_d_local = R @ dx_d
 
                 # Joint velocities
-                dq_d = self.C @ dx_d_local
+                dq_d = self.C @ (AXIS_SIGN * dx_d_local)
 
                 vel_dict = {
                     "steer_vel": np.asarray(dq_d[::2], order="C"),
@@ -485,14 +494,34 @@ class Vehicle(Robot):
     def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
         with self._lock:
             return {
-                "translation": self.x[:2],
-                "rotation": self.x[2],
+                "position": {
+                    "translation": self.x[:2],
+                    "rotation": self.x[2],
+                },
+                "velocity": {
+                    "world": {
+                        "translation": self.dx[:2],
+                        "rotation": self.dx[2],
+                    },
+                    "body": {
+                        "translation": self.dx_local[:2],
+                        "rotation": self.dx_local[2],
+                    },
+                },
             }
 
     def reset_odometry(self, input_dict: Dict[str, Any] | None = None) -> None:
         with self._lock:
             self.x = np.zeros(self.num_dofs)
             self.dx = np.zeros(self.num_dofs)
+            self.dx_local = np.zeros(self.num_dofs)
+
+    def get_wheel_speeds(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "steer": np.array(self.dq[0::2]),
+                "drive": np.array(self.dq[1::2]),
+            }
 
     def set_target_velocity(self, velocity: Any, frame: str = "local") -> None:
         self._enqueue_command(CommandType.VELOCITY, velocity, frame)
@@ -546,6 +575,7 @@ class LinearRailVehicle(Vehicle):
         auto_home: bool = True,
         homing_timeout: float = 30.0,
         enable_linear_rail: bool = True,
+        control_freq: float = CONTROL_FREQ,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -561,6 +591,7 @@ class LinearRailVehicle(Vehicle):
             auto_home: Whether to automatically home the linear rail on initialization
             homing_timeout: Timeout for homing procedure (seconds)
             enable_linear_rail: Whether to enable linear rail. If False, only base (8 motors) will be initialized.
+            control_freq: Control loop frequency in Hz (drives the OTG period and CAN bandwidth check).
         """
         # Create base motor list (8 motors: 4 casters * 2 motors each)
         motor_list = []
@@ -596,6 +627,7 @@ class LinearRailVehicle(Vehicle):
             channel=channel,
             motor_chain_name="linear_rail_vehicle" if enable_linear_rail else "holonomic_base",
             control_mode=ControlMode.VEL,
+            control_freq=control_freq,
         )
 
         # Initialize brake GPIO only if linear rail is enabled
@@ -610,6 +642,7 @@ class LinearRailVehicle(Vehicle):
             max_accel=vehicle_max_accel,
             channel=unified_motor_chain,  # Pass the unified motor chain
             auto_start=auto_start,
+            control_freq=control_freq,
         )
 
         # Initialize linear rail only if enabled
@@ -725,6 +758,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable linear rail (use only 8 base motors)",
     )
+    parser.add_argument(
+        "--control-freq",
+        type=float,
+        default=CONTROL_FREQ,
+        help=f"Control loop frequency in Hz (default: {CONTROL_FREQ})",
+    )
 
     # Initialize pygame and joystick
     pygame.init()
@@ -752,6 +791,7 @@ if __name__ == "__main__":
         channel=args.channel,
         auto_home=True,
         enable_linear_rail=not args.no_linear_rail,  # Enable by default, disable with --no-linear-rail
+        control_freq=args.control_freq,
     )
 
     # Register cleanup function to ensure brake is engaged on exit
@@ -806,6 +846,7 @@ if __name__ == "__main__":
     server.bind("get_odometry", vehicle.get_odometry)
     server.bind("reset_odometry", vehicle.reset_odometry)
     server.bind("set_target_velocity", remote_command.remote_set_target_velocity)
+    server.bind("get_wheel_speeds", vehicle.get_wheel_speeds)
 
     # Bind linear rail APIs if vehicle has linear rail
     if hasattr(vehicle, "linear_rail"):

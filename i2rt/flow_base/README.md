@@ -105,8 +105,16 @@ python i2rt/flow_base/flow_base_client.py --command get_odometry --host 172.6.2.
 ```bash
 [Client] Connecting to 172.6.2.20:11323
 [Client] Connection established
-{'translation': array([-6.59153544e-07, -3.79215432e-04]), 'rotation': array(-0.00022068)}
+{
+  'position': {'translation': array([-6.59e-07, -3.79e-04]), 'rotation': array(-0.00022068)},
+  'velocity': {
+    'world': {'translation': array([0.0, 0.0]), 'rotation': 0.0},
+    'body':  {'translation': array([0.0, 0.0]), 'rotation': 0.0},
+  },
+}
 ```
+
+`position` is in the world frame (meters, radians). `velocity` is reported in both the world frame (`velocity.world`) and the base body frame (`velocity.body`) — pick whichever is convenient. `translation` is m/s, `rotation` is rad/s; angular velocity is identical in both frames (the base only rotates about z).
 
 **Reset Odometry:**
 ```python
@@ -128,6 +136,24 @@ python i2rt/flow_base/flow_base_client.py --command test_linear_rail --host 172.
 python i2rt/flow_base/flow_base_client.py --command get_linear_rail_state --host 172.6.2.20
 ```
 
+**Get Combined Observation** (odometry, plus linear rail when `--with-linear-rail` is set):
+```bash
+# Odometry only
+python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20
+
+# Odometry + linear rail
+python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20 --with-linear-rail
+```
+
+**Output (with `--with-linear-rail`):**
+```python
+{
+  'odometry':    { ... same shape as get_odometry ... },
+  'linear_rail': { ... same shape as get_linear_rail_state ... },
+}
+```
+Without the flag, only the `odometry` key is returned.
+
 ### Linear Rail API (if equipped)
 
 If your FlowBase has a linear rail lift module installed, you can control it via API:
@@ -136,6 +162,7 @@ If your FlowBase has a linear rail lift module installed, you can control it via
 - `get_linear_rail_state()` - Get position, velocity, limit switch states
 - `set_linear_rail_velocity(velocity)` - Set velocity in rad/s
 - `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D)
+- `get_observation()` - Returns `{odometry, linear_rail}` (the `linear_rail` key is included only when `with_linear_rail=True`)
 
 Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to enable linear rail support.
 

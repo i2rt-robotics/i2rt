@@ -1,11 +1,13 @@
-import argparse
 import sys
 import threading
 import time
-from typing import Any
+from dataclasses import dataclass
+from pprint import pprint
+from typing import Any, Literal
 
 import numpy as np
 import portal
+import tyro
 
 from i2rt.flow_base.flow_base_controller import BASE_DEFAULT_PORT
 
@@ -29,6 +31,18 @@ class FlowBaseClient:
 
     def get_odometry(self) -> Any:
         return self.client.get_odometry({}).result()
+
+    def get_wheel_speeds(self) -> Any:
+        """Return per-motor angular velocities (rad/s) for the 4 casters: {steer, drive}."""
+        return self.client.get_wheel_speeds({}).result()
+
+    def get_observation(self) -> Any:
+        """Return combined observation: odometry, wheel speeds, and linear rail state if enabled."""
+        obs: dict[str, Any] = {"odometry": self.get_odometry()}
+        if self.with_linear_rail:
+            obs["linear_rail"] = self.get_linear_rail_state()
+        obs["wheel_speeds"] = self.get_wheel_speeds()
+        return obs
 
     def reset_odometry(self) -> Any:
         return self.client.reset_odometry({}).result()
@@ -73,21 +87,42 @@ class FlowBaseClient:
             self._thread.join(timeout=1.0)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", type=str, default="localhost")
-    parser.add_argument("--command", type=str, default="get_odometry")
-    parser.add_argument("--with-linear-rail", action="store_true", help="Enable linear rail support")
-    args = parser.parse_args()
+@dataclass
+class Args:
+    command: Literal[
+        "get_odometry",
+        "get_observation",
+        "get_wheel_speeds",
+        "reset_odometry",
+        "test_command",
+        "test_linear_rail",
+        "get_linear_rail_state",
+    ] = "get_odometry"
+    """Command to run against the FlowBase server."""
+    host: str = "localhost"
+    """Host running the FlowBase server."""
+    with_linear_rail: bool = False
+    """Enable linear rail support (auto-enabled for linear-rail commands)."""
 
-    # Auto-enable linear rail for linear rail commands
-    linear_rail_commands = ["test_linear_rail", "get_linear_rail_state"]
+
+if __name__ == "__main__":
+    args = tyro.cli(Args)
+
+    linear_rail_commands = ("test_linear_rail", "get_linear_rail_state")
     use_linear_rail = args.with_linear_rail or args.command in linear_rail_commands
 
     client = FlowBaseClient(args.host, with_linear_rail=use_linear_rail)
 
     if args.command == "get_odometry":
         print(client.get_odometry())
+        client.close()
+        exit()
+    elif args.command == "get_observation":
+        pprint(client.get_observation(), sort_dicts=False, width=100)
+        client.close()
+        exit()
+    elif args.command == "get_wheel_speeds":
+        pprint(client.get_wheel_speeds(), sort_dicts=False, width=100)
         client.close()
         exit()
     elif args.command == "reset_odometry":
@@ -98,7 +133,14 @@ if __name__ == "__main__":
         client.set_target_velocity(np.array([0.0, 0.0, 0.1]), "local")
         while True:
             odo_reading = client.get_odometry()
-            sys.stdout.write(f"\r translation: {odo_reading['translation']} rotation: {odo_reading['rotation']}")
+            pos = odo_reading["position"]
+            vw = odo_reading["velocity"]["world"]
+            vb = odo_reading["velocity"]["body"]
+            sys.stdout.write(
+                f"\r pos.t: {pos['translation']} pos.r: {pos['rotation']:+.3f} "
+                f"world.t: {vw['translation']} world.r: {vw['rotation']:+.3f} "
+                f"body.t: {vb['translation']} body.r: {vb['rotation']:+.3f}"
+            )
             sys.stdout.flush()
             time.sleep(0.02)
     elif args.command == "test_linear_rail":
@@ -129,6 +171,3 @@ if __name__ == "__main__":
                 time.sleep(1.0)
         except KeyboardInterrupt:
             print("\nExiting")
-    else:
-        client.close()
-        sys.exit(1)

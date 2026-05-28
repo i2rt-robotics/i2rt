@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "i2rt"
-version = "1.1.2"
+version = "1.2.0"
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["description"]
@@ -20,6 +20,7 @@ dependencies = [
     "python-can==4.5.0",
     "pyyaml>=6.0.0",
     "qpsolvers[quadprog]==4.7.1",
+    "rerun-sdk>=0.32.2",
     "ruckig==0.15.3",
     "threadpoolctl==3.6.0",
     "tyro==0.9.26",
