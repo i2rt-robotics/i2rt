@@ -453,7 +453,11 @@ class DMChainCanInterface(MotorChain):
         self.commands = starting_command
         self.command_lock = threading.RLock()
 
-        self.start_thread_flag = start_thread
+        # start_thread_flag tracks whether the control loop has already been started; it must
+        # begin False so the guard in start_thread() lets the thread actually spawn. Initializing
+        # it to `start_thread` made the guard short-circuit the auto-start below (the loop never
+        # ran while start_thread=True), so commands were never flushed and state went stale.
+        self.start_thread_flag = False
         if start_thread:
             self.start_thread()
 
