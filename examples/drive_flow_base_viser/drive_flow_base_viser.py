@@ -59,7 +59,13 @@ def make_backend(args: Args) -> object:
         )
     from i2rt.flow_base.flow_base_client import FlowBaseClient
 
-    return FlowBaseClient(host=args.host, with_linear_rail=False)
+    return FlowBaseClient(
+        host=args.host,
+        with_linear_rail=False,
+        max_vel_x=args.max_linear,
+        max_vel_y=args.max_linear,
+        max_vel_theta=args.max_angular,
+    )
 
 
 def yaw_to_wxyz(theta: float) -> np.ndarray:

@@ -586,7 +586,9 @@ class LinearRailVehicle(Vehicle):
         Args:
             vehicle_max_vel: Maximum velocity for vehicle base (x, y, theta)
             vehicle_max_accel: Maximum acceleration for vehicle base (x, y, theta)
-            lift_max_vel: Maximum velocity for linear rail lift (rad/s)
+            lift_max_vel: Linear rail homing speed in motor rad/s (applied as
+                rail_speed * HOMING_SPEED_RATIO during homing); not a clip on user
+                rail velocity commands.
             channel: CAN channel name for motor communication
             auto_start: Whether to automatically start the control loop
             lift_motor_id: Motor ID for the linear rail motor
@@ -693,6 +695,7 @@ class LinearRailVehicle(Vehicle):
             velocity: Target velocity. Can be:
                 - 3D array [x, y, theta] for base only
                 - 4D array [x, y, theta, linear_rail_vel] for base + linear rail
+                  (linear_rail_vel in m/s, positive = up)
             frame: Frame for base velocity ("local" or "global")
         """
         velocity = np.asarray(velocity)
@@ -745,13 +748,20 @@ class LinearRailVehicle(Vehicle):
         """Set the velocity of the linear rail.
 
         Args:
-            velocity: Target velocity in rad/s
+            velocity: Target linear velocity in m/s (positive = up). Converted to motor
+                rad/s using the signed calibration factor meters_per_rad, so the sign
+                stays correct regardless of motor direction.
         """
         if self.linear_rail is None:
             logger.warning("Linear rail not available, ignoring velocity command")
             return
+        meters_per_rad = self.linear_rail.meters_per_rad
+        if meters_per_rad is None:
+            logger.warning("Linear rail not calibrated (meters_per_rad is None), ignoring velocity command")
+            return
+        motor_velocity = velocity / meters_per_rad  # m/s / (m/rad) = rad/s
         try:
-            self.linear_rail.set_velocity(velocity)
+            self.linear_rail.set_velocity(motor_velocity)
         except AssertionError as e:
             logger.warning(f"Linear rail velocity command rejected: {e}")
         except Exception as e:
@@ -808,9 +818,10 @@ if __name__ == "__main__":
             exit()
         joy = pygame.joystick.Joystick(0)
 
-    max_vel = np.array([0.8, 0.8, 3.0])
+    max_vel = np.array([1.0, 1.0, np.pi])
     max_accel = np.array([0.8, 0.8, 3.0])
-    lift_max_vel = 14.0  # Maximum velocity for linear rail (rad/s)
+    lift_max_vel = 14.0  # Linear rail homing speed (motor rad/s); not a clip on user commands
+    lift_max_vel_ms = 0.5  # Gamepad stick -> linear rail velocity scaling (m/s)
 
     # Use LinearRailVehicle instead of Vehicle
     # Pass --linear-rail to enable the 9th (lift) motor; otherwise only the 8 base motors are used.
@@ -956,9 +967,11 @@ if __name__ == "__main__":
                 print("Please check the E stop or the motor connection. ")
                 break
             if gamepad_command_override:
-                cmd = cmd_4d
+                # Gamepad sticks are normalized [-1, 1] -> scale to physical units
+                cmd = np.append(cmd_4d[:3] * max_vel, cmd_4d[3] * lift_max_vel_ms)
                 frame = gamepad_command_frame
             else:
+                # Remote commands are already physical units (m/s, m/s, rad/s, rail m/s)
                 cmd = user_cmd
                 frame = user_frame
             if count % 20 == 0:
@@ -996,15 +1009,8 @@ if __name__ == "__main__":
 
             count += 1
 
-            # Set target velocity (supports both 3D and 4D)
-            if len(cmd) == 4:
-                # 4D: [x, y, theta, linear_rail] - cmd is already normalized [-1, 1]
-                base_cmd = cmd[:3] * max_vel
-                rail_cmd = cmd[3] * lift_max_vel
-                vehicle.set_target_velocity(np.append(base_cmd, rail_cmd), frame=frame)
-            else:
-                # 3D: [x, y, theta] (backward compatibility)
-                vehicle.set_target_velocity(cmd * max_vel, frame=frame)
+            # Set target velocity: [x, y, theta, linear_rail] in physical units
+            vehicle.set_target_velocity(cmd, frame=frame)
 
             time.sleep(0.02)
     except KeyboardInterrupt:

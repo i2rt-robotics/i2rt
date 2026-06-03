@@ -160,11 +160,16 @@ If your FlowBase has a linear rail lift module installed, you can control it via
 
 **Available Methods:**
 - `get_linear_rail_state()` - Get position, velocity, limit-switch and calibration state
-- `set_linear_rail_velocity(velocity)` - Set velocity in rad/s
-- `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D)
+- `set_linear_rail_velocity(velocity)` - Set linear velocity in m/s (positive = up; converted to motor rad/s server-side using the calibrated `meters_per_rad`)
+- `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D; `rail_vel` in m/s)
 - `get_observation()` - Returns `{odometry, linear_rail}` (the `linear_rail` key is included only when `with_linear_rail=True`)
 
 Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to enable linear rail support.
+
+The client clips every command axis to a configurable symmetric limit before sending:
+`FlowBaseClient(..., max_vel_x=..., max_vel_y=..., max_vel_theta=..., max_vel_z=...)` —
+`max_vel_x/y/z` in m/s, `max_vel_theta` in rad/s. Defaults are `0.5 / 0.5 / π/2 / 0.5`,
+hard caps `1.0 / 1.0 / π / 1.0` (values outside `(0, cap]` raise `ValueError`).
 
 **`get_linear_rail_state()` output:**
 ```python
@@ -187,6 +192,7 @@ Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to en
 - If either move times out (default 30 s) or `|theta_upper − theta_lower|` is too small to calibrate, initialization raises `RuntimeError` and the vehicle aborts rather than running uncalibrated.
 
 **Important Notes:**
+- API velocity commands are physical units: `x`/`y`/`rail_vel` in m/s, `theta` in rad/s. The server converts the rail command to motor rad/s using the calibrated `meters_per_rad`; only the gamepad's normalized sticks are scaled by the server's `max_vel` / `lift_max_vel_ms`. Homing speed remains motor rad/s.
 - Linear rail homes top-then-bottom and calibrates `meters_per_rad` on initialization
 - Linear rail has limit switches that prevent movement beyond safe range
 - Velocity commands timeout after 0.25s of inactivity (safety feature)
