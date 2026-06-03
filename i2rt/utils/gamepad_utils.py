@@ -43,7 +43,7 @@ class Gamepad:
         y = self.joy.get_axis(0)  # Left stick X-axis
         th = self.joy.get_axis(2)  # Right stick X-axis
 
-        user_cmd = np.array([-x, y, th])
+        user_cmd = np.array([-x, -y, -th])
         # if < 0.05 force to zero
         user_cmd[np.abs(user_cmd) < 0.05] = 0
         return user_cmd
@@ -57,6 +57,7 @@ if __name__ == "__main__":
     try:
         while True:
             cmd = pad.get_user_cmd()
-            print(f"user_cmd = {cmd}")
+            buttons = pad.get_button_reading()
+            print(f"user_cmd = {cmd}  |  buttons = {buttons}")
     except KeyboardInterrupt:
         pad.close()

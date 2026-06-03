@@ -105,8 +105,16 @@ python i2rt/flow_base/flow_base_client.py --command get_odometry --host 172.6.2.
 ```bash
 [Client] Connecting to 172.6.2.20:11323
 [Client] Connection established
-{'translation': array([-6.59153544e-07, -3.79215432e-04]), 'rotation': array(-0.00022068)}
+{
+  'position': {'translation': array([-6.59e-07, -3.79e-04, 0.0]), 'rotation': array(-0.00022068)},
+  'velocity': {
+    'world': {'translation': array([0.0, 0.0, 0.0]), 'rotation': 0.0},
+    'body':  {'translation': array([0.0, 0.0, 0.0]), 'rotation': 0.0},
+  },
+}
 ```
+
+`position` is in the world frame (meters, radians). `translation` is a 3-D vector `[x, y, z]` — `x`/`y` come from wheel odometry, and `z` is the linear-rail height in meters when the rail is enabled (`0.0` otherwise). `velocity` is reported in both the world frame (`velocity.world`) and the base body frame (`velocity.body`) — pick whichever is convenient. `translation` is m/s, `rotation` is rad/s; the rail axis is vertical so `vz` is identical in world and body frames, and angular velocity is identical in both frames as well (the base only rotates about z).
 
 **Reset Odometry:**
 ```python
@@ -128,19 +136,58 @@ python i2rt/flow_base/flow_base_client.py --command test_linear_rail --host 172.
 python i2rt/flow_base/flow_base_client.py --command get_linear_rail_state --host 172.6.2.20
 ```
 
+**Get Combined Observation** (odometry, plus linear rail when `--with-linear-rail` is set):
+```bash
+# Odometry only
+python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20
+
+# Odometry + linear rail
+python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20 --with-linear-rail
+```
+
+**Output (with `--with-linear-rail`):**
+```python
+{
+  'odometry':    { ... same shape as get_odometry ... },
+  'linear_rail': { ... same shape as get_linear_rail_state ... },
+}
+```
+Without the flag, only the `odometry` key is returned.
+
 ### Linear Rail API (if equipped)
 
 If your FlowBase has a linear rail lift module installed, you can control it via API:
 
 **Available Methods:**
-- `get_linear_rail_state()` - Get position, velocity, limit switch states
+- `get_linear_rail_state()` - Get position, velocity, limit-switch and calibration state
 - `set_linear_rail_velocity(velocity)` - Set velocity in rad/s
 - `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D)
+- `get_observation()` - Returns `{odometry, linear_rail}` (the `linear_rail` key is included only when `with_linear_rail=True`)
 
 Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to enable linear rail support.
 
+**`get_linear_rail_state()` output:**
+```python
+{
+  'position': {'motor': 0.314, 'linear': 0.050},   # rad, m
+  'velocity': {'motor': -1.40, 'linear': -0.222},  # rad/s, m/s
+  'upper_limit_triggered': False,
+  'lower_limit_triggered': False,
+  'brake_on': False,
+  'initialized': True,
+  'meters_per_rad': 0.159,                          # m/rad, signed
+}
+```
+`position.motor` / `velocity.motor` are the raw motor encoder readings (rad, rad/s). `position.linear` / `velocity.linear` are the corresponding linear quantities in m / m/s, derived from `meters_per_rad` captured at startup. Both are `None` until the rail has been calibrated.
+
+**Startup calibration:**
+- The rail drives up to the upper limit switch, captures the motor angle, then drives down to the lower limit switch and captures the motor angle again.
+- `meters_per_rad = total_stroke_m / (theta_upper - theta_lower)`, where `total_stroke_m` is the physical stroke between the two limits (default `1.0` m, configurable via `LinearRailVehicle(total_stroke_m=...)`).
+- The encoder is then zeroed at the lower limit, so `position.motor = 0` and `position.linear = 0` at the bottom of travel.
+- If either move times out (default 30 s) or `|theta_upper − theta_lower|` is too small to calibrate, initialization raises `RuntimeError` and the vehicle aborts rather than running uncalibrated.
+
 **Important Notes:**
-- Linear rail automatically homes to lower limit on initialization
+- Linear rail homes top-then-bottom and calibrates `meters_per_rad` on initialization
 - Linear rail has limit switches that prevent movement beyond safe range
 - Velocity commands timeout after 0.25s of inactivity (safety feature)
 - Brake is automatically managed by the system (released on init, engaged on shutdown)
