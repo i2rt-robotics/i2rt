@@ -604,7 +604,7 @@ class DMChainCanInterface(MotorChain):
                         with self.same_bus_device_lock:
                             # assume the same bus device is a passive input device (no commands to send) for now.
                             self.same_bus_device_states = self.same_bus_device_driver.read_states()
-                    time.sleep(0)  # yield GIL so other threads can acquire locks
+                    time.sleep(0.0005)  # yield GIL so other threads can acquire locks
                     self._rate_recorder.track()
                 except Exception as e:
                     print(f"DM Error in control loop: {e}")
