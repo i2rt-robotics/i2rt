@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>I2RT Robotics API — Codebase Documentation</title>
+<meta name="description" content="Complete codebase documentation for the I2RT Python API: YAM robot arms and the Flow Base mobile base. Motor drivers, CAN protocol, robot abstraction, kinematics, and teleoperation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2300b8a9'/%3E%3Ctext x='50' y='68' font-size='52' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'%3Ei2%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<div class="topbar">
+  <button id="burger" aria-label="Menu">☰</button>
+  <strong>I2RT Docs</strong>
+</div>
+<div class="scrim"></div>
+
+<div class="layout">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">i2</div>
+      <div class="brand-text">
+        <strong>I2RT Robotics API</strong>
+        <span>Complete codebase documentation</span>
+      </div>
+    </div>
+    <button class="theme-toggle">☀️ Light mode</button>
+    <div class="nav-search">
+      <input id="nav-search-input" type="text" placeholder="🔍  Search the docs…" autocomplete="off">
+    </div>
+
+    <nav>
+      <div class="nav-group">
+        <div class="nav-title">Getting Started</div>
+        <a href="#intro">Overview</a>
+        <a href="#concepts">Core Concepts</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#quickstart">Install &amp; Quick Start</a>
+        <a href="#can-setup">CAN Bus Setup</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">Low-Level Layer</div>
+        <a href="#motors">Motors &amp; CAN Drivers</a>
+        <a href="#protocol">DM Motor Protocol</a>
+        <a href="#config-tools">Motor Config Tools</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">Robot Layer</div>
+        <a href="#robot-interface">Robot Interface</a>
+        <a href="#motorchainrobot">MotorChainRobot</a>
+        <a href="#simrobot">SimRobot</a>
+        <a href="#getrobot">get_robot Factory</a>
+        <a href="#grippers">Grippers</a>
+        <a href="#kinematics">Kinematics (IK/FK)</a>
+        <a href="#models">Models &amp; Config</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">Control &amp; Teleop</div>
+        <a href="#control-ui">Control Interfaces</a>
+        <a href="#teleop">Leader-Follower Teleop</a>
+        <a href="#encoders">Encoders &amp; Handles</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">Mobile Base</div>
+        <a href="#flowbase">Flow Base</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-title">Reference</div>
+        <a href="#examples">Examples</a>
+        <a href="#devices">Devices &amp; Hardware</a>
+        <a href="#api-cheatsheet">API Cheatsheet</a>
+        <a href="#glossary">Glossary</a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ============ CONTENT ============ -->
+  <div class="content-wrap">
+    <main>
+
+    <!-- ===================== INTRO ===================== -->
+    <section id="intro">
+      <div class="hero">
+        <span class="eyebrow">Complete Codebase Walkthrough</span>
+        <h1>I2RT Robotics Python API</h1>
+        <p class="lead">A Python client library for driving <strong>YAM robot arms</strong> and the <strong>Flow Base mobile base</strong> for learning-based robotics, teleoperation, and real-world deployment. This site documents every module of the repository from the ground up, so that a first-time reader can understand the whole system.</p>
+        <div class="badges">
+          <span class="badge">package <b>i2rt</b> v1.1.2</span>
+          <span class="badge">Python <b>≥ 3.10</b></span>
+          <span class="badge">control loop <b>250&nbsp;Hz</b></span>
+          <span class="badge">CAN <b>1&nbsp;Mbit/s</b></span>
+          <span class="badge">license <b>MIT</b></span>
+          <span class="badge"><b>MuJoCo</b> + <b>mink</b> IK</span>
+        </div>
+      </div>
+
+      <p>I2RT (<a href="https://i2rt.com/" target="_blank">i2rt.com</a>) builds affordable, capable torque-controlled robot hardware. This repository is the Python client library that drives that hardware. It supports three main product families:</p>
+
+      <div class="card-grid cols-3">
+        <div class="card">
+          <div class="ico">🦾</div>
+          <h4>YAM Arms</h4>
+          <p>6-DOF torque-controlled robot arms. Variants <code>YAM</code>, <code>YAM_PRO</code>, <code>YAM_ULTRA</code>, <code>BIG_YAM</code>, each accepting interchangeable grippers.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🛞</div>
+          <h4>Flow Base</h4>
+          <p>A 4-caster holonomic (omnidirectional) mobile base, inspired by TidyBot++, with an optional linear-rail lift.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🎮</div>
+          <h4>Teaching Handle</h4>
+          <p>A leader-arm handle with a passive encoder and buttons. Used for teleoperation, where a human drags it to record demonstrations.</p>
+        </div>
+      </div>
+
+      <h3 id="key-features">Key Features</h3>
+      <ul>
+        <li><strong>Plug-and-play Python interface</strong> — get a robot object in one line, then read and command joint positions.</li>
+        <li><strong>Real-time CAN bus control</strong> — drives Damiao (DM) series motors in MIT impedance-control mode at 250&nbsp;Hz.</li>
+        <li><strong>MuJoCo gravity compensation</strong> — inverse dynamics cancels the arm's weight to provide a "zero-gravity" mode.</li>
+        <li><strong>Simulation &amp; visualization</strong> — MuJoCo desktop viewer, a Viser web interface, and bundled URDF/MJCF models.</li>
+        <li><strong>Gripper force control &amp; auto-calibration</strong> — clog detection and force limiting.</li>
+        <li><strong>Bimanual teleoperation + trajectory record/replay</strong> — ready to plug into standard robot-learning pipelines.</li>
+      </ul>
+
+      <div class="callout tip">
+        <div class="callout-title">📖 How to read this site</div>
+        <p>Reading top to bottom walks you up the stack: <em>hardware (motors/CAN) → robot abstraction → control/teleop → mobile base</em>. To jump to a specific feature, use the sidebar search. Every explanation cites the actual source file path.</p>
+      </div>
+    </section>
+
+    <!-- ===================== CONCEPTS ===================== -->
+    <section id="concepts">
+      <h2 id="concepts-h">Core Concepts (read this first)</h2>
+      <p>A handful of ideas recur throughout the code. Skim these before diving in.</p>
+
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>CAN bus</strong></td><td>The automotive serial bus that motors and encoders hang off of. This project uses SocketCAN (<code>can0</code>, <code>can1</code>, …) at 1&nbsp;Mbit/s.</td></tr>
+          <tr><td><strong>DM motor</strong></td><td>A Damiao BLDC torque-controlled motor (DM4310, DM4340, DM6248, DM3507, …). Supports an <strong>MIT control mode</strong> that packs target position, velocity, stiffness, damping, and torque into a single CAN frame.</td></tr>
+          <tr><td><strong>MIT control</strong></td><td>Impedance control of the form <code>τ = kp·(q* − q) + kd·(q̇* − q̇) + τ_ff</code>. One CAN frame carries target position/velocity/kp/kd/torque.</td></tr>
+          <tr><td><strong>Gravity compensation</strong></td><td>MuJoCo inverse dynamics computes the torque needed to hold the current pose against gravity and adds it. This lets a human move the arm freely (zero-gravity).</td></tr>
+          <tr><td><strong>Motor ↔ joint coordinates</strong></td><td>A motor's raw angle (real) and the control-space joint angle (sim) are related by <code>offset</code> and <code>direction</code>. Grippers add a normalized [0,1] space on top.</td></tr>
+          <tr><td><strong>Leader / Follower</strong></td><td>A GELLO-style teleop setup where a human-held leader arm (teaching handle) drives a remote follower arm.</td></tr>
+          <tr><td><strong>Portal RPC</strong></td><td>A lightweight RPC library used to expose a robot across the network. <code>ServerRobot</code>/<code>ClientRobot</code> and the Flow Base client use it.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <!-- ===================== ARCHITECTURE ===================== -->
+    <section id="architecture">
+      <h2 id="architecture-h">Architecture — Layered Design</h2>
+      <p>The system is split into clear layers. The higher you go, the more abstract; the lower you go, the closer to hardware.</p>
+
+      <div class="layer-stack">
+        <div class="layer purple">
+          <div class="l-tag">User / Examples layer — examples/, scripts/</div>
+          <h4>Teleoperation · trajectory record · visualization demos</h4>
+          <p>minimum_gello, bimanual_lead_follower, record_replay_trajectory, control_with_mujoco/viser …</p>
+        </div>
+        <div class="layer warm">
+          <div class="l-tag">Control-interface layer — i2rt/utils/</div>
+          <h4>MuJoCo viewer · Viser web UI · gamepad · encoder manager</h4>
+          <p>Mirrors robot state, lets you drag-control with IK, and checks for self-collisions.</p>
+        </div>
+        <div class="layer accent2">
+          <div class="l-tag">Robot-abstraction layer — i2rt/robots/</div>
+          <h4>Robot protocol · MotorChainRobot · SimRobot · Kinematics</h4>
+          <p>A uniform API like <code>get_joint_pos()</code> and <code>command_joint_pos()</code>. Gravity compensation, gripper normalization, and joint limits live here.</p>
+        </div>
+        <div class="layer">
+          <div class="l-tag">Motor-driver layer — i2rt/motor_drivers/</div>
+          <h4>DMChainCanInterface · DMSingleMotorCanInterface · CanInterface</h4>
+          <p>Drives many motors synchronously from a dedicated thread at 250&nbsp;Hz. CAN frame packing/unpacking, error recovery, multi-turn position tracking.</p>
+        </div>
+        <div class="layer">
+          <div class="l-tag">Hardware — CAN bus (SocketCAN, 1 Mbit/s)</div>
+          <h4>DM motors · passive encoders · Flow Base wheel modules</h4>
+          <p>The actual electrical signals. udev rules configure everything automatically at boot.</p>
+        </div>
+      </div>
+
+      <h3 id="data-flow">Control-loop data flow</h3>
+      <p>Here is what happens in one cycle when you position-control a YAM arm.</p>
+      <div class="diagram">user code             robot.command_joint_pos(q*)
+   │                         │  clip to joint limits → gripper [0,1] map (remapper)
+   ▼                         ▼
+MotorChainRobot   ┌──────────────────────────────────────────────┐
+ (background       │  q  ← read motor state (un-map offset/dir)    │
+  thread)          │  g  ← gravity torque via MuJoCo inverse dyn.  │
+                   │  τ  =  τ_cmd + g·gravity_comp_factor          │
+                   │        + coulomb_friction·sign(q̇)            │
+                   │  τ  ← clip torque, gripper force limit        │
+                   └──────────────────────────────────────────────┘
+                                  │ set_commands(torques, pos, kp, kd)
+                                  ▼
+DMChainCanInterface  ── pack an MIT frame per motor → send over CAN (250 Hz)
+                                  │
+                                  ▼
+         CAN bus ↔ DM motors (position/velocity/torque/temperature feedback)</div>
+
+      <h3 id="dir-layout">Directory layout</h3>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Path</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>i2rt/motor_drivers/</code></td><td>Lowest layer: CAN communication + DM motor control</td></tr>
+          <tr><td><code>i2rt/motor_config_tool/</code></td><td>Setup CLIs: zero position, timeout, motor ping</td></tr>
+          <tr><td><code>i2rt/robots/</code></td><td>Robot protocol, MotorChainRobot, SimRobot, kinematics, YAML config</td></tr>
+          <tr><td><code>i2rt/robots/config/</code></td><td>Per arm/gripper hardware profiles (YAML): motors, gains, gravity-comp factors</td></tr>
+          <tr><td><code>i2rt/robot_models/</code></td><td>MuJoCo/URDF models (.xml/.urdf) and mesh (.stl) assets</td></tr>
+          <tr><td><code>i2rt/utils/</code></td><td>MuJoCo utils, MuJoCo/Viser control interfaces, encoders, gamepad</td></tr>
+          <tr><td><code>i2rt/flow_base/</code></td><td>Mobile-base controller, network client, linear rail</td></tr>
+          <tr><td><code>examples/</code></td><td>Runnable demo scripts, each with its own README</td></tr>
+          <tr><td><code>scripts/</code></td><td>Leader-arm runner, encoder reader, CAN reset, etc.</td></tr>
+          <tr><td><code>devices/</code></td><td>udev rules, boot auto-config, Raspberry Pi setup</td></tr>
+          <tr><td><code>docs/guides/</code></td><td>Guides such as setting persistent CAN IDs</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <!-- ===================== QUICKSTART ===================== -->
+    <section id="quickstart">
+      <h2 id="quickstart-h">Install &amp; Quick Start</h2>
+      <p>The repo recommends <code>uv</code> (a fast Python package manager) and Python 3.11.</p>
+      <span class="code-label">bash — install</span>
+<pre><code>git clone https://github.com/i2rt-robotics/i2rt.git &amp;&amp; cd i2rt
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+uv venv --python 3.11
+source .venv/bin/activate
+
+sudo apt update
+sudo apt install build-essential python3-dev linux-headers-$(uname -r)
+uv pip install -e .</code></pre>
+
+      <p>The key dependencies are <code>python-can</code> (CAN comms), <code>mujoco</code> + <code>mink</code> (simulation/IK), <code>viser</code> (web UI), <code>ruckig</code> (trajectory generation), <code>portal</code> (RPC), <code>qpsolvers</code> (QP solver for IK), and <code>tyro</code> (CLI parsing). (Source: <code>pyproject.toml</code>.)</p>
+
+      <h3 id="first-program">First program — read and command joints</h3>
+      <span class="code-label">python</span>
+<pre><code>from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import GripperType
+import numpy as np
+
+robot = get_yam_robot(channel="can0", gripper_type=GripperType.LINEAR_4310)
+
+# Read joint positions (radians) — 6 arm joints
+q = robot.get_joint_pos()        # shape: (6,) or (7,) including gripper
+
+# Command a target configuration (PD control under the hood)
+robot.command_joint_pos(np.zeros(6))</code></pre>
+
+      <h3 id="zero-gravity">Zero-gravity mode (move it by hand)</h3>
+      <p>This command floats the arm with gravity compensation only, so you can move it freely by hand.</p>
+      <span class="code-label">bash</span>
+<pre><code>python i2rt/robots/motor_chain_robot.py --channel can0 --gripper linear_4310</code></pre>
+
+      <div class="callout warn">
+        <div class="callout-title">⚠️ Safety</div>
+        <p>Motors ship with a <strong>400&nbsp;ms watchdog timeout</strong>: if no command arrives in time, they fall into damping mode. If you disable the timeout (advanced), a failed gravity-compensation loop can produce uncontrolled torque, so always initialize with a PD target.</p>
+      </div>
+    </section>
+
+    <!-- ===================== CAN SETUP ===================== -->
+    <section id="can-setup">
+      <h2 id="can-setup-h">CAN Bus Setup</h2>
+      <span class="code-label">bash</span>
+<pre><code># Check detected CAN devices
+ls -l /sys/class/net/can*
+
+# Bring up the interface at 1 Mbit/s
+sudo ip link set can0 up type can bitrate 1000000
+
+# Auto-enable on boot (install udev rules)
+sudo sh devices/install_devices.sh
+
+# Reset an unresponsive adapter
+sh scripts/reset_all_can.sh</code></pre>
+
+      <p><code>scripts/reset_all_can.sh</code> brings every <code>can*</code> interface down and back up at 1&nbsp;Mbit/s. With multiple adapters, device names can shuffle depending on plug order; to pin stable names, follow the serial-based udev setup in <code>docs/guides/set-persistent-can-ids.md</code> (e.g. <code>can_follower_l</code>, <code>can_leader_r</code>). CAN interface names are <strong>at most 13 characters</strong> and must start with <code>can</code>.</p>
+    </section>
+
+    <!-- ===================== MOTORS ===================== -->
+    <section id="motors">
+      <h2 id="motors-h">Motors &amp; CAN Drivers</h2>
+      <p>The lowest layer lives in <code>i2rt/motor_drivers/</code>. Three files form its core.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>File</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>can_interface.py</code></td><td><code>CanInterface</code> — a thin wrapper over <code>python-can</code> for send/receive. Synchronous and buffered-reader modes, retries, and bus draining (discarding stale frames).</td></tr>
+          <tr><td><code>dm_driver.py</code></td><td>The heart of DM motor control. Single motor (<code>DMSingleMotorCanInterface</code>) and motor chain (<code>DMChainCanInterface</code>), plus the passive encoder reader.</td></tr>
+          <tr><td><code>utils.py</code></td><td>Motor constants (<code>MotorConstants</code>/<code>MotorType</code>), quantization (<code>float_to_uint</code>), <code>ReceiveMode</code>, error codes, and dataclasses.</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="control-modes">Control modes &amp; control frequency</h3>
+      <p>The control loop runs at <strong>250&nbsp;Hz</strong> (4&nbsp;ms period). If a step exceeds 7&nbsp;ms it logs a performance warning (constants at the top of <code>dm_driver.py</code>).</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Mode</th><th>CAN ID offset</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>ControlMode.MIT</code></td><td><code>0x000 + id</code></td><td>Full impedance control — position/velocity/kp/kd/torque packed into one frame. The arm's default mode.</td></tr>
+          <tr><td><code>ControlMode.POS_VEL</code></td><td><code>0x100 + id</code></td><td>Position + velocity control.</td></tr>
+          <tr><td><code>ControlMode.VEL</code></td><td><code>0x200 + id</code></td><td>Velocity-only — a 4-byte float32. Used to drive Flow Base wheels.</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="motor-types">Supported motor types</h3>
+      <p><code>MotorType</code> defines each motor's position/velocity/torque limits (<code>MotorConstants</code>). Those limits double as the scale for the float ↔ integer quantization.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Motor</th><th>Position</th><th>Velocity</th><th>Torque</th><th>Typical use</th></tr></thead>
+        <tbody>
+          <tr><td><code>DM4310</code></td><td>±12.5 rad</td><td>±30 rad/s</td><td>±10 Nm</td><td>Wrist/elbow, grippers</td></tr>
+          <tr><td><code>DM4340</code></td><td>±12.5 rad</td><td>±10 rad/s</td><td>±28 Nm</td><td>Shoulder (high torque)</td></tr>
+          <tr><td><code>DM6248</code></td><td>±12.5 rad</td><td>±20 rad/s</td><td>±120 Nm</td><td>BIG_YAM shoulder</td></tr>
+          <tr><td><code>DM3507</code></td><td>±12.5 rad</td><td>±50 rad/s</td><td>±5 Nm</td><td>Lightweight linear gripper</td></tr>
+          <tr><td><code>DM8009</code></td><td>±12.5 rad</td><td>±45 rad/s</td><td>±54 Nm</td><td>Linear-rail lift</td></tr>
+          <tr><td><code>DM4310V</code> / <code>DM_FLOW_WHEEL</code></td><td>±π rad</td><td>±30 rad/s</td><td>±10 Nm</td><td>Flow Base steering/drive</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="chain-threading">DMChainCanInterface — threading model</h3>
+      <p>Multiple motors are bundled into a single chain. When created with <code>start_thread=True</code>, a background control thread starts and loops over:</p>
+      <ul>
+        <li>Sending the current command to all motors under <code>command_lock</code> (an RLock).</li>
+        <li>On a detected motor error, <code>_try_recover_motors()</code> performs <em>clear error → re-enable</em> up to 3 times.</li>
+        <li>Updating feedback state (a list of <code>FeedbackFrameInfo</code>) under <code>state_lock</code>.</li>
+        <li>Reading any same-bus encoder state, if a <code>get_same_bus_device_driver</code> was provided.</li>
+        <li>Tracking the actual loop rate with a <code>RateRecorder</code> and reporting when a step exceeds 7&nbsp;ms.</li>
+      </ul>
+      <p>On construction it also runs a <strong>CAN bandwidth check</strong>: if <code>num_motors × 2 frames × 130 bits × 250 Hz</code> exceeds <code>bitrate / 1.1</code>, it warns.</p>
+
+      <h4>Coordinate transform (motor ↔ control)</h4>
+      <p>Each motor has a <code>motor_offset</code> and <code>motor_direction</code> that convert between the motor's raw angle and the control coordinate.</p>
+      <span class="code-label">concept (dm_driver.py)</span>
+<pre><code>pos_sim  = (pos_real - offset) * direction      # when reading
+pos_real =  pos_sim  * direction  + offset      # when commanding</code></pre>
+      <p><code>_update_absolute_positions()</code> also detects <strong>multi-turn</strong> wrap-around past the ± position limits so the position never jumps discontinuously.</p>
+
+      <p>To bundle several CAN buses (e.g. a bimanual robot) into one object, <code>MultiDMChainCanInterface</code> aggregates each bus's <code>DMChainCanInterface</code> and dispatches commands by index. The reported comm frequency is the slowest bus (the bottleneck).</p>
+    </section>
+
+    <!-- ===================== PROTOCOL ===================== -->
+    <section id="protocol">
+      <h2 id="protocol-h">DM Motor CAN Protocol (in depth)</h2>
+      <p>This is the part closest to the hardware. Every float is <strong>quantized</strong> to an integer over the motor's limit range, then packed into bit fields.</p>
+
+      <span class="code-label">utils.py — quantization</span>
+<pre><code>def float_to_uint(x, x_min, x_max, bits):
+    span = x_max - x_min
+    x = min(max(x, x_min), x_max)            # clip to range
+    return int((x - x_min) * ((1 &lt;&lt; bits) - 1) / span)</code></pre>
+
+      <h3 id="mit-frame">MIT control frame (8-byte send)</h3>
+      <p>Position 16 bits, velocity 12 bits, kp 12 bits, kd 12 bits, torque 12 bits — densely packed into 8 bytes.</p>
+      <span class="code-label">dm_driver.py — set_control() MIT packing</span>
+<pre><code>data[0] = (pos &gt;&gt; 8) &amp; 0xFF                  # pos[15:8]
+data[1] =  pos       &amp; 0xFF                  # pos[7:0]
+data[2] = (vel &gt;&gt; 4) &amp; 0xFF                  # vel[11:4]
+data[3] = ((vel &amp; 0xF) &lt;&lt; 4) | (kp &gt;&gt; 8)     # vel[3:0] | kp[11:8]
+data[4] =  kp        &amp; 0xFF                  # kp[7:0]
+data[5] = (kd &gt;&gt; 4) &amp; 0xFF                   # kd[11:4]
+data[6] = ((kd &amp; 0xF) &lt;&lt; 4) | (tor &gt;&gt; 8)     # kd[3:0] | tor[11:8]
+data[7] =  tor       &amp; 0xFF                  # tor[7:0]</code></pre>
+
+      <h3 id="feedback-frame">Feedback frame (8-byte receive)</h3>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Byte</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td>0 (high nibble)</td><td>Error code (<code>0x1</code> = OK)</td></tr>
+          <tr><td>1–2</td><td>Position (16 bits)</td></tr>
+          <tr><td>3–4</td><td>Velocity (12 bits)</td></tr>
+          <tr><td>4–5</td><td>Torque (12 bits, nibble-shifted)</td></tr>
+          <tr><td>6</td><td>MOSFET temperature (°C)</td></tr>
+          <tr><td>7</td><td>Rotor temperature (°C)</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>The receive ID is determined by <code>ReceiveMode</code>. The default <code>p16</code> means <code>receive_id = send_id + 16</code>. (Other options: <code>same</code>, <code>zero</code>, <code>plus_one</code>.)</p>
+
+      <h3 id="motor-commands">Motor command bytes</h3>
+      <p>Beyond the normal control frame, special commands are distinguished by the last data byte.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Command</th><th>Byte pattern</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Enable (motor_on)</td><td><code>FF FF FF FF FF FF FF FC</code></td><td>Enable the motor</td></tr>
+          <tr><td>Disable (motor_off)</td><td><code>… FD</code></td><td>Disable the motor</td></tr>
+          <tr><td>Clear error</td><td><code>… FB</code></td><td>Clear the error state</td></tr>
+          <tr><td>Save zero</td><td><code>… FE</code></td><td>Store the current position as zero</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="register-protocol">Register configuration protocol (persistent settings)</h3>
+      <p>Persistent parameters like motor ID, timeout, and gear ratio are read/written/saved to EEPROM via special messages on the broadcast ID <code>0x7FF</code> (<code>motor_config_tool/utils.py</code>).</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>Payload (sent to 0x7FF)</th></tr></thead>
+        <tbody>
+          <tr><td>Read register</td><td><code>[id, 0x00, 0x33, reg, 0,0,0,0]</code></td></tr>
+          <tr><td>Write register</td><td><code>[id, 0x00, 0x55, reg, b0,b1,b2,b3]</code></td></tr>
+          <tr><td>Save to EEPROM</td><td><code>[id, 0x00, 0xAA, reg, 0,0,0,0]</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>Key registers: <code>id</code> (8), <code>master_id</code> (7), <code>timeout</code> (9), <code>gear_ratio</code> (20), <code>KT_value</code> (torque constant, 1), <code>sw_ver</code> (14), and more.</p>
+
+      <h3 id="error-codes">Error codes</h3>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>0x1</code></td><td>Normal (success)</td></tr>
+          <tr><td><code>0x8 / 0x9</code></td><td>Over-voltage / under-voltage</td></tr>
+          <tr><td><code>0xA</code></td><td>Over-current</td></tr>
+          <tr><td><code>0xB / 0xC</code></td><td>MOSFET over-temp / motor over-temp</td></tr>
+          <tr><td><code>0xD</code></td><td>Loss of communication</td></tr>
+          <tr><td><code>0xE</code></td><td>Overload</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <!-- ===================== CONFIG TOOLS ===================== -->
+    <section id="config-tools">
+      <h2 id="config-tools-h">Motor Config Tools</h2>
+      <p>The CLIs in <code>i2rt/motor_config_tool/</code> handle initial motor setup.</p>
+
+      <h3 id="ping">Ping motors — which ones are alive</h3>
+      <span class="code-label">bash</span>
+<pre><code>python i2rt/motor_config_tool/ping_motors.py --channel can0</code></pre>
+      <p>It iterates IDs 1–7, attempts <code>motor_on</code>, prints the motors that respond, then turns them off again.</p>
+
+      <h3 id="set-zero">Set zero offset</h3>
+      <span class="code-label">bash</span>
+<pre><code>python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1</code></pre>
+      <p>Enables the motor, stores the current position as zero (<code>save_zero_position</code>), then re-reads to verify it is near zero (&lt;0.01&nbsp;rad). For a standard YAM, run it for each of IDs 1–6.</p>
+
+      <h3 id="set-timeout">Set safety timeout</h3>
+      <p>The factory default is 400&nbsp;ms. To disable it you must run twice.</p>
+      <span class="code-label">bash</span>
+<pre><code># Disable timeout (advanced users — run twice)
+python i2rt/motor_config_tool/set_timeout.py --channel can0
+python i2rt/motor_config_tool/set_timeout.py --channel can0
+# Re-enable timeout
+python i2rt/motor_config_tool/set_timeout.py --channel can0 --timeout</code></pre>
+      <p>Internally it writes 0 (off) or 8000&nbsp;ms to register 9 (<code>timeout</code>) and saves to EEPROM.</p>
+
+      <div class="callout danger">
+        <div class="callout-title">⚠️ When disabling the timeout</div>
+        <p>Without the timeout, a stalled gravity-compensation loop leaves the motor holding its last torque indefinitely — dangerous. Always initialize with a PD target: <code>get_yam_robot(channel="can0", zero_gravity_mode=False)</code></p>
+      </div>
+    </section>
+
+    <!-- ===================== ROBOT INTERFACE ===================== -->
+    <section id="robot-interface">
+      <h2 id="robot-interface-h">Robot Interface (the protocol)</h2>
+      <p><code>Robot</code> in <code>i2rt/robots/robot.py</code> is a <code>@runtime_checkable Protocol</code>. That means any object implementing the same methods counts as a "robot," without inheriting from an ABC. Both real hardware (<code>MotorChainRobot</code>) and simulation (<code>SimRobot</code>) satisfy this contract, so the same code can swap between them.</p>
+
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Method</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>num_dofs()</code></td><td>Number of controllable DOFs (including the gripper)</td></tr>
+          <tr><td><code>get_joint_pos()</code></td><td>Current joint positions (rad)</td></tr>
+          <tr><td><code>get_joint_state()</code></td><td>A <code>{"pos", "vel"}</code> dict</td></tr>
+          <tr><td><code>get_observations()</code></td><td>All sensor data: joint pos/vel/torque, gripper, temperatures, …</td></tr>
+          <tr><td><code>command_joint_pos(q)</code></td><td>Command a target position (PD control)</td></tr>
+          <tr><td><code>command_target_vel(q̇)</code></td><td>Command a target velocity</td></tr>
+          <tr><td><code>command_joint_state({...})</code></td><td>Command with explicit kp/kd</td></tr>
+          <tr><td><code>get_robot_type()</code></td><td><code>RobotType.ARM</code> or <code>MOBILE_BASE</code></td></tr>
+          <tr><td><code>reinit()</code> / <code>close()</code></td><td>Re-initialize / shut down</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h4><code>get_observations()</code> return example</h4>
+      <span class="code-label">python</span>
+<pre><code>{
+  "joint_pos":   ndarray,   # [rad]  arm joints (excludes gripper)
+  "joint_vel":   ndarray,   # [rad/s]
+  "joint_eff":   ndarray,   # [Nm]   torques
+  "gripper_pos": ndarray,   # [0-1]  normalized gripper position
+  "gripper_vel": ndarray,
+  "gripper_eff": ndarray,
+  "temp_mos":    ndarray,   # [°C]   MOSFET temperature (optional)
+  "temp_rotor":  ndarray,   # [°C]   rotor temperature (optional)
+}</code></pre>
+    </section>
+
+    <!-- ===================== MOTORCHAINROBOT ===================== -->
+    <section id="motorchainrobot">
+      <h2 id="motorchainrobot-h">MotorChainRobot — real hardware</h2>
+      <p><code>i2rt/robots/motor_chain_robot.py</code> is the implementation for a physical robot. Given a <code>DMChainCanInterface</code> (motor chain) and a MuJoCo model, a background server thread continuously performs the following.</p>
+
+      <h3 id="grav-comp">Gravity-compensation pipeline</h3>
+      <ol>
+        <li><strong>Compute gravity torque</strong> — MuJoCo inverse dynamics (<code>MuJoCoKDL.compute_inverse_dynamics(q, 0, 0)</code>) gives the torque <code>g</code> that holds the current pose.</li>
+        <li><strong>Scale</strong> — multiply by per-joint <code>gravity_comp_factor</code> to correct for friction and gearing losses.</li>
+        <li><strong>Friction compensation</strong> — add <code>coulomb_friction · sign(q̇)</code>.</li>
+        <li><strong>Sum &amp; clip</strong> — <code>τ = τ_cmd + g·factor + friction</code>, clipped to torque limits.</li>
+      </ol>
+      <span class="code-label">motor_chain_robot.py (concept)</span>
+<pre><code>friction_comp = coulomb_friction * np.sign(joint_state.vel)
+motor_torques = joint_commands.torques + g * gravity_comp_factor + friction_comp</code></pre>
+
+      <h3 id="zero-grav-mode">Zero-gravity idle mode</h3>
+      <p>With <code>zero_gravity_mode=True</code>, the position target is held at zero and only kd is set (to <code>grav_comp_kd</code>), so the PD term does not drag the arm — only gravity compensation acts. A human can move the arm freely. <code>enter_gravity_comp_idle()</code> returns to this safe state at any time.</p>
+
+      <h3 id="gripper-norm">Gripper normalization (JointMapper)</h3>
+      <p>Externally the gripper is exposed as <strong>[0,1]</strong> (0 = closed, 1 = open), but the internal motor angle is a physical range (e.g. <code>[-0.048, 0]</code> rad). <code>JointMapper</code> (<code>robots/utils.py</code>) converts between the two transparently.</p>
+      <span class="code-label">python</span>
+<pre><code>pos = self._motor_state_to_joint_state(motor_state)
+pos = self.remapper.to_command_joint_pos_space(pos)   # physical angle → [0,1]</code></pre>
+
+      <h3 id="gripper-force">Gripper force limiting &amp; clog detection</h3>
+      <p>When <code>limit_gripper_force &gt; 0</code>, a <code>GripperForceLimiter</code> watches the gripper torque history in a lock-free ring buffer. If torque exceeds <code>clog_force_threshold</code> while speed is below <code>clog_speed_threshold</code>, it treats this as a "clog" and reduces the target position to cap the applied force. The target-force → motor-torque mapping uses a <strong>linear</strong> or <strong>crank (zero-linkage)</strong> curve per gripper type.</p>
+
+      <h3 id="joint-limits">Joint limits &amp; safety</h3>
+      <p>At init and at runtime it checks that joints stay within limits and, on a violation, raises a <code>RuntimeError</code> with the offending position/limit details. <code>command_joint_pos()</code> clips commands to the limits before sending.</p>
+    </section>
+
+    <!-- ===================== SIMROBOT ===================== -->
+    <section id="simrobot">
+      <h2 id="simrobot-h">SimRobot — MuJoCo simulation</h2>
+      <p><code>i2rt/robots/sim_robot.py</code> is a drop-in replacement for <code>MotorChainRobot</code>, used for development and testing without hardware (<code>sim=True</code>). It runs physics in MuJoCo and satisfies the same <code>Robot</code> protocol.</p>
+      <ul>
+        <li>A background physics loop (200&nbsp;Hz by default) applies gravity-compensation torques and updates <code>qpos</code>/<code>qvel</code>.</li>
+        <li>Maps the gripper [0,1] ↔ MuJoCo physical range (<code>_cmd_to_mj_qpos</code> / <code>_mj_to_cmd_qpos</code>).</li>
+        <li>Even simulates motor temperatures (<code>temp_mos</code>, <code>temp_rotor</code> with a little noise) for realism.</li>
+      </ul>
+      <p>This lets you move the same higher-level code between <span class="pill sim">sim</span> and <span class="pill real">real</span>.</p>
+    </section>
+
+    <!-- ===================== GET ROBOT ===================== -->
+    <section id="getrobot">
+      <h2 id="getrobot-h">get_robot Factory</h2>
+      <p><code>get_yam_robot()</code> in <code>i2rt/robots/get_robot.py</code> hides the whole assembly behind one function. It is the recommended entry point for the YAM family.</p>
+
+      <span class="code-label">python — signature (main args)</span>
+<pre><code>get_yam_robot(
+    channel="can0",
+    arm_type=ArmType.YAM,
+    gripper_type=GripperType.LINEAR_4310,
+    zero_gravity_mode=True,
+    ee_mass=None, ee_inertia=None,          # override end-effector inertia (tools)
+    gravity_comp_factor=None,
+    sim=False,                              # True returns a SimRobot
+)</code></pre>
+
+      <h3 id="getrobot-flow">What it does internally</h3>
+      <ol>
+        <li><code>_load_arm_config(arm_type)</code> — reads the motor list, gains, and gravity-comp factors from <code>config/yam.yml</code> etc.</li>
+        <li><code>combine_arm_and_gripper_xml()</code> — merges the arm XML and gripper XML (with the mount transform: pos/quat/axis) into a temporary MJCF.</li>
+        <li>Parses joint limits from the combined XML.</li>
+        <li>Appends the gripper motor (CAN ID <code>0x07</code>) to the end of the motor list.</li>
+        <li>Creates the <code>DMChainCanInterface</code> motor chain, auto-calibrating gripper limits if needed.</li>
+        <li>Corrects motor angles that wrap around ±π using <code>motor_offset</code>.</li>
+        <li>Instantiates <code>MotorChainRobot</code> (or <code>SimRobot</code>) with the full configuration.</li>
+      </ol>
+      <p>An armless gripper-only mode (<code>ArmType.NO_ARM</code>) is also supported via <code>_get_gripper_only_robot()</code>.</p>
+    </section>
+
+    <!-- ===================== GRIPPERS ===================== -->
+    <section id="grippers">
+      <h2 id="grippers-h">Grippers</h2>
+      <p>Gripper variants are expressed as the <code>GripperType</code> enum, each defining its motor, limits, force-torque curve, and mount transform in YAML.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Gripper</th><th>Motor</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>crank_4310</code></td><td>DM4310</td><td>Zero-linkage crank — minimizes gripper width</td></tr>
+          <tr><td><code>linear_3507</code></td><td>DM3507</td><td>Lightweight linear. Start closed or run calibration</td></tr>
+          <tr><td><code>linear_4310</code></td><td>DM4310</td><td>Standard linear. Slightly more force than the 3507</td></tr>
+          <tr><td><code>flexible_4310</code></td><td>DM4310</td><td>Soft, flexible tips</td></tr>
+          <tr><td><code>yam_teaching_handle</code></td><td>—</td><td>Leader-arm handle: trigger + 2 buttons (passive encoder)</td></tr>
+          <tr><td><code>no_gripper</code></td><td>—</td><td>No gripper</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Why calibration is needed</div>
+        <p>Linear grippers turn their motor more than 2π radians over the full stroke, so absolute position is unknown. You therefore either <strong>start fully closed</strong> or let startup auto-calibration (<code>detect_gripper_limits</code>) find both end stops.</p>
+      </div>
+
+      <h4>Force → torque mapping</h4>
+      <ul>
+        <li><strong>linear</strong>: <code>target_torque = gripper_force · gripper_stroke / motor_stroke</code></li>
+        <li><strong>crank</strong>: a nonlinear map from crank radius and angle — <code>target_torque = gripper_force · r · sin(θ)</code></li>
+      </ul>
+    </section>
+
+    <!-- ===================== KINEMATICS ===================== -->
+    <section id="kinematics">
+      <h2 id="kinematics-h">Kinematics (FK / IK)</h2>
+      <p>The <code>Kinematics</code> class in <code>i2rt/robots/kinematics.py</code> uses <strong>mink</strong>, a differential-IK library built on MuJoCo.</p>
+
+      <h4>Forward kinematics (FK)</h4>
+      <span class="code-label">python</span>
+<pre><code>def fk(self, q, site_name=None) -> np.ndarray:
+    """Return the 4x4 SE(3) transform of the site (in world) at joints q."""
+    self._configuration.update(q)
+    return self._configuration.get_transform_frame_to_world(site_name, "site").as_matrix()</code></pre>
+
+      <h4>Inverse kinematics (IK)</h4>
+      <p>It sets a <code>FrameTask</code> toward a target 4×4 pose, solves for velocity with a QP solver (<code>quadprog</code>), and integrates iteratively. When the position and orientation errors fall below a threshold (<code>1e-4</code>), it reports convergence and returns <code>(success, q)</code>.</p>
+      <span class="code-label">python</span>
+<pre><code>ok, q_solution = kin.ik(target_pose, site_name="grasp_site", init_q=current_q)</code></pre>
+      <p>The test (<code>tests/test_kinematics.py</code>) verifies an FK→IK→FK round trip recovers the original pose.</p>
+    </section>
+
+    <!-- ===================== MODELS ===================== -->
+    <section id="models">
+      <h2 id="models-h">Robot Models &amp; YAML Config</h2>
+      <p>A robot is defined by two kinds of assets: a <strong>physical model (MJCF/URDF + STL meshes)</strong> and a <strong>hardware profile (YAML)</strong>.</p>
+
+      <h3 id="model-files">Model files (<code>i2rt/robot_models/</code>)</h3>
+      <ul>
+        <li><code>arm/{yam, yam_pro, yam_ultra, big_yam}/</code> — each arm's <code>.xml</code> (MuJoCo), some <code>.urdf</code>, and <code>assets/*.stl</code> meshes.</li>
+        <li><code>gripper/{linear_4310, linear_3507, crank_4310, flexible_4310, ...}/</code> — gripper models.</li>
+        <li>At runtime the arm + gripper XML are merged dynamically into a combined model in <code>/tmp</code>.</li>
+      </ul>
+
+      <h3 id="arm-config">Arm config schema (e.g. <code>config/yam.yml</code>)</h3>
+      <span class="code-label">yaml</span>
+<pre><code>motor_list:                       # [CAN_ID, motor_type] — 6 arm joints
+  - [0x01, "DM4340"]              # shoulder
+  - [0x02, "DM4340"]
+  - [0x03, "DM4340"]
+  - [0x04, "DM4310"]              # elbow
+  - [0x05, "DM4310"]              # wrist
+  - [0x06, "DM4310"]
+directions:          [1, 1, 1, 1, 1, 1]      # motor polarity (+1/−1)
+kp:                  [80, 80, 80, 40, 10, 10] # position gains
+kd:                  [5, 5, 5, 1.5, 1.5, 1.5] # damping gains
+gravity_comp_factor: [1.0, 1.1, 1.1, 1.2, 1.0, 1.0]  # gravity torque scale
+grav_comp_kd:        [0.1, 0.1, 0.1, 0.3, 0.05, 0.05] # zero-grav idle damping
+coulomb_friction:    [0.3, 0.3, 0.3, 0.06, 0.06, 0.06] # friction comp [Nm]</code></pre>
+      <p><code>BIG_YAM</code> uses <code>DM6248</code> (±120&nbsp;Nm) at the shoulder and reverses some motors (<code>directions: [-1,-1,1,1,-1,1]</code>).</p>
+
+      <h3 id="gripper-config">Gripper config schema (e.g. <code>config/linear_4310.yml</code>)</h3>
+      <span class="code-label">yaml</span>
+<pre><code>last_joint_mount:            # per-arm wrist mount transform
+  yam:
+    pos:  "2.4e-07 -0.0419 0.0405"
+    quat: "0.5 -0.5 -0.5 -0.5"
+    axis: "0 0 -1"
+motor_type: "DM4310"
+motor_kp: 20.0
+motor_kd: 0.5
+gripper_limits: null         # null = needs calibration
+needs_calibration: true
+limiter:                     # clog detection / force limiting
+  clog_force_threshold: 0.5  # [Nm]
+  clog_speed_threshold: 0.3  # [rad/s]
+  force_torque_map: "linear" # "linear" or "crank"
+  motor_stroke: 6.57         # [rad]
+  gripper_stroke: 0.096      # [m]</code></pre>
+
+      <h3 id="tests">Tests</h3>
+      <p><code>i2rt/robots/tests/</code> verifies: XML assembly (<code>test_assembly</code>), gravity-comp torque ranges (<code>test_gravity_comp</code>, BIG_YAM ≤ 25&nbsp;Nm and others ≤ 20&nbsp;Nm), FK/IK round trips (<code>test_kinematics</code>), simulated loading of every arm/gripper combo (<code>test_robot_variants</code>), and control-interface integration (<code>test_control_interface</code>).</p>
+    </section>
+
+    <!-- ===================== CONTROL UI ===================== -->
+    <section id="control-ui">
+      <h2 id="control-ui-h">Control Interfaces (MuJoCo &amp; Viser)</h2>
+      <p>There are two interactive control UIs. Both mirror robot state in real time, let you drag the end-effector with IK, and check for self-collisions before commanding.</p>
+
+      <h3 id="mujoco-ui">MuJoCo desktop viewer</h3>
+      <p><code>i2rt/utils/mujoco_control_interface.py</code>. It opens the native MuJoCo viewer and toggles two modes with <span class="kbd">SPACE</span>.</p>
+      <ul>
+        <li><strong>VIS mode</strong> (read-only): mirrors the real robot into the simulation. A mocap target follows the end-effector via FK. No commands are sent.</li>
+        <li><strong>CONTROL mode</strong>: move per-joint sliders, or drag the mocap marker, and an IK solution is commanded to the robot. The marker turns red.</li>
+      </ul>
+      <p>The viewer runs on the main thread (a MuJoCo requirement) while control logic runs in a background thread (<code>control_dt</code> defaults to 5&nbsp;ms = 200&nbsp;Hz). Teaching-handle button states show as colored spheres, and joint state / gravity torque / temperatures stream to the terminal as a live table.</p>
+
+      <h3 id="viser-ui">Viser web interface</h3>
+      <p><code>i2rt/utils/viser_control_interface.py</code>. View and control the robot in 3D in a browser. It extracts the MuJoCo meshes into the Viser scene and updates them each frame via FK.</p>
+      <ul>
+        <li><strong>Safety gate</strong>: you must tick "Alignment Confirmed" → the "Enable Robot" button activates before control is possible (prevents accidents).</li>
+        <li>Modes: <strong>VIS (mirror)</strong>, <strong>IK control</strong> (drag a 6-DOF transform frame), and <strong>Joint sliders</strong> (per-joint angles).</li>
+        <li>Also supports a gripper slider (0–1), teaching-handle button display, and <strong>live PD-gain tuning</strong> (<code>update_kp_kd</code>).</li>
+        <li>The control loop runs at 50&nbsp;Hz. On a collision it blocks the command and prints a message.</li>
+      </ul>
+      <p>Run: <code>python examples/control_with_viser/control_with_viser.py --sim</code> (or <code>--channel can0 --port 8080</code>).</p>
+
+      <h3 id="mujoco-kdl">Gravity-comp util (MuJoCoKDL)</h3>
+      <p><code>MuJoCoKDL</code> in <code>i2rt/utils/mujoco_utils.py</code> calls <code>mujoco.mj_inverse()</code> on a model with collisions and joint limits disabled, isolating pure gravity torques. With <code>q̇=0, q̈=0</code> the result is exactly "the torque needed to hold the current pose against gravity."</p>
+    </section>
+
+    <!-- ===================== TELEOP ===================== -->
+    <section id="teleop">
+      <h2 id="teleop-h">Leader-Follower Teleoperation (GELLO style)</h2>
+      <p>The core demo is <code>examples/minimum_gello/minimum_gello.py</code>. A <strong>leader arm</strong> (a human-held teaching handle) drags a <strong>follower arm</strong> across the network, with bilateral force feedback.</p>
+
+      <h3 id="teleop-arch">Server / client structure</h3>
+      <ul>
+        <li><code>ServerRobot</code> — exposes robot methods (<code>get_joint_pos</code>, <code>command_joint_pos</code>, …) as Portal RPC endpoints. Runs on the follower side.</li>
+        <li><code>ClientRobot</code> — a Portal client that connects to the remote follower.</li>
+        <li><code>YAMLeaderRobot</code> — a wrapper around the leader arm + teaching handle (passive encoder / buttons).</li>
+      </ul>
+
+      <h3 id="teleop-run">How to run</h3>
+      <span class="code-label">bash</span>
+<pre><code># Follower arm
+python examples/minimum_gello/minimum_gello.py \
+    --gripper linear_4310 --mode follower --can-channel can0 --bilateral-kp 0.2
+
+# Leader arm (teaching handle)
+python examples/minimum_gello/minimum_gello.py \
+    --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral-kp 0.2</code></pre>
+      <ul>
+        <li><strong>Top button (press once)</strong>: enable synchronization — the follower tracks the leader.</li>
+        <li><strong>Press again</strong>: disable synchronization.</li>
+        <li><code>--bilateral-kp</code>: the resistance felt on the leader (0.1–0.2 recommended).</li>
+      </ul>
+
+      <h3 id="bilateral">How bilateral force feedback works</h3>
+      <p>When sync turns on, the leader's kp is scaled by <code>bilateral_kp</code>. The follower's position error feeds back to the leader as torque (<code>τ = kp·(q_follower − q_leader)</code>), so the human can feel the resistance the follower encounters. At the moment sync starts, the follower is slowly interpolated to the leader's position (<code>slow_move</code>) to avoid a sudden jump.</p>
+
+      <h3 id="bimanual">Bimanual teleoperation</h3>
+      <p><code>examples/bimanual_lead_follower/</code> launches <code>minimum_gello.py</code> as four processes: right-arm leader/follower (port 1234) and left-arm leader/follower (port 1235). It validates that each CAN channel (<code>can_follower_r</code>, <code>can_leader_r</code>, …) exists, polls process health and restarts on failure, and shuts down in stages (terminate → SIGINT → SIGKILL).</p>
+
+      <h3 id="record-replay">Trajectory record &amp; replay</h3>
+      <p><code>examples/record_replay_trajectory/</code> is a curses-based TUI.</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><span class="kbd">r</span></td><td>Toggle recording</td></tr>
+          <tr><td><span class="kbd">p</span></td><td>Start replay</td></tr>
+          <tr><td><span class="kbd">s</span> / <span class="kbd">l</span></td><td>Save / load</td></tr>
+          <tr><td><span class="kbd">q</span></td><td>Quit</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>A trajectory is saved to <code>.npy</code> as a dict: <code>{"trajectory": (N, DOF), "timestamps": (N,), "frequency": f}</code>. On replay it first interpolates to the first waypoint over 1.5&nbsp;s, then calls <code>command_joint_pos</code> in sequence.</p>
+
+      <h3 id="single-motor">Single-motor PD control</h3>
+      <p><code>examples/single_motor_position_pd_control/</code> raises and lowers a single motor's target position with the arrow keys, while showing position, velocity, torque, temperature, and error code live. Handy for motor debugging.</p>
+    </section>
+
+    <!-- ===================== ENCODERS ===================== -->
+    <section id="encoders">
+      <h2 id="encoders-h">Passive Encoders &amp; Teaching Handles</h2>
+      <p>A teaching handle's joint angle and buttons are read from a <strong>passive encoder</strong>. The key trick is that this encoder <strong>shares the same CAN bus as the motors</strong> — no second CAN connection is opened.</p>
+      <ul>
+        <li><code>i2rt/utils/encoder_manager.py</code> — the encoder CAN driver (<code>PassiveJointEncoder</code>). Request/response protocol, zero/frequency config, firmware version &amp; EEPROM, and firmware validation (<code>validate_encoders</code>). CAN IDs: request <code>0x50E</code>, report <code>0x50F</code>, event <code>0x510</code>.</li>
+        <li><code>i2rt/utils/encoder_utils.py</code> — the <code>get_encoder_chain()</code> factory. It takes a <code>DMChainCanInterface</code>'s CAN interface and returns an <code>EncoderChain</code> that polls the encoder on the same bus.</li>
+      </ul>
+      <p>If you pass <code>get_same_bus_device_driver=get_encoder_chain</code> when creating the motor chain, the control thread reads encoder state alongside motor state and exposes it via <code>motor_chain.get_same_bus_device_states()</code>. The returned <code>PassiveEncoderInfo</code> holds position, velocity, and <code>io_inputs</code> (button) bits.</p>
+
+      <span class="code-label">python — quickly read just the encoder (scripts/read_encoder.py)</span>
+<pre><code>can_interface = CanInterface(channel=args.channel)
+encoder_chain = get_encoder_chain(can_interface)
+while True:
+    s = encoder_chain.read_states()[0]
+    print(s.position, s.io_inputs)     # position + buttons
+    time.sleep(0.01)</code></pre>
+
+      <h3 id="gamepad">Gamepad input</h3>
+      <p>The <code>Gamepad</code> class in <code>i2rt/utils/gamepad_utils.py</code> initializes pygame headless (the SDL dummy driver) to read a joystick. From the analog sticks it returns an <code>[x, y, θ]</code> command (with a 0.05 dead zone) and button states. It is used mainly for Flow Base teleoperation.</p>
+    </section>
+
+    <!-- ===================== FLOW BASE ===================== -->
+    <section id="flowbase">
+      <h2 id="flowbase-h">Flow Base — Omnidirectional Mobile Base</h2>
+      <p><code>i2rt/flow_base/</code>. A <strong>4-caster holonomic (omnidirectional) base</strong> inspired by TidyBot++, moving in x, y, and θ independently. A control server runs on a Raspberry Pi, and external machines connect via Portal RPC.</p>
+
+      <h3 id="flowbase-hw">Hardware &amp; frequencies</h3>
+      <ul>
+        <li>4 caster wheel modules = 4 steering motors (<code>DM4310V</code>) + 4 drive motors (<code>DM_FLOW_WHEEL</code>) = 8 motors.</li>
+        <li>An optional 9th motor = the linear-rail lift (<code>DM8009</code>/<code>DM4310</code>).</li>
+        <li>Control loop <strong>200&nbsp;Hz</strong> (FIFO real-time scheduler); policy commands <strong>10&nbsp;Hz</strong>.</li>
+        <li>Ruckig OTG (online trajectory generation) for acceleration-limited smooth motion.</li>
+        <li>Default port <code>11323</code>, static IP <code>172.6.2.20</code>.</li>
+      </ul>
+
+      <h3 id="flowbase-kin">Kinematics &amp; coordinate frames</h3>
+      <p>The <code>Vehicle</code> class maintains the Jacobians (<code>C</code>, <code>C_p</code>, <code>C_pinv</code>) that convert operational-space velocity <code>[dx, dy, dθ]</code> into steering/drive motor velocities. Velocity commands can be given in two frames:</p>
+      <ul>
+        <li><strong>LOCAL</strong>: relative to the robot's current heading (multiplied by the rotation matrix <code>R.T</code>).</li>
+        <li><strong>GLOBAL</strong>: in a fixed world frame (accumulated by odometry).</li>
+      </ul>
+      <p>Velocity/acceleration are bounded by Ruckig (e.g. <code>max_vel = (0.5, 0.5, 1.57)</code>). If commands stall for <code>2.5 × policy period</code>, it holds position; if the steering speed exceeds 720&nbsp;deg/s, it slows down to prevent caster flips.</p>
+
+      <h3 id="flowbase-client">Network client API</h3>
+      <span class="code-label">python</span>
+<pre><code>from i2rt.flow_base.flow_base_client import FlowBaseClient
+
+client = FlowBaseClient(host="172.6.2.20")
+client.set_target_velocity([0.1, 0.0, 0.0], frame="local")  # 0.1 m/s in x
+odom = client.get_odometry()      # {translation [x,y], rotation rad}
+client.reset_odometry()</code></pre>
+      <p><code>FlowBaseClient</code> keeps sending commands at 50&nbsp;Hz from a background thread to maintain a heartbeat. With the linear rail, it uses a 4D command <code>[x, y, θ, rail_vel]</code>.</p>
+
+      <h3 id="flowbase-rail">Linear rail controller</h3>
+      <p><code>linear_rail_controller.py</code> drives the 9th motor's vertical lift together with a GPIO brake and upper/lower limit switches. At startup it <strong>homes</strong> to the lower limit at 50% speed, and protects with a 0.25&nbsp;s command timeout and limit checks. A <code>SingleMotorControlInterface</code> drives only the rail motor while preserving the velocities of the 8 base motors.</p>
+
+      <h3 id="flowbase-demo">Joystick demo</h3>
+      <span class="code-label">bash</span>
+<pre><code>python i2rt/flow_base/flow_base_controller.py</code></pre>
+      <p>Left stick = translation (x/y), right stick X = rotation (θ), right stick Y = rail up/down. A mode button switches between local/global frames; other buttons reset odometry and override API commands (safety).</p>
+      <div class="callout">
+        <div class="callout-title">Odometry caveat</div>
+        <p>Wheel-based odometry accumulates drift. For precise manipulation, pairing with visual SLAM (RealSense T265 / ZED) is recommended.</p>
+      </div>
+    </section>
+
+    <!-- ===================== EXAMPLES ===================== -->
+    <section id="examples">
+      <h2 id="examples-h">Examples</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Example</th><th>What it shows</th><th>Run</th></tr></thead>
+        <tbody>
+          <tr><td><code>minimum_gello</code></td><td>Minimal leader-follower teleop (server/client, bilateral)</td><td><code>--mode follower / leader</code></td></tr>
+          <tr><td><code>bimanual_lead_follower</code></td><td>4-process bimanual teleop orchestration</td><td><code>python …/bimanual_lead_follower.py</code></td></tr>
+          <tr><td><code>record_replay_trajectory</code></td><td>Trajectory record/save/replay TUI</td><td><code>r / p / s / l</code></td></tr>
+          <tr><td><code>single_motor_position_pd_control</code></td><td>Single-motor PD control + telemetry via arrow keys</td><td><code>--motor_id 1 --kp 80</code></td></tr>
+          <tr><td><code>control_with_mujoco</code></td><td>Multi-process MuJoCo viewer + shared-memory IPC + IK</td><td><code>--sim / --channel can0</code></td></tr>
+          <tr><td><code>control_with_viser</code></td><td>Browser 3D visualization + control</td><td><code>--sim --port 8080</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>Each example folder has its own <code>README.md</code> with detailed CLI args and usage. In <code>scripts/</code> you'll find <code>run_yam_leader.py</code> (run the leader standalone), <code>run_gello_with_passive_encoder.py</code> (encoder integration demo), and <code>read_encoder.py</code>.</p>
+    </section>
+
+    <!-- ===================== DEVICES ===================== -->
+    <section id="devices">
+      <h2 id="devices-h">Devices &amp; Hardware Setup</h2>
+      <p><code>devices/</code> auto-configures CAN hardware on Linux / Raspberry Pi.</p>
+      <ul>
+        <li><code>install_devices.sh</code> — copies <code>devices/rules/*.rules</code> into <code>/etc/udev/rules.d/</code>, adds the user to the <code>plugdev</code> and <code>video</code> groups, and reloads udev.</li>
+        <li><code>rules/flow_base.rules</code> — detects the USB-CAN adapter (vendor <code>1d50</code>, product <code>606f</code>, gs_usb/candle), loads the <code>gs_usb</code> driver, and brings the CAN interface up at 1&nbsp;Mbit/s automatically.</li>
+        <li><code>pi_setup.md</code> — how to back up / restore the Raspberry Pi SD card with <code>dd</code> + PiShrink.</li>
+        <li><code>docs/guides/set-persistent-can-ids.md</code> — udev rules that assign stable names (e.g. <code>can_leader_r</code>) from each USB-CAN adapter's serial.</li>
+      </ul>
+    </section>
+
+    <!-- ===================== CHEATSHEET ===================== -->
+    <section id="api-cheatsheet">
+      <h2 id="api-cheatsheet-h">API Cheatsheet</h2>
+      <span class="code-label">python — common calls</span>
+<pre><code>from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import GripperType, ArmType
+import numpy as np
+
+# 1) Create a robot (real or sim)
+robot = get_yam_robot(channel="can0",
+                      arm_type=ArmType.YAM,
+                      gripper_type=GripperType.LINEAR_4310,
+                      zero_gravity_mode=True,
+                      sim=False)
+
+# 2) Read state
+q   = robot.get_joint_pos()           # (DOF,) rad
+obs = robot.get_observations()        # dict: joint_pos/vel/eff, gripper, temp
+st  = robot.get_joint_state()         # {"pos", "vel"}
+
+# 3) Command
+robot.command_joint_pos(np.zeros(6))                         # position (PD)
+robot.command_joint_state({"pos": q, "vel": np.zeros(6)})    # explicit
+robot.enter_gravity_comp_idle()                              # back to safe idle
+
+# 4) Shut down
+robot.close()</code></pre>
+
+      <span class="code-label">python — use the motor chain directly (low level)</span>
+<pre><code>from i2rt.motor_drivers.dm_driver import DMChainCanInterface, ControlMode
+from i2rt.motor_drivers.utils import ReceiveMode
+import numpy as np
+
+chain = DMChainCanInterface(
+    motor_list=[[0x01, "DM4340"], [0x02, "DM4340"]],
+    motor_offset=np.zeros(2), motor_direction=np.ones(2),
+    channel="can0", control_mode=ControlMode.MIT,
+    receive_mode=ReceiveMode.p16,
+)
+chain.set_commands(torques=np.zeros(2), pos=np.zeros(2),
+                   vel=np.zeros(2), kp=np.full(2, 30.0), kd=np.full(2, 1.0))
+states = chain.read_states()</code></pre>
+
+      <span class="code-label">python — Flow Base</span>
+<pre><code>from i2rt.flow_base.flow_base_client import FlowBaseClient
+client = FlowBaseClient(host="172.6.2.20")
+client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
+print(client.get_odometry())</code></pre>
+    </section>
+
+    <!-- ===================== GLOSSARY ===================== -->
+    <section id="glossary">
+      <h2 id="glossary-h">Glossary</h2>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Term</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>DOF</strong></td><td>Degrees of Freedom. A YAM arm is 6 + 1 gripper.</td></tr>
+          <tr><td><strong>MJCF / URDF</strong></td><td>The MuJoCo / general-purpose robot description XML formats.</td></tr>
+          <tr><td><strong>FK / IK</strong></td><td>Forward kinematics (joints→pose) / inverse kinematics (pose→joints).</td></tr>
+          <tr><td><strong>OTG</strong></td><td>Online Trajectory Generation. Ruckig produces acceleration-limited smooth trajectories.</td></tr>
+          <tr><td><strong>holonomic</strong></td><td>An omnidirectional drive that can move instantly in any direction.</td></tr>
+          <tr><td><strong>bilateral</strong></td><td>Two-way force-feedback teleoperation between leader and follower.</td></tr>
+          <tr><td><strong>mocap</strong></td><td>A MuJoCo motion-capture body, used as a draggable marker for the IK target pose.</td></tr>
+          <tr><td><strong>GELLO</strong></td><td>A teleoperation approach that collects demonstrations with a low-cost leader arm (the design inspiration).</td></tr>
+          <tr><td><strong>SocketCAN</strong></td><td>The Linux kernel CAN interface (<code>can0</code>, …).</td></tr>
+          <tr><td><strong>EEPROM</strong></td><td>A motor's non-volatile config store (ID, timeout, gear ratio).</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="ack">Acknowledgments</h3>
+      <ul>
+        <li><a href="https://github.com/jimmyyhwu/tidybot2" target="_blank">TidyBot++</a> — inspiration for the Flow Base hardware and control.</li>
+        <li><a href="https://github.com/wuphilipp/gello_software" target="_blank">GELLO</a> — inspiration for the teleoperation design.</li>
+      </ul>
+
+      <h3 id="support">Support &amp; License</h3>
+      <p>Email <a href="mailto:support@i2rt.com">support@i2rt.com</a> · Sales <a href="mailto:sales@i2rt.com">sales@i2rt.com</a> · License <strong>MIT</strong>.</p>
+
+      <footer class="docfoot">
+        <span>I2RT Robotics Python API — codebase documentation, written from a source analysis.</span>
+        <span>Made for newcomers · <a href="https://i2rt.com/" target="_blank">i2rt.com</a></span>
+      </footer>
+    </section>
+
+    </main>
+  </div>
+
+  <!-- ============ RIGHT TOC ============ -->
+  <aside class="toc">
+    <div class="toc-title">On this page</div>
+    <nav id="toc-list"></nav>
+  </aside>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
