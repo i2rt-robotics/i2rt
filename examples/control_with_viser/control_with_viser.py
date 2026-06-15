@@ -22,7 +22,7 @@ from i2rt.robots.utils import ArmType, GripperType
 from i2rt.utils.viser_control_interface import ViserControlInterface
 
 if __name__ == "__main__":
-    arm_choices = [a.value for a in ArmType]
+    arm_choices = [a.value for a in ArmType if a != ArmType.NO_ARM]
     gripper_choices = [g.value for g in GripperType]
 
     parser = argparse.ArgumentParser(description="Viser control interface for i2rt robots")

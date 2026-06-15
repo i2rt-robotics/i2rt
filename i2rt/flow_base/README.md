@@ -71,7 +71,7 @@ The exposed RJ45 network interface is preconfigured with static IP `172.6.2.20`.
 - The base has motion control limits with maximum acceleration constraints
 - When you release the joystick (sending 0 command), the base won't stop immediately due to physics
 - Always ensure the remote is awake when running API experiments - Left2 can override unexpected code behavior
-- Speed and acceleration settings can be adjusted in [flow_base_controller](flow_base_controller.py#L500-L501)
+- Speed and acceleration settings can be adjusted in [flow_base_controller](flow_base_controller.py#L742-L743)
 
 ⚠️ **Warning**: Setting overly aggressive speed or acceleration parameters can cause system instability.
 
