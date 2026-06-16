@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# Convenience launcher for the workstation-side data tools (recorder / replay).
+#
+# Activates the LeRobot venv and sources ROS 2, then runs a tool, forwarding args:
+#
+#   workstation/yam-data record [args]   # GUI recorder (teleop-gated LeRobot capture)
+#   workstation/yam-data replay [args]   # GUI replay (drive the robot from a dataset)
+#   workstation/yam-data cams            # list connected RealSense serials
+#
+# Override locations with env vars:
+#   LEROBOT_ENV=~/lerobot_env  ROS_SETUP=/opt/ros/humble/setup.bash
+#
+# Examples:
+#   workstation/yam-data record --repo-id user/pick --task "pick the cube" --serials A,B,C
+#   workstation/yam-data replay --repo-id user/pick --root ~/lerobot_data
+#   workstation/yam-data record --mock          # no hardware/ROS/lerobot
+#
+# Note: no `set -u` — ROS 2's setup.bash references unset vars while sourcing.
+set -eo pipefail
+
+ENV_PATH="${LEROBOT_ENV:-$HOME/lerobot_env}"
+ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
+# shellcheck disable=SC1091
+[ -f "$ENV_PATH/bin/activate" ] && source "$ENV_PATH/bin/activate"
+# shellcheck disable=SC1091
+[ -f "$ROS_SETUP" ] && source "$ROS_SETUP"
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO"
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+    record) exec python -m workstation.lerobot_recorder "$@" ;;
+    replay) exec python -m workstation.lerobot_recorder.replay_main "$@" ;;
+    cams)   exec python -m workstation.lerobot_recorder.cameras --list ;;
+    *)
+        echo "usage: yam-data {record|replay|cams} [args]" >&2
+        exit 2
+        ;;
+esac

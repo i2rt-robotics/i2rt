@@ -78,3 +78,6 @@ class RecorderConfig:
     cameras: List[CameraSpec] = field(default_factory=default_cameras)
     topics: TopicConfig = field(default_factory=TopicConfig)
     mock: bool = False  # synthetic cameras + teleop stream (no hardware / ROS)
+    review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
+    review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback
+    review_downscale: int = 4  # spatial stride for the review preview (640x480 -> 160x120)

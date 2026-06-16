@@ -944,6 +944,20 @@ python -m i2rt.ros2.run_dagger --bilateral-kp 0.15     # real hardware</code></p
         <p>All three components were exercised with <code>--sim</code>: state publishing, joint commands, the full policy→intervention→release cycle, the 6-DOF-leader → 7-DOF-follower mapping, and the rate limiter. Bilateral force-feel and teaching-handle buttons require real hardware (in sim they degrade gracefully).</p>
       </div>
       <p>Full details and the workstation-side recipe are in <code>i2rt/ros2/README.md</code>.</p>
+
+      <h3 id="ros2-lerobot">Data collection &amp; replay (LeRobot)</h3>
+      <p>A separate workstation app (<code>workstation/lerobot_recorder/</code>, its own env) records <strong>LeRobot v3.0</strong> datasets from this same teleop graph. It subscribes remotely to <code>/&lt;arm&gt;/follower/joint_states</code>, <code>/&lt;arm&gt;/applied_action</code>, and <code>/teleop/state</code>, reads three RealSense cameras (2× D405 wrist + 1× D455 agentview) locally, and is <strong>gated by the teleop signal</strong>: an episode auto-records the moment teleop is ENGAGED and auto-ends when homing returns to IDLE (the return is included). Each episode is held for a <strong>review → Keep / Delete</strong> decision before it is committed. A companion <strong>replay</strong> GUI plays a recorded episode back onto the robot by publishing <code>/&lt;arm&gt;/command</code> to the wrapper (ramping to the first frame to avoid a jump).</p>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Record</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>observation.state</code></td><td>(42,) — both arms × [pos, vel, eff]</td></tr>
+          <tr><td><code>action</code></td><td>(14,) — both arms × <code>applied_action</code> (reproducible)</td></tr>
+          <tr><td>images</td><td><code>wrist_left</code>, <code>wrist_right</code>, <code>agentview</code> @ 60 fps</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>Launchers: <code>workstation/yam-data record</code> / <code>replay</code> / <code>cams</code>. Full cross-machine runbook in <code>workstation/lerobot_recorder/README.md</code>.</p>
     </section>
 
     <!-- ===================== EXAMPLES ===================== -->

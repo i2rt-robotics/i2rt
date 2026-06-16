@@ -1,9 +1,12 @@
-"""Thin wrapper over ``LeRobotDataset`` for recording bimanual YAM episodes.
+"""Thin wrapper over ``LeRobotDataset`` (v3.0) for recording bimanual YAM episodes.
 
-Builds the feature schema (3 camera images + 42-d state + 14-d action), then
-buffers frames per episode and saves on demand. The LeRobot API has shifted
-across releases, so the few version-sensitive calls are isolated here with
-fallbacks; adjust them in one place if your ``lerobot`` differs.
+Targets the official LeRobot Dataset **v3.0** API (``lerobot >= 0.4.0``):
+
+* ``LeRobotDataset.create(repo_id, fps, features, root=..., robot_type=..., use_videos=...)``
+* ``add_frame(frame)``  — the per-frame ``task`` is a **key inside the frame dict**
+* ``save_episode()``    — commits the buffered episode
+* ``clear_episode_buffer(delete_images=True)`` — discards an unsaved episode (used by review/delete)
+* ``finalize()``        — **must** be called when done so parquet writers/footers close
 
 ``mock=True`` skips ``lerobot`` entirely and just counts frames/episodes.
 """
@@ -19,11 +22,11 @@ from workstation.lerobot_recorder.config import ACTION_DIM, STATE_DIM, RecorderC
 
 
 def _import_lerobot_dataset() -> type:
-    """Import LeRobotDataset across known module paths."""
+    """Import LeRobotDataset (v3.0 layout, with a fallback for older trees)."""
     try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset  # newer layout
+        from lerobot.datasets import LeRobotDataset  # lerobot >= 0.4.0 (v3.0)
     except ImportError:
-        from lerobot.common.datasets.lerobot_dataset import LeRobotDataset  # older layout
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
     return LeRobotDataset
 
 
@@ -37,6 +40,7 @@ class DatasetWriter:
         self._n_frames_episode = 0
         self._n_episodes = 0
         self._n_frames_total = 0
+        self._finalized = False
 
     # ------------------------------------------------------------------ schema
     def _features(self) -> dict:
@@ -62,12 +66,12 @@ class DatasetWriter:
         self._ds = LeRobotDataset.create(
             repo_id=self.cfg.repo_id,
             fps=self.cfg.fps,
+            features=self._features(),
             root=root,
             robot_type=self.cfg.robot_type,
-            features=self._features(),
             use_videos=self.cfg.use_videos,
         )
-        print(f"[dataset] created at {root} (repo_id={self.cfg.repo_id})")
+        print(f"[dataset] created v3.0 dataset at {root} (repo_id={self.cfg.repo_id})")
 
     def add_frame(self, images: Dict[str, np.ndarray], state: np.ndarray, action: np.ndarray, task: str) -> None:
         self._n_frames_episode += 1
@@ -77,11 +81,8 @@ class DatasetWriter:
         frame: dict = {f"observation.images.{k}": images[k] for k in self.image_keys}
         frame["observation.state"] = np.asarray(state, dtype=np.float32)
         frame["action"] = np.asarray(action, dtype=np.float32)
-        try:
-            self._ds.add_frame(frame, task=task)  # newer API
-        except TypeError:
-            frame["task"] = task  # older API expects task in the frame
-            self._ds.add_frame(frame)
+        frame["task"] = task  # v3.0: task is a key in the frame dict
+        self._ds.add_frame(frame)
 
     def save_episode(self) -> None:
         if not self._mock:
@@ -91,15 +92,29 @@ class DatasetWriter:
         self._n_frames_episode = 0
 
     def abort_episode(self) -> None:
-        """Discard the in-progress (unsaved) episode buffer."""
+        """Discard the in-progress (unsaved) episode buffer (review 'Delete' / aborts)."""
         if not self._mock and self._ds is not None and hasattr(self._ds, "clear_episode_buffer"):
             try:
+                self._ds.clear_episode_buffer(delete_images=True)
+            except TypeError:
                 self._ds.clear_episode_buffer()
             except Exception:
                 pass
         if self._n_frames_episode:
-            print(f"[dataset] aborted episode ({self._n_frames_episode} frames discarded)")
+            print(f"[dataset] discarded episode ({self._n_frames_episode} frames)")
         self._n_frames_episode = 0
+
+    def finalize(self) -> None:
+        """Close parquet writers / metadata footers (required by v3.0 before reuse)."""
+        if self._finalized:
+            return
+        self._finalized = True
+        if not self._mock and self._ds is not None and self._n_episodes > 0:
+            try:
+                self._ds.finalize()
+                print("[dataset] finalized (parquet/metadata closed)")
+            except Exception as e:
+                print(f"[dataset] finalize failed: {e}")
 
     # ------------------------------------------------------------------ stats
     @property

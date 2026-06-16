@@ -1,16 +1,19 @@
-# LeRobot recorder — workstation env (SEPARATE from the YAM/i2rt env).
+# LeRobot recorder/replay — workstation env (SEPARATE from the YAM/i2rt env).
 #
 # rclpy is NOT pip-installed: it comes from your ROS 2 install
 #   source /opt/ros/<distro>/setup.bash
 # Use the SAME ROS 2 distro as the robot machine so DDS discovery matches, and
 # set a matching ROS_DOMAIN_ID on both machines.
 #
-# Suggested:
-#   python -m venv ~/lerobot_env --system-site-packages   # see ROS rclpy
+# System packages (apt) needed for LeRobot v3.0 video encoding:
+#   sudo apt install -y ffmpeg
+#
+# Setup:
+#   python -m venv ~/lerobot_env --system-site-packages   # so rclpy (ROS) is visible
 #   source ~/lerobot_env/bin/activate && source /opt/ros/<distro>/setup.bash
 #   pip install -r requirements.txt
 
-lerobot
-pyrealsense2
-PyQt5
+lerobot>=0.4.0      # LeRobotDataset v3.0 API (create/add_frame/save_episode/finalize)
+pyrealsense2        # RealSense D405 / D455 cameras
+PyQt5               # GUI
 numpy
