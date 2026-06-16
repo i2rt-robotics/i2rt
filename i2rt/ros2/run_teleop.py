@@ -51,10 +51,10 @@ from i2rt.ros2.safety import TargetSmoother, is_finite_vector, max_step_from_spe
 from i2rt.ros2.teleop_common import (
     ArmPair,
     TeleopStateMachine,
-    arm_distance,
     build_bimanual,
     build_follower_target,
     default_bimanual_specs,
+    gate_distance,
     read_handle,
 )
 
@@ -67,7 +67,10 @@ class TeleopNode(Node):
         self.bilateral_kp = args.bilateral_kp
         self.home_kp = args.home_kp
         self.pairs = build_bimanual(default_bimanual_specs(args.sim), sim=args.sim)
-        max_step = max_step_from_speed(args.max_joint_speed, args.rate)
+        # decoupled ramp speeds: fast when tracking the leader, slow/smooth when homing
+        self._track_step = max_step_from_speed(args.track_speed, args.rate)
+        self._home_step = max_step_from_speed(args.home_speed, args.rate)
+        self._gate_joints = [int(x) for x in args.gate_joints.split(",") if x.strip() != ""] if args.gate_joints else []
 
         # home pose: arm joints (+ optional gripper), shared by both arms
         first = next(iter(self.pairs.values())).follower
@@ -85,8 +88,8 @@ class TeleopNode(Node):
             ln, lg = conv.joint_names(pair.leader)
             fn, fg = conv.joint_names(pair.follower)
             self._names[side] = (ln, lg, fn, fg)
-            self._fsmooth[side] = TargetSmoother(pair.follower.get_joint_pos(), max_step)
-            self._lsmooth[side] = TargetSmoother(np.asarray(pair.leader.get_joint_pos())[:n_arm], max_step)
+            self._fsmooth[side] = TargetSmoother(pair.follower.get_joint_pos(), self._home_step)
+            self._lsmooth[side] = TargetSmoother(np.asarray(pair.leader.get_joint_pos())[:n_arm], self._home_step)
             self._pub[side] = {
                 "leader": self.create_publisher(JointState, f"{side}/leader/joint_states", 10),
                 "follower": self.create_publisher(JointState, f"{side}/follower/joint_states", 10),
@@ -98,9 +101,11 @@ class TeleopNode(Node):
         self.create_subscription(Bool, "/teleop/sim_engage", self._on_sim_engage, 10)
 
         self.create_timer(1.0 / max(args.rate, 1.0), self._loop)
+        gate_desc = f"joints{self._gate_joints}" if self._gate_joints else "L2(all)"
         self.get_logger().info(
             f"TeleopNode up: sides={list(self.pairs)} home_arm={np.round(self.home_arm, 2).tolist()} "
-            f"engage>{args.engage_thr} release<{args.release_thr} bilateral_kp={args.bilateral_kp} sim={args.sim}"
+            f"gate={gate_desc} engage>{args.engage_thr} release<{args.release_thr} "
+            f"track={args.track_speed} home_speed={args.home_speed} rad/s bilateral_kp={args.bilateral_kp} sim={args.sim}"
         )
 
     @staticmethod
@@ -141,7 +146,7 @@ class TeleopNode(Node):
                 self.get_logger().warn(f"[{side}] handle read failed: {e}")
                 a, g, b = np.asarray(pair.leader.get_joint_pos(), dtype=float), None, []
             arm_q[side], grip[side], buttons[side] = a, g, b
-            dists.append(arm_distance(a, self.home_arm))
+            dists.append(gate_distance(a, self.home_arm, self._gate_joints))
 
         # 2) global state machine (debug override forces ENGAGED in sim)
         state = self.sm.update(dists, self._homing_done(), self._now())
@@ -155,6 +160,7 @@ class TeleopNode(Node):
             fsm, lsm = self._fsmooth[side], self._lsmooth[side]
             try:
                 if state == TeleopStateMachine.ENGAGED:
+                    fsm.max_step = self._track_step  # responsive follower tracking
                     desired = build_follower_target(pair.follower, arm_q[side], grip[side])
                     if not is_finite_vector(desired, n):
                         desired = fsm.cur
@@ -165,9 +171,11 @@ class TeleopNode(Node):
                         self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
                 elif state == TeleopStateMachine.HOMING:
+                    fsm.max_step = self._home_step  # slow, smooth return
                     applied = fsm.step(self.home_full)
                     self._home_leader(pair, lsm.step(self.home_arm))
                 else:  # IDLE
+                    fsm.max_step = self._home_step
                     applied = fsm.step(self.home_full)
                     self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
@@ -246,7 +254,14 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--home-kp", type=float, default=0.3, help="leader stiffness scale while homing")
     p.add_argument("--bilateral-kp", type=float, default=0.0, help="leader back-drive stiffness while engaged")
     p.add_argument("--rate", type=float, default=120.0)
-    p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s cap on follower target ramp (smoothness/safety)")
+    p.add_argument("--track-speed", type=float, default=5.0, help="rad/s cap while ENGAGED (follower tracks leader; higher = snappier)")
+    p.add_argument("--home-speed", type=float, default=0.8, help="rad/s cap while homing/idle (lower = smoother, slower return)")
+    p.add_argument(
+        "--gate-joints",
+        default="",
+        help="comma-separated leader arm-joint indices for the engage/release gate "
+        "(e.g. '1' = gate on the 2nd joint only). Empty = L2 over all joints.",
+    )
     args = p.parse_args(argv)
 
     rclpy.init()

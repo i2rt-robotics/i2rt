@@ -223,13 +223,28 @@ python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real ha
 
 So you just **lift both gellos to start** teleop, and **bring both back to home to
 stop** (the robot and gellos then return home on their own). Hysteresis
-(`engage-thr > release-thr`) prevents chattering. Distance uses the leader *arm*
-joints vs the home arm joints (gripper ignored for gating).
+(`engage-thr > release-thr`) prevents chattering.
 
-- `--home` — comma-separated home arm joints (default zeros); a 7th value sets the home gripper.
-- `--engage-thr` / `--release-thr` / `--dwell` — gate thresholds (rad / rad / s).
-- `--bilateral-kp` — leader back-drive stiffness while engaged (0.1–0.2 ⇒ force feel).
-- `--home-kp` — gentle leader stiffness used only while homing.
+The gate distance (leader vs home) can be **per-joint** for a more intuitive
+trigger: `--gate-joints 1` gates on the **2nd joint** alone (max displacement of
+the listed joints); empty = L2 over all arm joints. The gripper is ignored.
+
+**Two kinds of arguments — don't confuse them:**
+
+| Arg | Unit | What it controls |
+|-----|------|------------------|
+| `--track-speed` | rad/s | how fast the **follower** ramps toward the leader **while ENGAGED** — *raise it if the follower lags the leader* (default 5.0) |
+| `--home-speed`  | rad/s | how fast the ramp moves **while homing/idle** — *lower it for a slower, smoother return* (default 0.8) |
+| `--engage-thr` / `--release-thr` | rad | how far a leader must move from / return to home to engage / disengage (default 0.6 / 0.3) |
+| `--dwell` | s | release must hold this long before homing (default 0.5) |
+| `--home-kp` | gain scale | **leader stiffness** while homing — a torque/PD gain (not a speed) that pulls the *leader* (gello) back to home so the human feels it return (default 0.3) |
+| `--bilateral-kp` | gain scale | **leader stiffness** while engaged — back-drives the *leader* so the human feels the follower's contact forces (0 = free; 0.1–0.2 = light feel) |
+| `--home` | rad | the home pose arm joints (default zeros) |
+
+> **speed** = how fast the *follower target ramps* (a velocity cap on the rate
+> limiter). **kp** = a *stiffness/gain* applied to the *leader* (the gello the
+> human holds), nothing to do with ramp speed. The follower always tracks with
+> its own configured kp from `yam.yml` — that is never scaled here.
 
 ### Reproducible logging
 

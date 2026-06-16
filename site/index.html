@@ -977,7 +977,8 @@ python -m i2rt.ros2.run_wrapper \
         </tbody>
       </table>
       </div>
-      <p>So you <strong>lift both gellos to start</strong> and <strong>bring them home to stop</strong> — no button. Crucially, the <strong>exact rate-limited target sent to the robot</strong> is published on <code>&lt;s&gt;/applied_action</code>, so an external node can log it and reproduce the episode precisely (the gating distance uses the leader arm joints vs home; gripper is ignored).</p>
+      <p>So you <strong>lift both gellos to start</strong> and <strong>bring them home to stop</strong> — no button. Crucially, the <strong>exact rate-limited target sent to the robot</strong> is published on <code>&lt;s&gt;/applied_action</code>, so an external node can log it and reproduce the episode precisely.</p>
+      <p>Tunables: <code>--gate-joints 1</code> makes the gate trigger on a single joint (the 2nd) instead of the all-joint L2 distance; <code>--track-speed</code> (default 5.0 rad/s) sets how fast the follower tracks the leader while engaged (raise if it lags), and <code>--home-speed</code> (default 0.8) sets the slower, smoother homing return. The <code>kp</code> args (<code>--bilateral-kp</code>, <code>--home-kp</code>) are leader <em>stiffness</em> gains — unrelated to ramp speed.</p>
       <span class="code-label">bash</span>
 <pre><code>python -m i2rt.ros2.run_teleop --sim
 python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real hardware</code></pre>
@@ -1021,7 +1022,7 @@ python -m i2rt.ros2.run_dagger --bilateral-kp 0.15     # real hardware</code></p
       <p>Three properties keep the interactive modes safe:</p>
       <ul>
         <li><strong>Gravity compensation is always on.</strong> It is added inside <code>MotorChainRobot</code>'s control loop every tick, independent of mode — so during a takeover the leader is freely back-drivable, and on release the policy resumes against the same compensation.</li>
-        <li><strong>Rate-limited targets.</strong> Every follower command passes through a per-joint rate limiter (<code>TargetSmoother</code>, default <code>--max-joint-speed 1.5</code> rad/s). Switching between policy and human, a stale→fresh policy action, or engaging sync from a divergent pose all <em>ramp smoothly</em> instead of snapping — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>.</li>
+        <li><strong>Rate-limited targets.</strong> Every follower command passes through a per-joint rate limiter (<code>TargetSmoother</code>). Teleop decouples the cap by phase — <code>--track-speed</code> (fast, default 5.0 rad/s) while ENGAGED so the follower keeps up with the leader, and <code>--home-speed</code> (slow/smooth, default 0.8 rad/s) for the homing return; DAgger uses a single <code>--max-joint-speed</code> (1.5). Any transition <em>ramps smoothly</em> instead of snapping — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>.</li>
         <li><strong>Fail-safe holds.</strong> A missing/invalid leader reading, or a not-yet-arrived policy action, holds position rather than commanding garbage. The motor 400&nbsp;ms watchdog remains the hardware backstop.</li>
       </ul>
       <div class="callout tip">

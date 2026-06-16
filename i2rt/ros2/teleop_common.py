@@ -185,13 +185,21 @@ class TeleopStateMachine:
         return self.state
 
 
-def arm_distance(arm_q: np.ndarray, home_arm: np.ndarray) -> float:
-    """L2 distance between a leader's arm joints and the home arm joints."""
+def gate_distance(arm_q: np.ndarray, home_arm: np.ndarray, joints: Optional[List[int]] = None) -> float:
+    """Distance of a leader's arm from home used for the engage/release gate.
+
+    * ``joints`` empty/None → L2 norm over all arm joints (default).
+    * ``joints`` given      → max absolute displacement over just those joints
+      (e.g. ``[1]`` gates on the 2nd joint only — more intuitive than summing all).
+    """
     a = np.asarray(arm_q, dtype=float).reshape(-1)
     h = np.asarray(home_arm, dtype=float).reshape(-1)
     n = min(a.size, h.size)
     if n == 0:
         return 0.0
+    if joints:
+        diffs = [abs(float(a[j] - h[j])) for j in joints if 0 <= j < n]
+        return max(diffs) if diffs else 0.0
     return float(np.linalg.norm(a[:n] - h[:n]))
 
 
