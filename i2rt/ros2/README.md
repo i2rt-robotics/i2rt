@@ -229,22 +229,39 @@ The gate distance (leader vs home) can be **per-joint** for a more intuitive
 trigger: `--gate-joints 1` gates on the **2nd joint** alone (max displacement of
 the listed joints); empty = L2 over all arm joints. The gripper is ignored.
 
+**Steady tracking is direct.** While ENGAGED the follower is commanded straight
+to the leader pose (`command_joint_pos`) and tracked by its **own PD gains** —
+exactly like the original `minimum_gello` (there is no rate limit on tracking, so
+it does not lag). Only the *one-time engage approach* and the *homing return* are
+ramped, by `--ramp-speed`.
+
 **Two kinds of arguments — don't confuse them:**
 
 | Arg | Unit | What it controls |
 |-----|------|------------------|
-| `--track-speed` | rad/s | how fast the **follower** ramps toward the leader **while ENGAGED** — *raise it if the follower lags the leader* (default 5.0) |
-| `--home-speed`  | rad/s | how fast the ramp moves **while homing/idle** — *lower it for a slower, smoother return* (default 0.8) |
+| `--ramp-speed` | rad/s | speed of the **one-time engage approach + homing return** only — *lower = smoother/slower return* (default 0.8). Does **not** affect steady tracking. |
 | `--engage-thr` / `--release-thr` | rad | how far a leader must move from / return to home to engage / disengage (default 0.6 / 0.3) |
+| `--gate-joints` | indices | gate on specific joint(s), e.g. `1` = 2nd joint only; empty = L2 over all |
 | `--dwell` | s | release must hold this long before homing (default 0.5) |
-| `--home-kp` | gain scale | **leader stiffness** while homing — a torque/PD gain (not a speed) that pulls the *leader* (gello) back to home so the human feels it return (default 0.3) |
-| `--bilateral-kp` | gain scale | **leader stiffness** while engaged — back-drives the *leader* so the human feels the follower's contact forces (0 = free; 0.1–0.2 = light feel) |
+| `--home-kp` | gain | **leader stiffness** while homing — pulls the *leader* (gello) back to home (default 0.3) |
+| `--bilateral-kp` | gain | **leader stiffness** while engaged — back-drives the *leader* for force feel (0 = free; 0.1–0.2 = light) |
 | `--home` | rad | the home pose arm joints (default zeros) |
 
-> **speed** = how fast the *follower target ramps* (a velocity cap on the rate
-> limiter). **kp** = a *stiffness/gain* applied to the *leader* (the gello the
-> human holds), nothing to do with ramp speed. The follower always tracks with
-> its own configured kp from `yam.yml` — that is never scaled here.
+> **speed** = how fast a *transition ramp* moves (engage approach / homing).
+> **kp** = a *stiffness gain* on the *leader* (the gello the human holds) — nothing
+> to do with ramp speed or follower tracking.
+
+### Global follow gain — same in teleop, DAgger, and replay
+
+The **follower's tracking gains** (kp/kd) are the single most important thing to
+keep identical across collection and replay. They live in one place,
+[`i2rt/ros2/control_config.py`](control_config.py): by default they are the arm's
+`yam.yml` gains (already global), and `apply_follower_gains()` is called wherever a
+follower is built — `run_teleop`, `run_dagger`, and the `run_wrapper` used by
+replay — so all three behave the same. To change them globally, set
+`FOLLOWER_KP` / `FOLLOWER_KD` there (scalar or per-joint); leave `None` to keep
+`yam.yml`. The gate/ramp defaults (`ENGAGE_THR`, `RAMP_SPEED`, `GATE_JOINTS`, …)
+live there too, so teleop and DAgger share one source of truth.
 
 ### Reproducible logging
 

@@ -67,10 +67,13 @@ class TeleopNode(Node):
         self.bilateral_kp = args.bilateral_kp
         self.home_kp = args.home_kp
         self.pairs = build_bimanual(default_bimanual_specs(args.sim), sim=args.sim)
-        # decoupled ramp speeds: fast when tracking the leader, slow/smooth when homing
-        self._track_step = max_step_from_speed(args.track_speed, args.rate)
-        self._home_step = max_step_from_speed(args.home_speed, args.rate)
+        # steady ENGAGED tracking is DIRECT (uses the follower's global PD gains,
+        # like the original minimum_gello). ramp_step only shapes the one-time
+        # engage approach and the homing return.
+        self._ramp_step = max_step_from_speed(args.ramp_speed, args.rate)
         self._gate_joints = [int(x) for x in args.gate_joints.split(",") if x.strip() != ""] if args.gate_joints else []
+        self._caught_up = {s: False for s in self.pairs}
+        self._prev_state = TeleopStateMachine.HOMING
 
         # home pose: arm joints (+ optional gripper), shared by both arms
         first = next(iter(self.pairs.values())).follower
@@ -88,8 +91,8 @@ class TeleopNode(Node):
             ln, lg = conv.joint_names(pair.leader)
             fn, fg = conv.joint_names(pair.follower)
             self._names[side] = (ln, lg, fn, fg)
-            self._fsmooth[side] = TargetSmoother(pair.follower.get_joint_pos(), self._home_step)
-            self._lsmooth[side] = TargetSmoother(np.asarray(pair.leader.get_joint_pos())[:n_arm], self._home_step)
+            self._fsmooth[side] = TargetSmoother(pair.follower.get_joint_pos(), self._ramp_step)
+            self._lsmooth[side] = TargetSmoother(np.asarray(pair.leader.get_joint_pos())[:n_arm], self._ramp_step)
             self._pub[side] = {
                 "leader": self.create_publisher(JointState, f"{side}/leader/joint_states", 10),
                 "follower": self.create_publisher(JointState, f"{side}/follower/joint_states", 10),
@@ -105,7 +108,8 @@ class TeleopNode(Node):
         self.get_logger().info(
             f"TeleopNode up: sides={list(self.pairs)} home_arm={np.round(self.home_arm, 2).tolist()} "
             f"gate={gate_desc} engage>{args.engage_thr} release<{args.release_thr} "
-            f"track={args.track_speed} home_speed={args.home_speed} rad/s bilateral_kp={args.bilateral_kp} sim={args.sim}"
+            f"ramp_speed={args.ramp_speed} rad/s (steady tracking = direct/global gains) "
+            f"bilateral_kp={args.bilateral_kp} sim={args.sim}"
         )
 
     @staticmethod
@@ -152,6 +156,10 @@ class TeleopNode(Node):
         state = self.sm.update(dists, self._homing_done(), self._now())
         if self._sim_engage:
             state = TeleopStateMachine.ENGAGED
+        if state == TeleopStateMachine.ENGAGED and self._prev_state != TeleopStateMachine.ENGAGED:
+            for s in self.pairs:  # entering ENGAGED: start the one-time approach ramp
+                self._caught_up[s] = False
+                self._fsmooth[s].reset(self.pairs[s].follower.get_joint_pos())
 
         # 3) act + publish per arm
         for side, pair in self.pairs.items():
@@ -160,22 +168,28 @@ class TeleopNode(Node):
             fsm, lsm = self._fsmooth[side], self._lsmooth[side]
             try:
                 if state == TeleopStateMachine.ENGAGED:
-                    fsm.max_step = self._track_step  # responsive follower tracking
                     desired = build_follower_target(pair.follower, arm_q[side], grip[side])
                     if not is_finite_vector(desired, n):
                         desired = fsm.cur
-                    applied = fsm.step(desired)
+                    if self._caught_up[side]:
+                        applied = desired  # DIRECT tracking — follower PD (global gains) does the work
+                        fsm.reset(applied)  # keep the smoother synced for the eventual homing ramp
+                    else:
+                        fsm.max_step = self._ramp_step  # one-time smooth approach on engage
+                        applied = fsm.step(desired)
+                        if float(np.max(np.abs(fsm.cur - desired))) < _HOME_TOL:
+                            self._caught_up[side] = True
                     if self.bilateral_kp > 0.0:
                         self._drive_leader(pair, np.asarray(pair.follower.get_joint_pos())[: pair.leader.num_dofs()])
                     else:
                         self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
                 elif state == TeleopStateMachine.HOMING:
-                    fsm.max_step = self._home_step  # slow, smooth return
+                    fsm.max_step = self._ramp_step  # slow, smooth return
                     applied = fsm.step(self.home_full)
                     self._home_leader(pair, lsm.step(self.home_arm))
                 else:  # IDLE
-                    fsm.max_step = self._home_step
+                    fsm.max_step = self._ramp_step
                     applied = fsm.step(self.home_full)
                     self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
@@ -187,6 +201,7 @@ class TeleopNode(Node):
 
         self.state_pub.publish(String(data=state))
         self.active_pub.publish(Bool(data=state == TeleopStateMachine.ENGAGED))
+        self._prev_state = state
 
     # ------------------------------------------------------------------ leader modes
     def _home_leader(self, pair: ArmPair, target_arm: np.ndarray) -> None:
@@ -245,20 +260,27 @@ class TeleopNode(Node):
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    from i2rt.ros2 import control_config as cc
+
     p = argparse.ArgumentParser(description="Bimanual teleop with auto home/engage gate")
     p.add_argument("--sim", action="store_true")
     p.add_argument("--home", default="", help="comma-separated home arm joints (default: zeros)")
-    p.add_argument("--engage-thr", type=float, default=0.6, help="rad; both leaders past this from home → ENGAGE")
-    p.add_argument("--release-thr", type=float, default=0.3, help="rad; both leaders within this of home → home")
-    p.add_argument("--dwell", type=float, default=0.5, help="s; release must hold this long before homing")
-    p.add_argument("--home-kp", type=float, default=0.3, help="leader stiffness scale while homing")
-    p.add_argument("--bilateral-kp", type=float, default=0.0, help="leader back-drive stiffness while engaged")
+    p.add_argument("--engage-thr", type=float, default=cc.ENGAGE_THR, help="rad; both leaders past this from home → ENGAGE")
+    p.add_argument("--release-thr", type=float, default=cc.RELEASE_THR, help="rad; both leaders within this of home → home")
+    p.add_argument("--dwell", type=float, default=cc.DWELL_S, help="s; release must hold this long before homing")
+    p.add_argument("--home-kp", type=float, default=cc.HOME_KP, help="leader stiffness scale while homing")
+    p.add_argument("--bilateral-kp", type=float, default=cc.BILATERAL_KP, help="leader back-drive stiffness while engaged")
     p.add_argument("--rate", type=float, default=120.0)
-    p.add_argument("--track-speed", type=float, default=5.0, help="rad/s cap while ENGAGED (follower tracks leader; higher = snappier)")
-    p.add_argument("--home-speed", type=float, default=0.8, help="rad/s cap while homing/idle (lower = smoother, slower return)")
+    p.add_argument(
+        "--ramp-speed",
+        type=float,
+        default=cc.RAMP_SPEED,
+        help="rad/s cap for the one-time engage approach + homing return "
+        "(steady ENGAGED tracking is DIRECT via the follower's global PD gains, not capped)",
+    )
     p.add_argument(
         "--gate-joints",
-        default="",
+        default=",".join(str(j) for j in cc.GATE_JOINTS),
         help="comma-separated leader arm-joint indices for the engage/release gate "
         "(e.g. '1' = gate on the 2nd joint only). Empty = L2 over all joints.",
     )

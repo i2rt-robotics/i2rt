@@ -60,6 +60,10 @@ class YamArmNode(Node):
         super().__init__(f"yam_{cfg.name}", namespace=cfg.name)
         self.cfg = cfg
         self.robot = robot if robot is not None else cfg.build_robot()
+        # enforce the same global follow gain used in teleop/DAgger so replay matches
+        from i2rt.ros2.control_config import apply_follower_gains
+
+        apply_follower_gains(self.robot)
         self._names, self._has_gripper = conv.joint_names(self.robot)
 
         qos = 10

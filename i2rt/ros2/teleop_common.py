@@ -50,8 +50,11 @@ def _robot(channel: str, arm_type: str, gripper: str, sim: bool, zero_gravity: b
 
 def build_pair(spec: PairSpec, sim: bool) -> ArmPair:
     """Build one leader (zero-gravity, human-held) + follower (PD) pair."""
+    from i2rt.ros2.control_config import apply_follower_gains
+
     leader = _robot(spec.leader_channel, spec.arm_type, spec.leader_gripper, sim, zero_gravity=True)
     follower = _robot(spec.follower_channel, spec.arm_type, spec.follower_gripper, sim, zero_gravity=False)
+    apply_follower_gains(follower)  # enforce the global follow gain (teleop & DAgger)
     base_kp = base_kd = None
     info = leader.get_robot_info() if hasattr(leader, "get_robot_info") else {}
     if isinstance(info, dict) and "kp" in info:
