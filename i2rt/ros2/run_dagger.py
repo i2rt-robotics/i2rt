@@ -35,7 +35,7 @@ Global:
 Examples::
 
     python -m i2rt.ros2.run_dagger --sim
-    python -m i2rt.ros2.run_dagger --bilateral-kp 0.15        # real bimanual hardware
+    python -m i2rt.ros2.run_dagger --mirror-kp 0.2 --feedback-kp 0.1   # real bimanual hardware
 """
 
 from __future__ import annotations
@@ -63,9 +63,10 @@ from i2rt.ros2.teleop_common import (
 
 
 class DaggerNode(Node):
-    def __init__(self, sim: bool, bilateral_kp: float, rate_hz: float, max_joint_speed: float):
+    def __init__(self, sim: bool, mirror_kp: float, feedback_kp: float, rate_hz: float, max_joint_speed: float):
         super().__init__("yam_dagger")
-        self.bilateral_kp = bilateral_kp
+        self.mirror_kp = mirror_kp  # leader gain while policy drives (mirroring)
+        self.feedback_kp = feedback_kp  # leader gain while the human intervenes (force feel)
         self.pairs = build_bimanual(default_bimanual_specs(sim), sim=sim)
         max_step = max_step_from_speed(max_joint_speed, rate_hz)
 
@@ -95,7 +96,7 @@ class DaggerNode(Node):
 
         self.create_timer(1.0 / max(rate_hz, 1.0), self._loop)
         self.get_logger().info(
-            f"DaggerNode up: sides={list(self.pairs)} bilateral_kp={bilateral_kp} "
+            f"DaggerNode up: sides={list(self.pairs)} mirror_kp={mirror_kp} feedback_kp={feedback_kp} "
             f"max_joint_speed={max_joint_speed} rad/s sim={sim}"
         )
 
@@ -150,15 +151,15 @@ class DaggerNode(Node):
                     if valid[side]:
                         human = build_follower_target(pair.follower, arm_q[side], grip_cmd[side])
                         desired = human
-                        # bilateral feel: back-drive leader toward the follower's current pose
-                        self._drive_leader(pair, np.asarray(pair.follower.get_joint_pos())[: pair.leader.num_dofs()])
+                        # FEEDBACK gain: back-drive leader toward the follower's current pose
+                        self._drive_leader(pair, np.asarray(pair.follower.get_joint_pos())[: pair.leader.num_dofs()], self.feedback_kp)
                 else:
-                    # policy drives follower; leader mirrors the policy action so the human feels
+                    # policy drives follower; leader MIRRORS the policy action so the human feels
                     # what the policy intends and is positioned for a smooth takeover
                     act = self._policy_action[side]
                     if is_finite_vector(act, n):
                         desired = act[:n]
-                        self._drive_leader(pair, act[: pair.leader.num_dofs()])
+                        self._drive_leader(pair, act[: pair.leader.num_dofs()], self.mirror_kp)
 
                 if desired is not None:
                     target = smoother.step(desired)  # rate-limited → never snaps
@@ -174,14 +175,14 @@ class DaggerNode(Node):
 
         self.intervention_pub.publish(Bool(data=bool(self._intervening)))
 
-    def _drive_leader(self, pair: ArmPair, target_q: np.ndarray) -> None:
-        """Back-drive the leader toward ``target_q`` at low stiffness (gravity comp stays on)."""
+    def _drive_leader(self, pair: ArmPair, target_q: np.ndarray, kp_scale: float) -> None:
+        """Back-drive the leader toward ``target_q`` at ``kp_scale`` stiffness (gravity comp stays on)."""
         leader = pair.leader
-        if self.bilateral_kp <= 0.0 or not hasattr(leader, "update_kp_kd") or pair.base_kp is None:
+        if kp_scale <= 0.0 or not hasattr(leader, "update_kp_kd") or pair.base_kp is None:
             return
         try:
             m = leader.num_dofs()
-            leader.update_kp_kd(pair.base_kp[:m] * self.bilateral_kp, np.zeros(m))
+            leader.update_kp_kd(pair.base_kp[:m] * kp_scale, np.zeros(m))
             leader.command_joint_pos(np.asarray(target_q, dtype=float)[:m])
         except Exception:
             pass
@@ -227,16 +228,23 @@ class DaggerNode(Node):
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    from i2rt.ros2 import control_config as cc
+
     p = argparse.ArgumentParser(description="HG-DAgger interactive takeover (bimanual, single gate)")
     p.add_argument("--sim", action="store_true")
-    p.add_argument("--bilateral-kp", type=float, default=0.0, help="leader back-drive stiffness")
+    p.add_argument("--mirror-kp", type=float, default=cc.DAGGER_MIRROR_KP, help="leader stiffness while the POLICY drives (mirroring)")
+    p.add_argument("--feedback-kp", type=float, default=cc.DAGGER_FEEDBACK_KP, help="leader stiffness while the HUMAN intervenes (force feel)")
     p.add_argument("--rate", type=float, default=120.0)
     p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s cap on follower target ramp (smoothness/safety)")
     args = p.parse_args(argv)
 
     rclpy.init()
     node = DaggerNode(
-        sim=args.sim, bilateral_kp=args.bilateral_kp, rate_hz=args.rate, max_joint_speed=args.max_joint_speed
+        sim=args.sim,
+        mirror_kp=args.mirror_kp,
+        feedback_kp=args.feedback_kp,
+        rate_hz=args.rate,
+        max_joint_speed=args.max_joint_speed,
     )
     try:
         rclpy.spin(node)

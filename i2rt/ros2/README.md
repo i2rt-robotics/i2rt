@@ -55,7 +55,7 @@ so you don't type the full `conda activate … && python -m …`:
 
 ```bash
 scripts/yam teleop  --sim                 # ② teleop
-scripts/yam dagger  --bilateral-kp 0.15   # ③ dagger
+scripts/yam dagger  --mirror-kp 0.2 --feedback-kp 0.1   # ③ dagger
 scripts/yam wrapper --arm left:can_follower_l   # ① wrapper
 scripts/yam can                           # interactive CAN-id setup
 scripts/yam canup                         # reset/bring up CAN at 1 Mbit/s
@@ -67,7 +67,7 @@ For even shorter commands, add the aliases once to `~/.bashrc`:
 echo "source $(pwd)/scripts/ros2_aliases.sh" >> ~/.bashrc && source ~/.bashrc
 # then, from anywhere:
 yam teleop --sim        # or: yam-teleop --sim
-yam-dagger --bilateral-kp 0.15
+yam-dagger --mirror-kp 0.2 --feedback-kp 0.1
 ```
 
 (Override the env with `I2RT_ENV=my_env scripts/yam …`.)
@@ -297,20 +297,30 @@ Global:
 
 ## ③ DAgger — `run_dagger`
 
-**HG-DAgger** interactive takeover, **bimanual, single gate**:
+**HG-DAgger** interactive takeover, **bimanual, single gate**. The gate is
+**hold-to-engage** (level, not a toggle): while the human **holds** a handle
+button the human drives; **releasing** hands control back to the policy.
 
-- **Normal:** the workstation **policy** publishes `<s>/policy_action`; this node
-  applies it to the followers and **back-drives the leaders** so a human resting
-  on the handles feels what the policy intends.
-- **Intervention:** pressing the gate (either handle's top button, or
+- **Normal (policy):** the workstation **policy** publishes `<s>/policy_action`;
+  this node applies it to the followers and **back-drives the leaders** (at the
+  **mirror** gain) so a human resting on the handles feels what the policy intends.
+- **Intervention (button held):** the gate (either handle's top button, or
   `/dagger/intervention_cmd`) switches **both** arms to human control — each
-  follower tracks its leader — and streams `<s>/human_action` plus
-  `/dagger/intervention=true` so the workstation can aggregate `(obs, action)`.
+  follower tracks its leader, leader back-driven at the **feedback** gain — and
+  streams `<s>/human_action` plus `/dagger/intervention=true` so the workstation
+  can aggregate `(obs, action)`.
 - **Release:** control returns to the policy.
+
+The two leader gains are **separate** and live in `control_config.py`:
+
+| Arg / config | Phase | Default |
+|---|---|---|
+| `--mirror-kp` / `DAGGER_MIRROR_KP` | policy driving (leader mirrors policy) | 0.2 |
+| `--feedback-kp` / `DAGGER_FEEDBACK_KP` | human intervening (force feel) | 0.1 |
 
 ```bash
 python -m i2rt.ros2.run_dagger --sim
-python -m i2rt.ros2.run_dagger --bilateral-kp 0.15     # real hardware
+python -m i2rt.ros2.run_dagger --mirror-kp 0.2 --feedback-kp 0.1   # real hardware
 ```
 
 Topics:

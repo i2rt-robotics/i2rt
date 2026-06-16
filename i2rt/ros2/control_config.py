@@ -40,7 +40,16 @@ GATE_JOINTS: List[int] = [1]
 
 # --- Leader stiffness (gains on the human-held gello, NOT speeds) ------------
 HOME_KP: float = 0.3       # pulls the leader back to home while homing
-BILATERAL_KP: float = 0.0  # back-drives the leader while engaged (force feel)
+BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel)
+
+# --- DAgger leader gains (separate for the two phases) -----------------------
+# Intervention is HOLD-to-engage: while the human holds the handle button the
+# human drives the follower (FEEDBACK gain on the leader for force feel); release
+# hands control back to the policy, and the leader mirrors the policy action
+# (MIRROR gain). Mirror is usually a touch higher so the human feels/anticipates
+# the policy; feedback is low so it doesn't fight the human.
+DAGGER_MIRROR_KP: float = 0.2    # leader stiffness while the POLICY drives (leader mirrors policy)
+DAGGER_FEEDBACK_KP: float = 0.1  # leader stiffness while the HUMAN intervenes (force feel)
 
 
 def _broadcast(val: Optional[Union[float, List[float]]], default: np.ndarray) -> np.ndarray:
