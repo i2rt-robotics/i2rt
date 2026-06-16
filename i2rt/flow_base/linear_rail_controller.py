@@ -2,7 +2,7 @@ import logging
 import sys
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 from RPi import GPIO
@@ -103,6 +103,10 @@ class SingleMotorControlInterface:
         """Get motor state"""
         return self.motor_chain.read_states()[self.target_motor_idx]
 
+    def set_zero_position(self) -> None:
+        """Set the current motor position as the zero reference"""
+        self.motor_chain.set_zero_position(self.target_motor_idx)
+
     @classmethod
     def from_multi_motor_chain(
         cls, motor_chain: DMChainCanInterface, target_motor_idx: int
@@ -118,6 +122,7 @@ class LinearRailController:
         rail_speed: float = 14.0,
         auto_home: bool = True,  # Automatically start homing after initialization
         homing_timeout: float = HOMING_TIMEOUT,  # Timeout for homing procedure in seconds
+        total_stroke_m: float = 1.0,
     ):
         """Initialize linear rail controller
 
@@ -126,11 +131,16 @@ class LinearRailController:
             rail_speed: Maximum rail speed in rad/s
             auto_home: Whether to automatically home after initialization
             homing_timeout: Timeout for homing procedure in seconds
+            total_stroke_m: Physical stroke between upper and lower limit switches, in meters.
+                Used during the top-then-bottom startup calibration to convert motor radians
+                into linear meters: meters_per_rad = total_stroke_m / (theta_upper - theta_lower).
         """
         self.single_motor_control_interface = single_motor_control_interface
         self.rail_speed = rail_speed
         self.auto_home = auto_home
         self.homing_timeout = homing_timeout
+        self.total_stroke_m = total_stroke_m
+        self.meters_per_rad: Optional[float] = None
 
         self.initialized = False
         self.brake_on = True
@@ -273,69 +283,120 @@ class LinearRailController:
             logger.error(f"Failed to {action} brake: {e}")
 
     def _initialize_linear_rail(self) -> None:
-        """Initialize linear rail: release brake and home to lower limit if needed"""
+        """Calibrate linear rail by driving to the upper limit, then the lower limit.
+
+        Captures the motor angle at each limit, computes meters_per_rad assuming the
+        physical stroke between limits is ``self.total_stroke_m``, then zeroes the
+        encoder at the lower limit so encoder 0 corresponds to the bottom of travel.
+        """
         try:
-            # Release brake first
+            # Release brake before any motion
             self.set_brake(engaged=False)
 
-            # Check if already at lower limit
+            # Phase 1: drive to upper limit (skip if already triggered there)
             with self._lock:
-                if self.lower_limit_triggered:
-                    logger.info("Linear rail is already at lower limit - ready for operation")
-                    self.initialized = True
-                    return
+                already_at_upper = self.upper_limit_triggered
+            if not already_at_upper:
+                self._move_until_limit(direction="up")
+            time.sleep(0.2)  # settle so the encoder reading is stable
+            theta_upper = self.single_motor_control_interface.get_state().pos
 
-            # If not at lower limit, start homing
-            # Set homing state
+            # Phase 2: drive to lower limit (skip if already triggered there)
             with self._lock:
-                self._homing_event.set()
-                self._homing_start_time = time.time()
+                already_at_lower = self.lower_limit_triggered
+            if not already_at_lower:
+                self._move_until_limit(direction="down")
+            time.sleep(0.2)
+            theta_lower = self.single_motor_control_interface.get_state().pos
 
-            # Move backward at homing speed (half of normal speed, like linear_motor.py)
-            motor_velocity = -self.rail_speed * HOMING_SPEED_RATIO  # Negative = move backward
-            logger.info(f"Homing started with velocity {motor_velocity:.3f} rad/s (moving backward)")
+            # Phase 3: compute meters-per-radian from the captured motor angles.
+            # Sign of delta is whatever motor_direction yields; carrying it through gives a
+            # signed conversion factor so linear_pos = motor_pos * meters_per_rad always
+            # grows from 0 (bottom) to total_stroke_m (top) regardless of motor direction.
+            delta = theta_upper - theta_lower
+            if abs(delta) < 1e-3:
+                raise RuntimeError(
+                    f"Linear-rail calibration failed: |theta_upper - theta_lower| = "
+                    f"{abs(delta):.6f} rad is too small to calibrate "
+                    f"(theta_upper={theta_upper:.3f}, theta_lower={theta_lower:.3f})"
+                )
+            with self._lock:
+                self.meters_per_rad = self.total_stroke_m / delta
+            logger.info(
+                f"Linear rail calibrated: theta_upper={theta_upper:.3f} rad, "
+                f"theta_lower={theta_lower:.3f} rad, delta={delta:.3f} rad, "
+                f"meters_per_rad={self.meters_per_rad:.6f} m/rad "
+                f"(stroke={self.total_stroke_m:.3f} m)"
+            )
 
-            # Wait for homing to complete or timeout
-            # Continuously re-apply homing velocity to prevent it from being overwritten by base controller
-            start_time = time.time()
-            last_velocity_set_time = start_time
-            velocity_set_interval = 0.05  # Re-set velocity every 50ms to prevent overwrite
+            # Phase 4: zero encoder at lower limit so encoder 0 == bottom of travel
+            self._set_home_zero()
+            with self._lock:
+                self.initialized = True
 
+        except Exception as e:
+            logger.error(f"Linear rail initialization failed: {e}")
+            self.initialized = False
+            try:
+                self.single_motor_control_interface.set_velocity(0.0)
+            except Exception as stop_error:
+                logger.error(f"Failed to stop linear-rail motor during cleanup: {stop_error}")
+            with self._lock:
+                self._homing_event.clear()
+                self._homing_start_time = None
+            raise  # Re-raise the exception (timeout RuntimeError or other errors)
+
+    def _move_until_limit(self, direction: Literal["up", "down"]) -> None:
+        """Drive the rail until the corresponding limit switch triggers, or time out.
+
+        Continuously re-applies the homing velocity (every 50 ms) so the base controller's
+        own ``set_commands`` calls don't race-overwrite the rail motor's velocity. Sets
+        ``_homing_event`` while running so ``is_homing()`` reflects the in-progress state.
+        """
+        if direction == "up":
+            motor_velocity = self.rail_speed * HOMING_SPEED_RATIO
+        elif direction == "down":
+            motor_velocity = -self.rail_speed * HOMING_SPEED_RATIO
+        else:
+            raise ValueError(f"direction must be 'up' or 'down', got {direction!r}")
+
+        logger.info(f"Homing started with velocity {motor_velocity:.3f} rad/s (moving {direction})")
+
+        with self._lock:
+            self._homing_event.set()
+            self._homing_start_time = time.time()
+
+        start_time = time.time()
+        last_velocity_set_time = start_time
+        velocity_set_interval = 0.05  # Re-apply every 50 ms
+
+        self.single_motor_control_interface.set_velocity(motor_velocity)
+
+        try:
             while time.time() - start_time < self.homing_timeout:
                 current_time = time.time()
 
-                # Continuously re-apply homing velocity to prevent base controller from overwriting it
                 if current_time - last_velocity_set_time >= velocity_set_interval:
                     self.single_motor_control_interface.set_velocity(motor_velocity)
                     last_velocity_set_time = current_time
 
                 with self._lock:
-                    if self.lower_limit_triggered:
-                        # Reached lower limit, stop motor
-                        self.single_motor_control_interface.set_velocity(0.0)
-                        elapsed_time = current_time - start_time
-                        logger.info(f"Homing success! Zero position found in {elapsed_time:.1f}s")
-                        self._homing_event.clear()
-                        self._homing_start_time = None
-                        self.initialized = True
-                        return
+                    triggered = self.upper_limit_triggered if direction == "up" else self.lower_limit_triggered
+                if triggered:
+                    self.single_motor_control_interface.set_velocity(0.0)
+                    elapsed = current_time - start_time
+                    logger.info(f"{direction.capitalize()} limit reached in {elapsed:.1f}s")
+                    return
 
-                time.sleep(0.01)  # Check every 10ms for faster response
+                time.sleep(0.01)
 
             # Timeout
             self.single_motor_control_interface.set_velocity(0.0)
+            raise RuntimeError(f"Homing timed out after {self.homing_timeout}s moving {direction}")
+        finally:
             with self._lock:
                 self._homing_event.clear()
                 self._homing_start_time = None
-            raise RuntimeError(f"Homing procedure timed out after {self.homing_timeout} seconds")
-
-        except Exception as e:
-            logger.error(f"Linear rail initialization failed: {e}")
-            self.initialized = False
-            self.single_motor_control_interface.set_velocity(0.0)
-            with self._lock:
-                self._homing_event.clear()
-            raise  # Re-raise the exception (timeout RuntimeError or other errors)
 
     def _stop_homing(self) -> None:
         """Stop homing procedure and reset state (assumes lock is held)"""
@@ -343,13 +404,25 @@ class LinearRailController:
         self._homing_event.clear()
         self._homing_start_time = None
 
+    def _set_home_zero(self) -> None:
+        """Zero the encoder at the current lower-limit (home) position so encoder 0 == bottom of travel"""
+        self.single_motor_control_interface.set_zero_position()
+        logger.info("Linear rail encoder zeroed at lower limit (encoder 0 = home)")
+
     def is_homing(self) -> bool:
         """Check if linear rail is currently homing"""
         with self._lock:
             return self._homing_event.is_set()
 
     def get_state(self) -> Dict[str, Any]:
-        """Get the current state of the linear rail"""
+        """Get the current state of the linear rail.
+
+        Returns position and velocity in BOTH units:
+          - position.motor / velocity.motor: motor encoder in rad / rad/s.
+          - position.linear / velocity.linear: linear travel in m / m/s, derived from
+            ``meters_per_rad`` captured during startup calibration. ``None`` until the
+            controller is calibrated (e.g. when ``auto_home=False``).
+        """
         motor_state = self.single_motor_control_interface.get_state()
 
         with self._lock:
@@ -357,14 +430,29 @@ class LinearRailController:
             initialized = self.initialized
             upper_limit = self.upper_limit_triggered
             lower_limit = self.lower_limit_triggered
+            meters_per_rad = self.meters_per_rad
+
+        if meters_per_rad is not None:
+            linear_pos: Optional[float] = motor_state.pos * meters_per_rad
+            linear_vel: Optional[float] = motor_state.vel * meters_per_rad
+        else:
+            linear_pos = None
+            linear_vel = None
 
         return {
-            "position": motor_state.pos,  # Use motor position directly
-            "velocity": motor_state.vel,  # Use motor velocity directly
+            "position": {
+                "motor": motor_state.pos,
+                "linear": linear_pos,
+            },
+            "velocity": {
+                "motor": motor_state.vel,
+                "linear": linear_vel,
+            },
             "brake_on": brake_on,
             "initialized": initialized,
             "upper_limit_triggered": upper_limit,
             "lower_limit_triggered": lower_limit,
+            "meters_per_rad": meters_per_rad,
             "motor_state": motor_state,
         }
 
@@ -396,6 +484,7 @@ class LinearRailController:
                 logger.warning("Lower limit triggered, cannot move backward")
                 self.single_motor_control_interface.set_velocity(0.0)
                 if self._homing_event.is_set():
+                    self._set_home_zero()
                     elapsed_time = time.time() - self._homing_start_time if self._homing_start_time else 0.0
                     logger.info(f"Homing success! Zero position found in {elapsed_time:.1f}s")
                     self._stop_homing()
