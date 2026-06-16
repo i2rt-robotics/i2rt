@@ -32,7 +32,11 @@ RAMP_SPEED: float = 0.8
 ENGAGE_THR: float = 0.6
 RELEASE_THR: float = 0.3
 DWELL_S: float = 0.5
-GATE_JOINTS: List[int] = []  # [] = L2 over all arm joints; [1] = 2nd joint only
+# Which leader joint(s) drive the engage/release gate (max abs displacement from
+# home over these joints). [1] = the 2nd joint only — intuitive: lift the 2nd
+# joint to start, lower it to return, regardless of the other joints. Set to []
+# to use the L2 distance over ALL arm joints instead.
+GATE_JOINTS: List[int] = [1]
 
 # --- Leader stiffness (gains on the human-held gello, NOT speeds) ------------
 HOME_KP: float = 0.3       # pulls the leader back to home while homing

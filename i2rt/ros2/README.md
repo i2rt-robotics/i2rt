@@ -225,9 +225,12 @@ So you just **lift both gellos to start** teleop, and **bring both back to home 
 stop** (the robot and gellos then return home on their own). Hysteresis
 (`engage-thr > release-thr`) prevents chattering.
 
-The gate distance (leader vs home) can be **per-joint** for a more intuitive
-trigger: `--gate-joints 1` gates on the **2nd joint** alone (max displacement of
-the listed joints); empty = L2 over all arm joints. The gripper is ignored.
+The gate compares the leader to the home pose. **By default it keys on the 2nd
+joint alone** (`GATE_JOINTS = [1]`): lift the 2nd joint past `--engage-thr` to
+start, lower it back within `--release-thr` to return — regardless of the other
+joints (so homing isn't blocked by a stray joint angle). Use `--gate-joints` to
+pick other joint(s), or `--gate-joints ""` for the L2 distance over all joints.
+The gripper is ignored.
 
 **Steady tracking is direct.** While ENGAGED the follower is commanded straight
 to the leader pose (`command_joint_pos`) and tracked by its **own PD gains** —
