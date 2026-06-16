@@ -1021,7 +1021,7 @@ python -m i2rt.ros2.run_dagger --bilateral-kp 0.15     # real hardware</code></p
       <p>Three properties keep the interactive modes safe:</p>
       <ul>
         <li><strong>Gravity compensation is always on.</strong> It is added inside <code>MotorChainRobot</code>'s control loop every tick, independent of mode — so during a takeover the leader is freely back-drivable, and on release the policy resumes against the same compensation.</li>
-        <li><strong>Rate-limited targets.</strong> Every follower command passes through a per-joint rate limiter (<code>TargetSmoother</code>, default <code>--max-joint-speed 3.0</code> rad/s). Switching between policy and human, a stale→fresh policy action, or engaging sync from a divergent pose all <em>ramp smoothly</em> instead of snapping — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>.</li>
+        <li><strong>Rate-limited targets.</strong> Every follower command passes through a per-joint rate limiter (<code>TargetSmoother</code>, default <code>--max-joint-speed 1.5</code> rad/s). Switching between policy and human, a stale→fresh policy action, or engaging sync from a divergent pose all <em>ramp smoothly</em> instead of snapping — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>.</li>
         <li><strong>Fail-safe holds.</strong> A missing/invalid leader reading, or a not-yet-arrived policy action, holds position rather than commanding garbage. The motor 400&nbsp;ms watchdog remains the hardware backstop.</li>
       </ul>
       <div class="callout tip">

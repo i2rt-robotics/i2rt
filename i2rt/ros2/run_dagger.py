@@ -231,7 +231,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--sim", action="store_true")
     p.add_argument("--bilateral-kp", type=float, default=0.0, help="leader back-drive stiffness")
     p.add_argument("--rate", type=float, default=120.0)
-    p.add_argument("--max-joint-speed", type=float, default=3.0, help="rad/s cap on follower target ramp (safety)")
+    p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s cap on follower target ramp (smoothness/safety)")
     args = p.parse_args(argv)
 
     rclpy.init()
