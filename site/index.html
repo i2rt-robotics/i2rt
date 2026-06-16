@@ -68,6 +68,14 @@
         <a href="#flowbase">Flow Base</a>
       </div>
       <div class="nav-group">
+        <div class="nav-title">ROS 2 Integration</div>
+        <a href="#ros2">Overview &amp; Setup</a>
+        <a href="#ros2-wrapper">① Wrapper</a>
+        <a href="#ros2-teleop">② Teleop</a>
+        <a href="#ros2-dagger">③ DAgger</a>
+        <a href="#ros2-safety">Safety Model</a>
+      </div>
+      <div class="nav-group">
         <div class="nav-title">Reference</div>
         <a href="#examples">Examples</a>
         <a href="#devices">Devices &amp; Hardware</a>
@@ -820,6 +828,110 @@ client.reset_odometry()</code></pre>
         <div class="callout-title">Odometry caveat</div>
         <p>Wheel-based odometry accumulates drift. For precise manipulation, pairing with visual SLAM (RealSense T265 / ZED) is recommended.</p>
       </div>
+    </section>
+
+    <!-- ===================== ROS 2 ===================== -->
+    <section id="ros2">
+      <h2 id="ros2-h">ROS 2 Integration</h2>
+      <p>A <strong>build-less</strong> ROS 2 layer (<code>i2rt/ros2/</code>) exposes the YAM arms to a main workstation over ROS 2. It uses only standard message types (<code>sensor_msgs</code>/<code>std_msgs</code>), so there is <strong>no colcon/ament package to build</strong> — just activate the environment and run the modules. The setup is <strong>bimanual by default</strong> (2 leaders + 2 followers); this machine is the robot side, the workstation reads state and sends actions.</p>
+
+      <div class="card-grid cols-3">
+        <div class="card">
+          <div class="ico">①</div>
+          <h4>Wrapper</h4>
+          <p><code>run_wrapper</code> — wrap follower arms: publish <code>JointState</code>, subscribe to joint targets.</p>
+        </div>
+        <div class="card">
+          <div class="ico">②</div>
+          <h4>Teleop</h4>
+          <p><code>run_teleop</code> — bimanual leader→follower teleop, publish every stream for demo recording.</p>
+        </div>
+        <div class="card">
+          <div class="ico">③</div>
+          <h4>DAgger</h4>
+          <p><code>run_dagger</code> — policy drives followers; a button hands control to the human (HG-DAgger).</p>
+        </div>
+      </div>
+
+      <h3 id="ros2-env">Environment</h3>
+      <p>A dedicated conda env (<code>i2rt_ros</code>, Python 3.10) holds i2rt <em>and</em> can import ROS 2 Humble's <code>rclpy</code>. Activating it auto-sources <code>/opt/ros/humble</code> (the conda Python 3.10 is ABI-compatible with Humble's system Python, so the prebuilt <code>rclpy</code> loads directly — no RoboStack needed). All commands accept <code>--sim</code> to run without hardware.</p>
+      <span class="code-label">bash</span>
+<pre><code>conda activate i2rt_ros          # sources ROS 2 Humble automatically
+python -c "import rclpy, i2rt; print('ready')"</code></pre>
+
+      <h3 id="ros2-wrapper">① Wrapper — <code>run_wrapper</code></h3>
+      <p>Wraps each <strong>follower</strong> arm as a node. The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; the node only samples state and forwards targets.</p>
+      <span class="code-label">bash</span>
+<pre><code># two simulated followers (no hardware)
+python -m i2rt.ros2.run_wrapper --sim
+# real bimanual hardware
+python -m i2rt.ros2.run_wrapper \
+    --arm left:can_follower_l --arm right:can_follower_r --gripper linear_4310</code></pre>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dir</th><th>Topic (per arm <code>&lt;name&gt;</code>)</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td>pub</td><td><code>&lt;name&gt;/joint_states</code></td><td><code>sensor_msgs/JointState</code> — <code>[joint_1..6, gripper]</code>, pos/vel/eff</td></tr>
+          <tr><td>sub</td><td><code>&lt;name&gt;/command</code></td><td><code>sensor_msgs/JointState</code> — target → <code>command_joint_pos</code></td></tr>
+          <tr><td>pub</td><td><code>&lt;name&gt;/buttons</code></td><td><code>sensor_msgs/Joy</code> — only with a teaching handle</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>The gripper element is normalized <strong>0 = closed, 1 = open</strong>. A command may be the full vector (<code>num_dofs</code>) or arm-only (<code>num_dofs-1</code>, keeping the current gripper).</p>
+
+      <h3 id="ros2-teleop">② Teleop — <code>run_teleop</code></h3>
+      <p>Activates both leader+follower pairs and runs the bilateral loop in process, publishing every stream. The handle's top button toggles sync (edge-triggered, like <code>minimum_gello</code>); while synced the follower tracks the leader and the leader is back-driven (<code>--bilateral-kp</code>) so the human feels contact forces.</p>
+      <span class="code-label">bash</span>
+<pre><code>python -m i2rt.ros2.run_teleop --sim
+python -m i2rt.ros2.run_teleop --bilateral-kp 0.2      # real hardware</code></pre>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dir</th><th>Topic (per side <code>&lt;s&gt;</code> ∈ left/right)</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td>pub</td><td><code>&lt;s&gt;/leader/joint_states</code> · <code>&lt;s&gt;/follower/joint_states</code></td><td><code>sensor_msgs/JointState</code></td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/buttons</code></td><td><code>sensor_msgs/Joy</code></td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/sync</code></td><td><code>std_msgs/Bool</code></td></tr>
+          <tr><td>sub</td><td><code>&lt;s&gt;/sync_cmd</code></td><td><code>std_msgs/Bool</code> — external override (sim / no handle)</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="ros2-dagger">③ DAgger — <code>run_dagger</code></h3>
+      <p><strong>HG-DAgger</strong> interactive takeover, <strong>bimanual with a single gate</strong>:</p>
+      <ul>
+        <li><strong>Normal:</strong> the workstation policy publishes <code>&lt;s&gt;/policy_action</code>; the node applies it to the followers and back-drives the leaders so a human resting on the handles feels what the policy intends.</li>
+        <li><strong>Intervention:</strong> pressing the gate (either handle's top button, or <code>/dagger/intervention_cmd</code>) switches <strong>both</strong> arms to human control — each follower tracks its leader — and streams <code>&lt;s&gt;/human_action</code> plus <code>/dagger/intervention=true</code> so the workstation can aggregate <code>(obs, action)</code> pairs.</li>
+        <li><strong>Release:</strong> control returns to the policy.</li>
+      </ul>
+      <span class="code-label">bash</span>
+<pre><code>python -m i2rt.ros2.run_dagger --sim
+python -m i2rt.ros2.run_dagger --bilateral-kp 0.15     # real hardware</code></pre>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dir</th><th>Topic</th><th>Type · note</th></tr></thead>
+        <tbody>
+          <tr><td>sub</td><td><code>&lt;s&gt;/policy_action</code></td><td><code>JointState</code> — from the policy</td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/follower/joint_states</code> · <code>&lt;s&gt;/leader/joint_states</code></td><td><code>JointState</code></td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/applied_action</code></td><td><code>JointState</code> — what was actually sent</td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/human_action</code></td><td><code>JointState</code> — leader q while intervening</td></tr>
+          <tr><td>pub</td><td><code>/dagger/intervention</code></td><td><code>std_msgs/Bool</code> — gate (both arms)</td></tr>
+          <tr><td>sub</td><td><code>/dagger/intervention_cmd</code></td><td><code>std_msgs/Bool</code> — external gate</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3 id="ros2-safety">Safety Model</h3>
+      <p>Three properties keep the interactive modes safe:</p>
+      <ul>
+        <li><strong>Gravity compensation is always on.</strong> It is added inside <code>MotorChainRobot</code>'s control loop every tick, independent of mode — so during a takeover the leader is freely back-drivable, and on release the policy resumes against the same compensation.</li>
+        <li><strong>Rate-limited targets.</strong> Every follower command passes through a per-joint rate limiter (<code>TargetSmoother</code>, default <code>--max-joint-speed 3.0</code> rad/s). Switching between policy and human, a stale→fresh policy action, or engaging sync from a divergent pose all <em>ramp smoothly</em> instead of snapping — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>.</li>
+        <li><strong>Fail-safe holds.</strong> A missing/invalid leader reading, or a not-yet-arrived policy action, holds position rather than commanding garbage. The motor 400&nbsp;ms watchdog remains the hardware backstop.</li>
+      </ul>
+      <div class="callout tip">
+        <div class="callout-title">✅ Verified in simulation</div>
+        <p>All three components were exercised with <code>--sim</code>: state publishing, joint commands, the full policy→intervention→release cycle, the 6-DOF-leader → 7-DOF-follower mapping, and the rate limiter. Bilateral force-feel and teaching-handle buttons require real hardware (in sim they degrade gracefully).</p>
+      </div>
+      <p>Full details and the workstation-side recipe are in <code>i2rt/ros2/README.md</code>.</p>
     </section>
 
     <!-- ===================== EXAMPLES ===================== -->

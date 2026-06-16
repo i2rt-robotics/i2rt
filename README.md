@@ -129,6 +129,23 @@ client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 | Single motor PD control | `examples/single_motor_position_pd_control/` |
 | MuJoCo control interface | `examples/control_with_mujoco/` |
 
+## ROS 2 Integration
+
+A **build-less** ROS 2 layer (`i2rt/ros2/`) exposes the YAM arms to a main
+workstation over ROS 2, using only standard messages (`sensor_msgs`/`std_msgs`) —
+no colcon/ament build. Bimanual by default (2 leaders + 2 followers).
+
+```bash
+conda activate i2rt_ros                    # ROS 2 Humble auto-sourced
+python -m i2rt.ros2.run_wrapper --sim      # ① state publisher + action subscriber
+python -m i2rt.ros2.run_teleop  --sim      # ② bimanual leader-follower teleop
+python -m i2rt.ros2.run_dagger  --sim      # ③ HG-DAgger interactive takeover
+```
+
+Targets are rate-limited and gravity compensation is always on, so policy↔human
+takeovers ramp smoothly. See [`i2rt/ros2/README.md`](i2rt/ros2/README.md) for the
+full topic contract, the conda-env setup, and the workstation-side recipe.
+
 ## Advanced: Motor Configuration
 
 ### Safety timeout
