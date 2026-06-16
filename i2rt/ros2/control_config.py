@@ -12,7 +12,7 @@ ramp speed below only shapes the one-time engage approach and the homing return.
 
 from __future__ import annotations
 
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import numpy as np
 
@@ -43,13 +43,54 @@ HOME_KP: float = 0.3       # pulls the leader back to home while homing
 BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel)
 
 # --- DAgger leader gains (separate for the two phases) -----------------------
-# Intervention is HOLD-to-engage: while the human holds the handle button the
-# human drives the follower (FEEDBACK gain on the leader for force feel); release
-# hands control back to the policy, and the leader mirrors the policy action
-# (MIRROR gain). Mirror is usually a touch higher so the human feels/anticipates
-# the policy; feedback is low so it doesn't fight the human.
+# Intervention is TOGGLED by a handle button (press once to take over, press again
+# to hand back). While intervening the human drives the follower (FEEDBACK gain on
+# the leader for force feel); otherwise the policy drives and the leader mirrors
+# the policy action (MIRROR gain). Mirror is usually a touch higher so the human
+# feels/anticipates the policy; feedback is low so it doesn't fight the human.
 DAGGER_MIRROR_KP: float = 0.2    # leader stiffness while the POLICY drives (leader mirrors policy)
 DAGGER_FEEDBACK_KP: float = 0.1  # leader stiffness while the HUMAN intervenes (force feel)
+
+
+# --- Wrist payload for gravity compensation (e.g. a D405 camera) -------------
+# A wrist-mounted camera adds mass the arm model doesn't know about, so the
+# wrist/distal joints sag. Gravity compensation is quasi-static, so only the
+# added MASS (and roughly its COM) matter — not the inertia tensor. Setting this
+# adds the payload to the FOLLOWER's end-effector inertial in the gravity-comp
+# model (applied identically in teleop / DAgger / replay-wrapper).
+FOLLOWER_PAYLOAD_KG: Optional[float] = None  # extra wrist mass in kg (D405 ≈ 0.05); None = none
+FOLLOWER_EE_INERTIA: Optional[List[float]] = None  # optional [ipos(3), quat(4), diaginertia(3)] to place the COM
+
+
+def _gripper_base_mass(gripper_type: Any) -> Optional[float]:
+    """Read the gripper body's own inertial mass (kg) from its MJCF, or None."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.parse(gripper_type.get_xml_path()).getroot()
+        body = root.find(".//body[@name='gripper']")
+        inertial = body.find("inertial") if body is not None else None
+        m = inertial.get("mass") if inertial is not None else None
+        return float(m) if m is not None else None
+    except Exception:
+        return None
+
+
+def resolve_follower_ee(arm_type: Any, gripper_type: Any) -> tuple:
+    """Return ``(ee_mass, ee_inertia)`` for ``get_yam_robot`` given the wrist payload.
+
+    ``ee_mass = gripper_base_mass + FOLLOWER_PAYLOAD_KG`` so the payload is *added*
+    at the gripper COM (ee_mass overrides the gripper inertial's mass). Returns
+    ``(None, FOLLOWER_EE_INERTIA)`` when no payload is configured or the base mass
+    can't be read (so we never accidentally replace the gripper mass with just the
+    payload).
+    """
+    if FOLLOWER_PAYLOAD_KG is None:
+        return None, FOLLOWER_EE_INERTIA
+    base = _gripper_base_mass(gripper_type)
+    if base is None:
+        return None, FOLLOWER_EE_INERTIA
+    return base + float(FOLLOWER_PAYLOAD_KG), FOLLOWER_EE_INERTIA
 
 
 def _broadcast(val: Optional[Union[float, List[float]]], default: np.ndarray) -> np.ndarray:

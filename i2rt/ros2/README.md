@@ -266,6 +266,23 @@ replay — so all three behave the same. To change them globally, set
 `yam.yml`. The gate/ramp defaults (`ENGAGE_THR`, `RAMP_SPEED`, `GATE_JOINTS`, …)
 live there too, so teleop and DAgger share one source of truth.
 
+### Wrist camera in gravity compensation
+
+A wrist-mounted **D405 camera** adds mass the arm model doesn't know about, so the
+wrist/distal joints sag. Gravity compensation is quasi-static, so only the added
+**mass** (and roughly its COM) matters. Set the payload once in
+[`control_config.py`](control_config.py):
+
+```python
+FOLLOWER_PAYLOAD_KG = 0.05   # D405 ≈ 50 g; measure yours
+```
+
+This adds the mass to the **follower's** end-effector inertial
+(`ee_mass = gripper_base_mass + payload`) in the gravity-comp model, applied
+identically in teleop, DAgger, **and** the replay wrapper. For a finer COM, also
+set `FOLLOWER_EE_INERTIA = [ipos(3), quat(4), diaginertia(3)]`. The leader (gello,
+no camera) is unaffected.
+
 ### Reproducible logging
 
 The **exact rate-limited target sent to the robot** is published on
@@ -297,19 +314,18 @@ Global:
 
 ## ③ DAgger — `run_dagger`
 
-**HG-DAgger** interactive takeover, **bimanual, single gate**. The gate is
-**hold-to-engage** (level, not a toggle): while the human **holds** a handle
-button the human drives; **releasing** hands control back to the policy.
+**HG-DAgger** interactive takeover, **bimanual, single gate**. The gate is a
+**toggle**: press a handle button once to take over, press again to hand control
+back (no need to hold it while teleoperating).
 
-- **Normal (policy):** the workstation **policy** publishes `<s>/policy_action`;
+- **Policy (default):** the workstation **policy** publishes `<s>/policy_action`;
   this node applies it to the followers and **back-drives the leaders** (at the
   **mirror** gain) so a human resting on the handles feels what the policy intends.
-- **Intervention (button held):** the gate (either handle's top button, or
+- **Intervention (toggled on):** a button press (either handle's top button, or
   `/dagger/intervention_cmd`) switches **both** arms to human control — each
   follower tracks its leader, leader back-driven at the **feedback** gain — and
   streams `<s>/human_action` plus `/dagger/intervention=true` so the workstation
-  can aggregate `(obs, action)`.
-- **Release:** control returns to the policy.
+  can aggregate `(obs, action)`. Press again to return to the policy.
 
 The two leader gains are **separate** and live in `control_config.py`:
 

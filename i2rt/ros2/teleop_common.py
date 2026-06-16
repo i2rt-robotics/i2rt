@@ -38,22 +38,37 @@ class ArmPair:
     base_kd: Optional[np.ndarray] = None  # leader's nominal kd (for homing damping)
 
 
-def _robot(channel: str, arm_type: str, gripper: str, sim: bool, zero_gravity: bool) -> Any:
+def _robot(
+    channel: str,
+    arm_type: str,
+    gripper: str,
+    sim: bool,
+    zero_gravity: bool,
+    ee_mass: Optional[float] = None,
+    ee_inertia: Optional[np.ndarray] = None,
+) -> Any:
     return get_yam_robot(
         channel=channel,
         arm_type=ArmType(arm_type),
         gripper_type=GripperType(gripper),
         zero_gravity_mode=zero_gravity,
         sim=sim,
+        ee_mass=ee_mass,
+        ee_inertia=ee_inertia,
     )
 
 
 def build_pair(spec: PairSpec, sim: bool) -> ArmPair:
     """Build one leader (zero-gravity, human-held) + follower (PD) pair."""
-    from i2rt.ros2.control_config import apply_follower_gains
+    from i2rt.ros2.control_config import apply_follower_gains, resolve_follower_ee
 
     leader = _robot(spec.leader_channel, spec.arm_type, spec.leader_gripper, sim, zero_gravity=True)
-    follower = _robot(spec.follower_channel, spec.arm_type, spec.follower_gripper, sim, zero_gravity=False)
+    # add the wrist-camera payload to the follower's gravity-comp model (if configured)
+    ee_mass, ee_inertia = resolve_follower_ee(ArmType(spec.arm_type), GripperType(spec.follower_gripper))
+    follower = _robot(
+        spec.follower_channel, spec.arm_type, spec.follower_gripper, sim, zero_gravity=False,
+        ee_mass=ee_mass, ee_inertia=ee_inertia,
+    )
     apply_follower_gains(follower)  # enforce the global follow gain (teleop & DAgger)
     base_kp = base_kd = None
     info = leader.get_robot_info() if hasattr(leader, "get_robot_info") else {}

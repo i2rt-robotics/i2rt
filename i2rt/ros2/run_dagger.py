@@ -4,11 +4,11 @@ Normal operation: a policy (on the workstation) publishes joint-position actions
 for each follower. This node applies them to the followers and **back-drives the
 leaders** so a human resting on the handles feels what the policy is doing.
 
-Intervention: when the human presses the gate button (either leader's top button,
-or an external ``/dagger/intervention_cmd`` Bool), the node switches **both** arms
-to human control — each follower tracks its leader — and streams the human action
-so the workstation can aggregate ``(observation, human_action)`` pairs. Releasing
-the button hands control back to the policy.
+Intervention is **toggled** by a handle button (press once to take over, press
+again to hand back — no need to hold it while teleoperating). Either leader's top
+button, or an external ``/dagger/intervention_cmd`` Bool, flips **both** arms to
+human control — each follower tracks its leader — and the node streams the human
+action so the workstation can aggregate ``(observation, human_action)`` pairs.
 
 Safety: every follower target passes through a per-joint rate limiter
 (:class:`~i2rt.ros2.safety.TargetSmoother`), so switching between policy and human,
@@ -55,6 +55,7 @@ from i2rt.ros2 import ros_conversions as conv
 from i2rt.ros2.safety import TargetSmoother, is_finite_vector, max_step_from_speed
 from i2rt.ros2.teleop_common import (
     ArmPair,
+    LatchingToggle,
     build_bimanual,
     build_follower_target,
     default_bimanual_specs,
@@ -71,7 +72,8 @@ class DaggerNode(Node):
         max_step = max_step_from_speed(max_joint_speed, rate_hz)
 
         self._intervening = False
-        self._ext_gate: Optional[bool] = None  # external override; None = use handle button
+        # toggle gate: press a handle button once to intervene, press again to hand back
+        self._toggle = LatchingToggle(initial=False)
         self._policy_action: Dict[str, Optional[np.ndarray]] = {s: None for s in self.pairs}
         self._names = {}
         self._smooth = {}
@@ -111,16 +113,15 @@ class DaggerNode(Node):
         return cb
 
     def _on_gate_cmd(self, msg: Bool) -> None:
-        self._ext_gate = bool(msg.data)
+        self._toggle.state = bool(msg.data)  # external override sets the toggle directly
 
     def _stamp(self) -> Time:
         return self.get_clock().now().to_msg()
 
-    def _gate_pressed(self, buttons_by_side: Dict[str, list]) -> bool:
-        """Single gate for both arms: external override wins, else OR of handle buttons."""
-        if self._ext_gate is not None:
-            return self._ext_gate
-        return any(bool(b[0]) for b in buttons_by_side.values() if b)
+    def _gate_toggle(self, buttons_by_side: Dict[str, list]) -> bool:
+        """Single toggle gate for both arms: a button press flips intervention on/off."""
+        pressed = any(bool(b[0]) for b in buttons_by_side.values() if b)
+        return self._toggle.update(pressed)
 
     # --------------------------------------------------------------------- loop
     def _loop(self) -> None:
@@ -135,7 +136,7 @@ class DaggerNode(Node):
             arm_q[side], grip_cmd[side], buttons[side] = a, g, b
             valid[side] = is_finite_vector(a, pair.leader.num_dofs())
 
-        self._intervening = self._gate_pressed(buttons)
+        self._intervening = self._gate_toggle(buttons)
 
         # 2) act + publish per side
         for side, pair in self.pairs.items():

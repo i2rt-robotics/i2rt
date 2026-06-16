@@ -40,12 +40,18 @@ class ArmConfig:
     zero_gravity_mode: bool = False  # followers start under PD control, not floppy
 
     def build_robot(self) -> Any:
+        # match the follower's gravity-comp model used in teleop/DAgger (wrist payload)
+        from i2rt.ros2.control_config import resolve_follower_ee
+
+        ee_mass, ee_inertia = resolve_follower_ee(ArmType(self.arm_type), GripperType(self.gripper_type))
         return get_yam_robot(
             channel=self.channel,
             arm_type=ArmType(self.arm_type),
             gripper_type=GripperType(self.gripper_type),
             zero_gravity_mode=self.zero_gravity_mode,
             sim=self.sim,
+            ee_mass=ee_mass,
+            ee_inertia=ee_inertia,
         )
 
 

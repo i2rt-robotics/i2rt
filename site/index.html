@@ -996,13 +996,16 @@ python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real ha
       </div>
 
       <h3 id="ros2-dagger">③ DAgger — <code>run_dagger</code></h3>
-      <p><strong>HG-DAgger</strong> interactive takeover, <strong>bimanual with a single gate</strong>. The gate is <strong>hold-to-engage</strong> (level, not a toggle): hold a handle button to take over, release to hand control back to the policy.</p>
+      <p><strong>HG-DAgger</strong> interactive takeover, <strong>bimanual with a single gate</strong>. The gate is a <strong>toggle</strong>: press a handle button once to take over, press again to hand control back (no holding while teleoperating).</p>
       <ul>
-        <li><strong>Normal (policy):</strong> the workstation policy publishes <code>&lt;s&gt;/policy_action</code>; the node applies it to the followers and back-drives the leaders at the <strong>mirror</strong> gain so a human resting on the handles feels what the policy intends.</li>
-        <li><strong>Intervention (button held):</strong> switches <strong>both</strong> arms to human control — each follower tracks its leader, leader back-driven at the <strong>feedback</strong> gain — and streams <code>&lt;s&gt;/human_action</code> plus <code>/dagger/intervention=true</code> so the workstation can aggregate <code>(obs, action)</code> pairs.</li>
-        <li><strong>Release:</strong> control returns to the policy.</li>
+        <li><strong>Policy (default):</strong> the workstation policy publishes <code>&lt;s&gt;/policy_action</code>; the node applies it to the followers and back-drives the leaders at the <strong>mirror</strong> gain so a human resting on the handles feels what the policy intends.</li>
+        <li><strong>Intervention (toggled on):</strong> switches <strong>both</strong> arms to human control — each follower tracks its leader, leader back-driven at the <strong>feedback</strong> gain — and streams <code>&lt;s&gt;/human_action</code> plus <code>/dagger/intervention=true</code> so the workstation can aggregate <code>(obs, action)</code> pairs. Press again to return to the policy.</li>
       </ul>
       <p>The two leader gains are separate (<code>control_config.py</code>): <code>--mirror-kp</code> (policy driving, default 0.2) and <code>--feedback-kp</code> (human intervening, default 0.1).</p>
+      <div class="callout">
+        <div class="callout-title">📷 Wrist camera in gravity compensation</div>
+        <p>A wrist-mounted D405 adds mass the model doesn't know about, so the distal joints sag. Set <code>FOLLOWER_PAYLOAD_KG = 0.05</code> (≈50 g) in <code>control_config.py</code> — it adds that mass to the follower's end-effector inertial (<code>ee_mass</code>) for gravity comp, applied identically in teleop, DAgger, and the replay wrapper. (Gravity comp is quasi-static, so only mass &amp; COM matter.)</p>
+      </div>
       <span class="code-label">bash</span>
 <pre><code>python -m i2rt.ros2.run_dagger --sim
 python -m i2rt.ros2.run_dagger --mirror-kp 0.2 --feedback-kp 0.1   # real hardware</code></pre>
