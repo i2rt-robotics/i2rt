@@ -3,6 +3,6 @@ Type=Application
 Name=LinearRailVehicle (Gamepad)
 Comment=Run FlowBase with linear rail (9 motors: 8 base + 1 linear rail) and gamepad teleop
 Exec=lxterminal -e "bash -c '/home/i2rt/i2rt/.venv/bin/python /home/i2rt/i2rt/i2rt/flow_base/flow_base_controller.py --channel can0 --linear-rail --gamepad; echo; echo \"Process finished. Press Enter to close...\"; read'"
-Icon=../i2rt/flow_base/assets/linear_rail.png
+Icon=../i2rt/i2rt/flow_base/assets/linear_rail.png
 Terminal=true
 Categories=Utility;
