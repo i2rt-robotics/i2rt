@@ -34,6 +34,15 @@
 
     <nav>
       <div class="nav-group">
+        <div class="nav-title">Run it — Scenarios</div>
+        <a href="#scenarios">What to run</a>
+        <a href="#sc-setup">One-time setup</a>
+        <a href="#sc-teleop">A · Teleop</a>
+        <a href="#sc-collect">B · Data collection</a>
+        <a href="#sc-dagger">C · DAgger</a>
+        <a href="#sc-replay">D · Replay</a>
+      </div>
+      <div class="nav-group">
         <div class="nav-title">Getting Started</div>
         <a href="#intro">Overview</a>
         <a href="#concepts">Core Concepts</a>
@@ -88,6 +97,82 @@
   <!-- ============ CONTENT ============ -->
   <div class="content-wrap">
     <main>
+
+    <!-- ===================== SCENARIOS (RUNBOOK) ===================== -->
+    <section id="scenarios">
+      <span class="eyebrow">Start here</span>
+      <h1 style="font-size:2.1rem;margin-bottom:6px;">Scenarios — what to run</h1>
+      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the ROS 2 teleop nodes) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects remotely over ROS 2). Two launchers activate the right environment for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. Run the steps in each scenario top to bottom.</p>
+
+      <div class="callout tip">
+        <div class="callout-title">Legend</div>
+        <p><span class="pill real">robot</span> = run on the YAM machine (env <code>i2rt_ros</code>) · <span class="pill sim">workstation</span> = run on the data machine (the LeRobot venv). Both machines must share the same <code>ROS_DOMAIN_ID</code> and network.</p>
+      </div>
+
+      <h3 id="sc-setup">One-time setup</h3>
+      <p><span class="pill real">robot</span> — YAM + ROS 2 (env <code>i2rt_ros</code>), persistent CAN names:</p>
+      <span class="code-label">bash · robot</span>
+<pre><code>conda activate i2rt_ros            # ROS 2 Humble auto-sourced
+sh scripts/setup_can_ids.sh        # plug 4 adapters one-by-one → fixed names
+export ROS_DOMAIN_ID=42            # SAME value on both machines</code></pre>
+      <p><span class="pill sim">workstation</span> — LeRobot env (separate from the robot):</p>
+      <span class="code-label">bash · workstation</span>
+<pre><code>sudo apt install -y ffmpeg                              # LeRobot v3.0 video encoding
+python -m venv ~/lerobot_env --system-site-packages    # so ROS rclpy is visible
+source ~/lerobot_env/bin/activate
+source /opt/ros/&lt;distro&gt;/setup.bash                     # SAME distro as the robot
+pip install -r workstation/lerobot_recorder/requirements.txt
+export ROS_DOMAIN_ID=42                                 # MUST match the robot
+workstation/yam-data cams                               # list RealSense serials</code></pre>
+
+      <h3 id="sc-teleop">A · Bimanual teleop only (no recording)</h3>
+      <span class="code-label">bash · robot</span>
+<pre><code>scripts/yam canup                          # bring up the 4 CAN interfaces (after boot)
+scripts/yam teleop --bilateral-kp 0.15
+# lift both gellos to engage; bring both home to stop &amp; auto-return.</code></pre>
+
+      <h3 id="sc-collect">B · Data collection (teleop + LeRobot recorder) — main flow</h3>
+      <p><strong>1.</strong> <span class="pill real">robot</span> — start teleop (publishes state / <code>applied_action</code> / teleop signals):</p>
+      <span class="code-label">bash · robot</span>
+<pre><code>scripts/yam canup
+scripts/yam teleop --bilateral-kp 0.15</code></pre>
+      <p><strong>2.</strong> <span class="pill sim">workstation</span> — start the recorder GUI:</p>
+      <span class="code-label">bash · workstation</span>
+<pre><code>workstation/yam-data record \
+    --repo-id user/yam_pick --root ~/lerobot_data \
+    --serials &lt;wrist_left_sn&gt;,&lt;wrist_right_sn&gt;,&lt;agentview_sn&gt;</code></pre>
+      <p><strong>3.</strong> In the recorder GUI:</p>
+      <ol>
+        <li>Set <code>repo_id</code> / <code>root</code> / <code>task</code> → <strong>Start</strong> (opens cameras + ROS + dataset).</li>
+        <li><strong>Start collection</strong> (arms the gate).</li>
+        <li>Teleoperate: <strong>lift both gellos</strong> → records; <strong>bring both home</strong> → episode ends and the <strong>review panel</strong> plays it back.</li>
+        <li><strong>Keep</strong> (save) or <strong>Delete</strong> (discard), then repeat.</li>
+        <li><strong>Stop collection</strong>, then close the window (calls <code>finalize()</code> so the dataset is complete).</li>
+      </ol>
+      <div class="callout">
+        <div class="callout-title">Dry run (no hardware)</div>
+        <p><code>workstation/yam-data record --mock</code> — synthetic teleop cycle + fake frames, exercises the whole pipeline with no robot/cameras/lerobot.</p>
+      </div>
+
+      <h3 id="sc-dagger">C · DAgger (policy + human takeover)</h3>
+      <span class="code-label">bash · robot</span>
+<pre><code>scripts/yam canup
+scripts/yam dagger --bilateral-kp 0.15
+# your policy publishes /&lt;arm&gt;/policy_action; press a handle button
+# (or /dagger/intervention_cmd) to take over both arms; release to hand back.</code></pre>
+
+      <h3 id="sc-replay">D · Replay a dataset onto the robot</h3>
+      <p><strong>1.</strong> <span class="pill real">robot</span> — run the wrapper so <code>/&lt;arm&gt;/command</code> drives the followers:</p>
+      <span class="code-label">bash · robot</span>
+<pre><code>scripts/yam canup
+scripts/yam wrapper --arm left:can_follower_l --arm right:can_follower_r</code></pre>
+      <p><strong>2.</strong> <span class="pill sim">workstation</span> — open the replay GUI, then <strong>Load → pick episode → tick "Send to robot" → Play</strong> (it ramps to the first frame, then streams each frame's action):</p>
+      <span class="code-label">bash · workstation</span>
+<pre><code>workstation/yam-data replay --repo-id user/yam_pick --root ~/lerobot_data</code></pre>
+
+      <p style="color:var(--text-faint);font-size:0.92rem;margin-top:18px;">Below: the full codebase reference — architecture, motor/CAN protocol, robot layer, the ROS 2 integration, and the data tools.</p>
+      <hr>
+    </section>
 
     <!-- ===================== INTRO ===================== -->
     <section id="intro">
