@@ -180,19 +180,39 @@ ros2 topic pub /left/command sensor_msgs/msg/JointState \
 
 ## ② Teleop — `run_teleop`
 
-Activates both leader+follower pairs and runs the bilateral teleop loop in
-process, publishing every stream for demonstration recording.
+Activates both leader+follower pairs and drives them with a **single global
+auto-gate** (no per-arm buttons — teleop on/off is always both arms together),
+publishing every stream for demonstration recording.
 
 ```bash
 python -m i2rt.ros2.run_teleop --sim
-python -m i2rt.ros2.run_teleop --bilateral-kp 0.2      # real hardware
+python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real hardware
 ```
 
-- The **handle top button** toggles sync (edge-triggered), exactly like
-  `examples/minimum_gello`. While synced, the follower tracks the leader and the
-  leader is back-driven (`--bilateral-kp`, 0.1–0.2 typical) so the human feels
-  contact forces.
-- Without a handle (e.g. sim), publish `Bool` to `<side>/sync_cmd` to force sync.
+### How the gate works (state machine)
+
+| State | Behavior | Leaves when |
+|-------|----------|-------------|
+| `HOMING`  | robot **and** leaders ramp smoothly to the home pose | ramp reaches home |
+| `IDLE`    | sitting at home, leaders free (gravity-comp) | **both** leaders lifted past `--engage-thr` |
+| `ENGAGED` | followers track leaders (rate-limited, no jump) | **both** leaders back within `--release-thr` of home for `--dwell` s → `HOMING` |
+
+So you just **lift both gellos to start** teleop, and **bring both back to home to
+stop** (the robot and gellos then return home on their own). Hysteresis
+(`engage-thr > release-thr`) prevents chattering. Distance uses the leader *arm*
+joints vs the home arm joints (gripper ignored for gating).
+
+- `--home` — comma-separated home arm joints (default zeros); a 7th value sets the home gripper.
+- `--engage-thr` / `--release-thr` / `--dwell` — gate thresholds (rad / rad / s).
+- `--bilateral-kp` — leader back-drive stiffness while engaged (0.1–0.2 ⇒ force feel).
+- `--home-kp` — gentle leader stiffness used only while homing.
+
+### Reproducible logging
+
+The **exact rate-limited target sent to the robot** is published on
+`<s>/applied_action` every tick — log that (not the raw leader) so a policy
+trained on it reproduces the episode precisely. `/teleop/state` and
+`/teleop/active` tell the logger which phase each sample belongs to.
 
 Topics per side `<s>` ∈ {left, right}:
 
@@ -200,9 +220,19 @@ Topics per side `<s>` ∈ {left, right}:
 |-----|-------|------|
 | pub | `<s>/leader/joint_states`   | `sensor_msgs/JointState` |
 | pub | `<s>/follower/joint_states` | `sensor_msgs/JointState` |
+| pub | `<s>/applied_action`        | `sensor_msgs/JointState` (smoothed command to the robot) |
 | pub | `<s>/buttons`               | `sensor_msgs/Joy` |
-| pub | `<s>/sync`                  | `std_msgs/Bool` |
-| sub | `<s>/sync_cmd`              | `std_msgs/Bool` (external override) |
+
+Global:
+
+| Dir | Topic | Type |
+|-----|-------|------|
+| pub | `/teleop/state`     | `std_msgs/String` (HOMING / IDLE / ENGAGED) |
+| pub | `/teleop/active`    | `std_msgs/Bool` (True iff ENGAGED) |
+| sub | `/teleop/sim_engage`| `std_msgs/Bool` (debug: force ENGAGED in `--sim`) |
+
+> DAgger's gate is likewise **global** — one button (or `/dagger/intervention_cmd`)
+> takes over both arms at once.
 
 ---
 

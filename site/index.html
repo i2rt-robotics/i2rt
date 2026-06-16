@@ -880,18 +880,29 @@ python -m i2rt.ros2.run_wrapper \
       <p>The gripper element is normalized <strong>0 = closed, 1 = open</strong>. A command may be the full vector (<code>num_dofs</code>) or arm-only (<code>num_dofs-1</code>, keeping the current gripper).</p>
 
       <h3 id="ros2-teleop">② Teleop — <code>run_teleop</code></h3>
-      <p>Activates both leader+follower pairs and runs the bilateral loop in process, publishing every stream. The handle's top button toggles sync (edge-triggered, like <code>minimum_gello</code>); while synced the follower tracks the leader and the leader is back-driven (<code>--bilateral-kp</code>) so the human feels contact forces.</p>
-      <span class="code-label">bash</span>
-<pre><code>python -m i2rt.ros2.run_teleop --sim
-python -m i2rt.ros2.run_teleop --bilateral-kp 0.2      # real hardware</code></pre>
+      <p>Activates both pairs and drives them with a <strong>single global auto-gate</strong> (no per-arm buttons — teleop on/off is always both arms together). A state machine returns the robot and gellos to a home pose, watches the leaders' distance from home, and turns teleop on/off automatically:</p>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Dir</th><th>Topic (per side <code>&lt;s&gt;</code> ∈ left/right)</th><th>Type</th></tr></thead>
+        <thead><tr><th>State</th><th>Behavior</th><th>Leaves when</th></tr></thead>
+        <tbody>
+          <tr><td><code>HOMING</code></td><td>robot <strong>and</strong> leaders ramp smoothly to home</td><td>ramp reaches home</td></tr>
+          <tr><td><code>IDLE</code></td><td>at home, leaders free (gravity-comp)</td><td><strong>both</strong> leaders lifted past <code>--engage-thr</code></td></tr>
+          <tr><td><code>ENGAGED</code></td><td>followers track leaders (rate-limited, no jump)</td><td><strong>both</strong> leaders back within <code>--release-thr</code> of home for <code>--dwell</code> s → HOMING</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>So you <strong>lift both gellos to start</strong> and <strong>bring them home to stop</strong> — no button. Crucially, the <strong>exact rate-limited target sent to the robot</strong> is published on <code>&lt;s&gt;/applied_action</code>, so an external node can log it and reproduce the episode precisely (the gating distance uses the leader arm joints vs home; gripper is ignored).</p>
+      <span class="code-label">bash</span>
+<pre><code>python -m i2rt.ros2.run_teleop --sim
+python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real hardware</code></pre>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dir</th><th>Topic (per side <code>&lt;s&gt;</code> ∈ left/right; or global)</th><th>Type</th></tr></thead>
         <tbody>
           <tr><td>pub</td><td><code>&lt;s&gt;/leader/joint_states</code> · <code>&lt;s&gt;/follower/joint_states</code></td><td><code>sensor_msgs/JointState</code></td></tr>
+          <tr><td>pub</td><td><code>&lt;s&gt;/applied_action</code></td><td><code>sensor_msgs/JointState</code> — smoothed command to the robot (log this)</td></tr>
           <tr><td>pub</td><td><code>&lt;s&gt;/buttons</code></td><td><code>sensor_msgs/Joy</code></td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/sync</code></td><td><code>std_msgs/Bool</code></td></tr>
-          <tr><td>sub</td><td><code>&lt;s&gt;/sync_cmd</code></td><td><code>std_msgs/Bool</code> — external override (sim / no handle)</td></tr>
+          <tr><td>pub</td><td><code>/teleop/state</code> · <code>/teleop/active</code></td><td><code>std_msgs/String</code> · <code>std_msgs/Bool</code></td></tr>
         </tbody>
       </table>
       </div>

@@ -35,6 +35,7 @@ class ArmPair:
     leader: object
     follower: object
     base_kp: Optional[np.ndarray] = None  # leader's nominal kp (for bilateral scaling)
+    base_kd: Optional[np.ndarray] = None  # leader's nominal kd (for homing damping)
 
 
 def _robot(channel: str, arm_type: str, gripper: str, sim: bool, zero_gravity: bool) -> Any:
@@ -51,12 +52,13 @@ def build_pair(spec: PairSpec, sim: bool) -> ArmPair:
     """Build one leader (zero-gravity, human-held) + follower (PD) pair."""
     leader = _robot(spec.leader_channel, spec.arm_type, spec.leader_gripper, sim, zero_gravity=True)
     follower = _robot(spec.follower_channel, spec.arm_type, spec.follower_gripper, sim, zero_gravity=False)
-    base_kp = None
-    obs = leader.get_observations()
+    base_kp = base_kd = None
     info = leader.get_robot_info() if hasattr(leader, "get_robot_info") else {}
     if isinstance(info, dict) and "kp" in info:
         base_kp = np.asarray(info["kp"], dtype=float)
-    return ArmPair(side=spec.side, leader=leader, follower=follower, base_kp=base_kp)
+    if isinstance(info, dict) and info.get("kd") is not None:
+        base_kd = np.asarray(info["kd"], dtype=float)
+    return ArmPair(side=spec.side, leader=leader, follower=follower, base_kp=base_kp, base_kd=base_kd)
 
 
 def build_bimanual(specs: List[PairSpec], sim: bool) -> Dict[str, ArmPair]:
@@ -121,6 +123,76 @@ def build_follower_target(follower: Any, arm: np.ndarray, gripper_cmd: Optional[
     if gripper_cmd is None:
         gripper_cmd = float(np.asarray(follower.get_observations()["gripper_pos"], dtype=float).reshape(-1)[0])
     return np.concatenate([arm[: n - 1], [float(gripper_cmd)]])
+
+
+class TeleopStateMachine:
+    """Global (both-arms) auto-gate for teleop, driven by leader distance from home.
+
+    States:
+
+    * ``HOMING``  — robot + leaders ramp to the home pose; leaves once homing is done.
+    * ``IDLE``    — sitting at home, leaders free; waiting for the human to lift them.
+    * ``ENGAGED`` — teleop active; followers track the leaders.
+
+    Transitions (bimanual, decided on *both* arms together, with hysteresis):
+
+    * ``IDLE → ENGAGED``   when **both** leaders are farther than ``engage_thr`` from home.
+    * ``ENGAGED → HOMING`` when **both** leaders are within ``release_thr`` of home,
+      sustained for ``dwell_s`` seconds.
+    * ``HOMING → IDLE``    when the homing ramp has converged (``homing_done``).
+
+    The thresholds use the L2 distance of the leader *arm* joints from the home
+    arm joints (the gripper is ignored for gating).
+    """
+
+    HOMING = "HOMING"
+    IDLE = "IDLE"
+    ENGAGED = "ENGAGED"
+
+    def __init__(self, engage_thr: float, release_thr: float, dwell_s: float):
+        assert engage_thr > release_thr, "engage_thr must exceed release_thr (hysteresis)"
+        self.state = self.HOMING
+        self.engage_thr = float(engage_thr)
+        self.release_thr = float(release_thr)
+        self.dwell_s = float(dwell_s)
+        self._release_since: Optional[float] = None
+
+    def update(self, dists: List[float], homing_done: bool, now: float) -> str:
+        """Advance the state machine one tick and return the new state.
+
+        ``dists`` is the per-arm leader-to-home distance; ``homing_done`` is True
+        once the homing ramp has reached the home pose; ``now`` is a monotonic time
+        in seconds (for the release dwell).
+        """
+        both_away = bool(dists) and all(d > self.engage_thr for d in dists)
+        both_home = bool(dists) and all(d < self.release_thr for d in dists)
+
+        if self.state == self.HOMING:
+            if homing_done:
+                self.state = self.IDLE
+        elif self.state == self.IDLE:
+            if both_away:
+                self.state = self.ENGAGED
+        elif self.state == self.ENGAGED:
+            if both_home:
+                if self._release_since is None:
+                    self._release_since = now
+                elif now - self._release_since >= self.dwell_s:
+                    self.state = self.HOMING
+                    self._release_since = None
+            else:
+                self._release_since = None
+        return self.state
+
+
+def arm_distance(arm_q: np.ndarray, home_arm: np.ndarray) -> float:
+    """L2 distance between a leader's arm joints and the home arm joints."""
+    a = np.asarray(arm_q, dtype=float).reshape(-1)
+    h = np.asarray(home_arm, dtype=float).reshape(-1)
+    n = min(a.size, h.size)
+    if n == 0:
+        return 0.0
+    return float(np.linalg.norm(a[:n] - h[:n]))
 
 
 def default_bimanual_specs(sim: bool) -> List[PairSpec]:
