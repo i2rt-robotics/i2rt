@@ -48,6 +48,30 @@ the prebuilt `rclpy` loads directly — no RoboStack needed.
 All commands below assume `conda activate i2rt_ros`. Add `--sim` to any of them to
 run without hardware (uses `SimRobot`).
 
+### Shortcuts
+
+[`scripts/yam`](../../scripts/yam) activates the env for you and launches a node,
+so you don't type the full `conda activate … && python -m …`:
+
+```bash
+scripts/yam teleop  --sim                 # ② teleop
+scripts/yam dagger  --bilateral-kp 0.15   # ③ dagger
+scripts/yam wrapper --arm left:can_follower_l   # ① wrapper
+scripts/yam can                           # interactive CAN-id setup
+scripts/yam canup                         # reset/bring up CAN at 1 Mbit/s
+```
+
+For even shorter commands, add the aliases once to `~/.bashrc`:
+
+```bash
+echo "source $(pwd)/scripts/ros2_aliases.sh" >> ~/.bashrc && source ~/.bashrc
+# then, from anywhere:
+yam teleop --sim        # or: yam-teleop --sim
+yam-dagger --bilateral-kp 0.15
+```
+
+(Override the env with `I2RT_ENV=my_env scripts/yam …`.)
+
 ---
 
 ## 2. Hardware / CAN setup (real bimanual)

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Convenience launcher for the i2rt ROS 2 nodes.
+#
+# Activates the conda env (default: i2rt_ros, which auto-sources ROS 2 Humble)
+# and runs the requested node, forwarding any extra args.
+#
+#   scripts/yam wrapper [args]   # ① ROS 2 wrapper (followers): state pub + cmd sub
+#   scripts/yam teleop  [args]   # ② bimanual teleop (auto home/engage gate)
+#   scripts/yam dagger  [args]   # ③ HG-DAgger interactive takeover
+#   scripts/yam can              # interactive persistent CAN-id setup
+#   scripts/yam canup            # reset/bring up CAN interfaces at 1 Mbit/s
+#
+# Examples:
+#   scripts/yam teleop --sim
+#   scripts/yam teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0
+#   scripts/yam dagger --bilateral-kp 0.15
+#
+# Override the env with:  I2RT_ENV=my_env scripts/yam teleop ...
+# For short aliases (just `yam teleop`):  source scripts/ros2_aliases.sh
+#
+# Note: no `set -u` — ROS 2's setup.bash references unset vars while sourcing.
+set -eo pipefail
+
+ENV_NAME="${I2RT_ENV:-i2rt_ros}"
+CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
+# shellcheck disable=SC1091
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$ENV_NAME"
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+    wrapper) exec python -m i2rt.ros2.run_wrapper "$@" ;;
+    teleop)  exec python -m i2rt.ros2.run_teleop  "$@" ;;
+    dagger)  exec python -m i2rt.ros2.run_dagger  "$@" ;;
+    can)     exec sh "$REPO/scripts/setup_can_ids.sh" "$@" ;;
+    canup)   exec sh "$REPO/scripts/reset_all_can.sh" "$@" ;;
+    *)
+        echo "usage: yam {wrapper|teleop|dagger|can|canup} [args]" >&2
+        exit 2
+        ;;
+esac

@@ -858,6 +858,7 @@ client.reset_odometry()</code></pre>
       <span class="code-label">bash</span>
 <pre><code>conda activate i2rt_ros          # sources ROS 2 Humble automatically
 python -c "import rclpy, i2rt; print('ready')"</code></pre>
+      <p>Each node runs as <code>python -m i2rt.ros2.run_*</code>, or via the shortcut launcher <code>scripts/yam &lt;node&gt;</code> (which activates the env for you): <code>scripts/yam teleop --sim</code>, <code>scripts/yam dagger</code>, <code>scripts/yam wrapper</code>. Source <code>scripts/ros2_aliases.sh</code> for an even shorter <code>yam teleop</code> alias.</p>
 
       <h3 id="ros2-wrapper">① Wrapper — <code>run_wrapper</code></h3>
       <p>Wraps each <strong>follower</strong> arm as a node. The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; the node only samples state and forwards targets.</p>

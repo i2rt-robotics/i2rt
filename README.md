@@ -140,6 +140,9 @@ conda activate i2rt_ros                    # ROS 2 Humble auto-sourced
 python -m i2rt.ros2.run_wrapper --sim      # ① state publisher + action subscriber
 python -m i2rt.ros2.run_teleop  --sim      # ② bimanual leader-follower teleop
 python -m i2rt.ros2.run_dagger  --sim      # ③ HG-DAgger interactive takeover
+
+# …or the shortcut launcher (activates the env for you):
+scripts/yam teleop --sim                   # also: wrapper / dagger / can / canup
 ```
 
 Targets are rate-limited and gravity compensation is always on, so policy↔human
