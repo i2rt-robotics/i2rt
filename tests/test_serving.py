@@ -43,6 +43,18 @@ def test_controllers_step_sim():
     dc.close()
 
 
+def test_teleop_bilateral_engage_steps():
+    """Engage with bilateral_kp>0 runs through the (fixed) free-until-caught-up path."""
+    tc = TeleopController(TeleopConfig(sim=True, bilateral_kp=0.2))
+    tc.set_sim_engage(True)
+    for _ in range(10):
+        tc.step()
+    snap = tc.snapshot()
+    assert snap["teleop_state"] == "ENGAGED"
+    assert snap["left"]["applied"] is not None
+    tc.close()
+
+
 def test_command_staleness_watchdog():
     """A wrapper follower holds (applied=None) once external commands go stale."""
     ctrl = WrapperController(WrapperConfig(sim=True, rate=100.0, command_timeout=0.2))

@@ -119,6 +119,7 @@ class TeleopConfig:
     bilateral_kp: float = cc.BILATERAL_KP
     rate: float = 120.0
     ramp_speed: float = cc.RAMP_SPEED
+    home_speed: float = cc.HOME_SPEED  # slower ramp for the homing return
     gate_joints: str = ",".join(str(j) for j in cc.GATE_JOINTS)
 
 
@@ -131,6 +132,7 @@ class TeleopController(BaseController):
         self.home_kp = cfg.home_kp
         self.pairs = build_bimanual(default_bimanual_specs(cfg.sim), sim=cfg.sim)
         self._ramp_step = max_step_from_speed(cfg.ramp_speed, cfg.rate)
+        self._home_step = max_step_from_speed(cfg.home_speed, cfg.rate)
         self._gate_joints = [int(x) for x in cfg.gate_joints.split(",") if x.strip() != ""] if cfg.gate_joints else []
         self._caught_up = {s: False for s in self.pairs}
         self._prev_state = TeleopStateMachine.HOMING
@@ -235,13 +237,16 @@ class TeleopController(BaseController):
                         applied = fsm.step(desired)
                         if float(np.max(np.abs(fsm.cur - desired))) < _HOME_TOL:
                             self._caught_up[side] = True
-                    if self.bilateral_kp > 0.0:
+                    # Only back-drive the leader once the follower has CAUGHT UP. Before
+                    # that the follower is still near home while the leader is lifted, so
+                    # back-driving would yank the leader toward home — keep it free instead.
+                    if self.bilateral_kp > 0.0 and self._caught_up[side]:
                         self._drive_leader(pair, np.asarray(pair.follower.get_joint_pos())[: pair.leader.num_dofs()])
                     else:
                         self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
                 elif state == TeleopStateMachine.HOMING:
-                    fsm.max_step = self._ramp_step
+                    fsm.max_step = lsm.max_step = self._home_step  # gentle homing return
                     applied = fsm.step(self.home_full)
                     self._home_leader(pair, lsm.step(self.home_arm))
                 else:  # IDLE

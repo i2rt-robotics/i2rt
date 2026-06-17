@@ -27,6 +27,9 @@ FOLLOWER_KD: Optional[Union[float, List[float]]] = None
 # Only the one-time engage approach and the homing return are rate-limited;
 # steady tracking is direct (uses FOLLOWER_KP/KD above).
 RAMP_SPEED: float = 0.8
+# Homing return speed (rad/s) — kept slower than the engage approach so the robot
+# and leaders ease back to home gently (e.g. after a leader "end episode" button).
+HOME_SPEED: float = 0.4
 
 # --- Engage / release gate ---------------------------------------------------
 ENGAGE_THR: float = 0.6

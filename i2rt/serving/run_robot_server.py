@@ -40,6 +40,7 @@ def main() -> None:
     pt.add_argument("--bilateral-kp", type=float, default=cc.BILATERAL_KP)
     pt.add_argument("--rate", type=float, default=120.0)
     pt.add_argument("--ramp-speed", type=float, default=cc.RAMP_SPEED)
+    pt.add_argument("--home-speed", type=float, default=cc.HOME_SPEED, help="rad/s for the (gentle) homing return")
     pt.add_argument("--gate-joints", default=",".join(str(j) for j in cc.GATE_JOINTS))
 
     pd = sub.add_parser("dagger", help="HG-DAgger policy + button takeover")
@@ -73,6 +74,7 @@ def main() -> None:
                 bilateral_kp=args.bilateral_kp,
                 rate=args.rate,
                 ramp_speed=args.ramp_speed,
+                home_speed=args.home_speed,
                 gate_joints=args.gate_joints,
             )
         )
