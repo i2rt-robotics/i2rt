@@ -25,6 +25,8 @@ dependencies = [
     "threadpoolctl==3.6.0",
     "tyro==0.9.26",
     "viser>=0.2.0",
+    # USB-to-GPIO converter for the linear-rail brake + limit switches on x86/non-Pi hosts.
+    "pyserial>=3.5",
     # Raspberry Pi GPIO (linear-rail brake + limit switches). Pi-only via PEP 508 markers.
     # rpi-lgpio is a drop-in for `from RPi import GPIO` that works on Pi 5 (BCM2712);
     # legacy RPi.GPIO fails with "cannot determine peripheral soc base addr" on Pi 5.

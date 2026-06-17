@@ -5,10 +5,10 @@ import time
 from typing import Any, Dict, Literal, Optional
 
 import numpy as np
-from RPi import GPIO
 
 from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 from i2rt.motor_drivers.utils import MotorInfo
+from i2rt.utils.usb_gpio_driver import get_gpio_backend, is_raspberry_pi
 
 # configure logging
 logging.basicConfig(
@@ -25,6 +25,30 @@ LOWER_LIMIT_GPIO = 6  # Lower limit GPIO
 HOMING_SPEED_RATIO = 0.5
 HOMING_TIMEOUT = 30.0  # Timeout for homing procedure in seconds
 COMMAND_TIMEOUT = 0.25  # Timeout for command stream (2.5 * POLICY_CONTROL_PERIOD, where POLICY_CONTROL_PERIOD = 0.1s)
+
+# Mapping from the BCM pin constants above to the USB-GPIO converter's 1-based
+# channels (linearbot wiring). Used only on x86; ignored on the Raspberry Pi,
+# where get_gpio_backend() returns the native RPi.GPIO module.
+USB_GPIO_CHANNEL_MAP = {
+    UPPER_LIMIT_GPIO: 1,  # GPIO5  -> converter channel 1 (upper limit)
+    LOWER_LIMIT_GPIO: 2,  # GPIO6  -> converter channel 2 (lower limit)
+    BRAKE_CONTROL_GPIO: 3,  # GPIO12 -> converter channel 3 (brake)
+}
+
+# On a Raspberry Pi (ARM) this is the native RPi.GPIO module and behavior is
+# unchanged. On x86 it is a USB-to-GPIO serial backend (default /dev/ttyUSB0)
+# emulating the same surface; all GPIO.* calls below work unchanged on both.
+GPIO = get_gpio_backend(pin_map=USB_GPIO_CHANNEL_MAP)
+
+
+def set_usb_gpio_device(device: str) -> None:
+    """Point the USB-GPIO backend at ``device`` (x86). No-op on a Raspberry Pi.
+
+    Must be called before ``initialize_brake_gpio()`` / ``initialize_gpio()``
+    opens the serial port.
+    """
+    if hasattr(GPIO, "set_port"):  # backend on x86; the RPi.GPIO module has no set_port
+        GPIO.set_port(device)
 
 
 def initialize_brake_gpio() -> None:
@@ -456,10 +480,34 @@ class LinearRailController:
             "motor_state": motor_state,
         }
 
+    def _warn_if_brake_not_released(self) -> None:
+        """Warn (without blocking) if the brake line doesn't read released before motion.
+
+        Raspberry-Pi only: there ``GPIO.input()`` on the brake output pin is a safe,
+        reliable register read. On the USB-GPIO converter (x86) the read is unreliable
+        for an output channel and uses a read-as-input command that can momentarily
+        disturb the brake drive, so the check is skipped (the brake command is already
+        confirmed there via its 0x2A echo; see usb_gpio_driver / commit 531066b).
+        """
+        if not is_raspberry_pi():
+            return
+        try:
+            if GPIO.input(BRAKE_CONTROL_GPIO) != GPIO.HIGH:
+                logger.warning(
+                    f"Brake line (GPIO {BRAKE_CONTROL_GPIO}) does not read released (HIGH) "
+                    "before a motor command; commanding anyway"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to read brake line (GPIO {BRAKE_CONTROL_GPIO}) for sanity check: {e}")
+
     def set_velocity(self, vel: float) -> None:
         """Set the velocity of the linear rail, unit in rad/s (motor velocity)"""
         assert self.initialized, "Linear rail must be initialized before setting velocity"
         assert not self.brake_on, "Brake must be released before setting velocity"
+
+        # Sanity-check the brake actually reads released before driving the motor.
+        if vel != 0.0:
+            self._warn_if_brake_not_released()
 
         with self._lock:
             current_time = time.time()

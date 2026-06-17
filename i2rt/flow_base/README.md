@@ -17,7 +17,7 @@ Follow the detailed visual documentation provided in this [unboxing guide](https
 1. Install the battery and turn on the base
 2. The screen will light up and the Raspberry Pi will begin booting
 3. Verify the **E-stop** is **not pressed**
-4. Ensure the **CAN bus selection switch** is in the **UP position**
+4. Ensure the **CAN bus selection switch** is in the **IN position**
 
 <p align="center">
   <img src="assets/flow_base_panel.jpg" alt="Flow Base Control Panel" width="50%">
@@ -212,14 +212,48 @@ hard caps `1.0 / 1.0 / π / 1.0` (values outside `(0, cap]` raise `ValueError`).
 To control the base without the built-in Raspberry Pi:
 
 1. Connect your external CAN device to the CAN external connector
-2. Set the CAN selector switch to the **DOWN position**
+2. Set the CAN selector switch to the **OUT position**
 3. Clone the i2rt repository on your external computer
-4. Control the base directly through your external system
+4. Install the udev rules so the CAN interface is auto-configured on connect:
+   ```bash
+   sudo devices/install_devices.sh
+   ```
+   This installs `devices/rules/flow_base.rules` into `/etc/udev/rules.d/`, which loads the `gs_usb` driver and brings the CAN interface up at 1 Mbit/s.
+5. Control the base directly through your external system
+
+### Linear Rail on x86 / non-Pi hosts (USB-GPIO converter)
+
+On the built-in Raspberry Pi the linear rail's brake and limit switches use the Pi's native GPIO — no setup required. On an x86 / non-Pi host they are driven through a **bestep USB-to-16-channel GPIO converter** (hardware id `ZT-DPI/SY`) on a serial port. The backend is auto-selected from `platform.machine()`, so the control code is identical on both platforms.
+
+<p align="center">
+  <img src="assets/usb-gpio.jpg" alt="bestep USB-to-16-channel GPIO converter wired to the linear-rail limit switches and brake" width="50%">
+</p>
+
+- `--device` is required on an x86 / non-Pi host whenever `--linear-rail` is set; on the Raspberry Pi it is not needed (native GPIO) and is ignored, e.g.
+  ```bash
+  python i2rt/flow_base/flow_base_controller.py --linear-rail --device /dev/ttyUSB0
+  ```
+  (The `I2RT_USB_GPIO_PORT` env var also works for programmatic use; the flag wins.)
+- Converter channel wiring: **channel 1 = upper limit switch, channel 2 = lower limit switch, channel 3 = brake**.
+- Requires `pyserial` (installed with the package).
+
+Wiring (the `BCM N` are the controller's logical pins, mapped to converter channels by `USB_GPIO_CHANNEL_MAP`):
+
+```text
+x86 host --[USB 115200 8N1]--> bestep USB-to-16ch GPIO converter (ZT-DPI/SY),
+                               enumerates as /dev/ttyUSB0
+                               |
+                               +-- 3.3V --> upper/lower limit switches (common)
+                               +-- ch1  --> upper limit switch   (BCM 5)
+                               +-- ch2  --> lower limit switch   (BCM 6)
+                               +-- ch3  --> brake control signal (BCM 12)
+                               +-- GND  --> brake driver GND
+```
 
 ## Troubleshooting
 
 - **Remote unresponsive**: Toggle remote off and on to wake from sleep
 - **Slow boot**: Screen firmware causes delays, but SSH access is available quickly
 - **Inaccurate odometry**: Expected with wheel-based systems, especially during aggressive movements
-- **Linear rail not homing**: Check GPIO connections and limit switches. Ensure brake is released
+- **Linear rail not homing**: Check GPIO connections and limit switches. Ensure brake is released. On x86, confirm the USB-GPIO converter is on the path given by `--device` (default `/dev/ttyUSB0`) and that `pyserial` is installed
 - **Linear rail stuck at limit**: Check limit switch state. Use `get_linear_rail_state()` to verify switch status
