@@ -33,6 +33,9 @@ def test_recorder_records_episode_and_outcome(tmp_path):
     assert captured, "gate never produced a pending episode"
     assert "ENGAGED" in seen and "IDLE" in seen
     assert rec.writer.num_episodes >= 1  # worker saved it off the queue
+    final = rec.get_status()
+    assert final["kept"] >= 1 and final["success"] >= 1  # live stats counted the keep
+    assert final["robot_ok"] is True  # mock bridge reports connected
 
     sidecar = tmp_path / "outcomes.jsonl"
     assert sidecar.exists()

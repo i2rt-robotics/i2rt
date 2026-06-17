@@ -80,7 +80,8 @@ def default_cameras() -> List[CameraSpec]:
 class RecorderConfig:
     repo_id: str = "user/yam_bimanual"
     root: str = "~/lerobot_data"
-    task: str = "do the task"  # language instruction (per session; editable in GUI)
+    task: str = "do the task"  # ACTIVE language instruction (persists until changed)
+    tasks: List[str] = field(default_factory=list)  # quick-switch templates shown in the GUI
     fps: int = 60  # dataset / record-loop rate (matched to the 60 fps cameras)
     robot_type: str = "yam_bimanual"
     use_videos: bool = True

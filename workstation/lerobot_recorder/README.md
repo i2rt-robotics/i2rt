@@ -239,9 +239,16 @@ Dry run: `workstation/yam-data replay --mock`.
   (one at a time), so LeRobot's per-trajectory encoding never blocks the next
   collection. The GUI shows the pending `queue` depth.
 - **Labeling**: in the review panel use the mouse, **keyboard** ([S] keep success,
-  [F] keep fail, [D] delete), or the **leader handle buttons** — button 1 = success,
-  2 = fail, 0 = discard. A label button also starts homing on the robot, so one
-  press ends + labels + saves the trajectory (records through the homing return).
+  [F] keep fail, [D] delete, [space] toggle collection), or the **leader handle
+  buttons** — button 1 = success, 2 = fail, 0 = discard. A label button also starts
+  homing on the robot, so one press ends + labels + saves (records through homing).
+- **Operator UI**: a big color status **banner** (IDLE/ARMED/REC/REVIEW/fault), a
+  **health strip** (robot link · cameras · save queue), **live stats** (kept ✓/✗,
+  discarded, success rate), **audio cues** (start, keep/fail/delete, fault), and a
+  review **scrubber** — so you can collect while watching the robot.
+- **Task templates**: `--tasks "pick the cube; stack the blocks; open the drawer"`
+  gives a quick-switch dropdown; the active task **persists until you change it**
+  (editable — type a new one on the fly).
 - **Eval rollouts**: `--source eval` records a continuous policy rollout from
   Start to Stop (action = the executed command, labeled policy/intervention) — for
   saving evaluation episodes as datasets.

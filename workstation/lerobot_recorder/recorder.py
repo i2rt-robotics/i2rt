@@ -61,6 +61,11 @@ class Recorder:
             "frames": 0,
             "queue": 0,
             "cam_ok": True,
+            "robot_ok": False,
+            "kept": 0,
+            "success": 0,
+            "fail": 0,
+            "discarded": 0,
         }
         self._last_images: dict = {}
         self._pending = False
@@ -120,13 +125,14 @@ class Recorder:
         (or holds it for review); otherwise it just stops the gate and drops partials."""
         self.gate.disarm()
         if self._eval:
-            if self._btn_outcome == "discard" or not self._episode:
+            if self._btn_outcome == "discard":
+                self._discard_episode(counted=True)
+            elif not self._episode:
                 self._discard_episode()
             elif self.cfg.review_before_save and self._btn_outcome is None:
                 self._pending = True
             else:
-                self.writer.submit(self._episode, self._btn_outcome, self.cfg.task)
-                self._episode, self._preview = [], []
+                self._submit(self._btn_outcome)
             self._set(armed=False, recording=False, pending=self._pending, queue=self.writer.queue_depth)
             return
         if self._pending:
@@ -136,17 +142,28 @@ class Recorder:
     def keep_episode(self, outcome: Optional[str] = None) -> None:
         """Review decision: keep the pending episode (submit it), with an optional outcome label."""
         if self._pending and self.writer is not None:
-            self.writer.submit(self._episode, outcome, self.cfg.task)
-            self._episode, self._preview, self._pending = [], [], False
+            self._submit(outcome)
             self._set(pending=False, episodes=self.writer.num_episodes, frames=0, queue=self.writer.queue_depth)
 
     def delete_episode(self) -> None:
         """Review decision: discard the pending episode."""
         if self._pending:
-            self._discard_episode()
+            self._discard_episode(counted=True)
             self._set(pending=False, frames=0)
 
-    def _discard_episode(self) -> None:
+    def _submit(self, outcome: Optional[str]) -> None:
+        """Hand the buffered episode to the writer queue and update live stats."""
+        self.writer.submit(self._episode, outcome, self.cfg.task)
+        with self._lock:
+            self._status["kept"] += 1
+            if outcome in ("success", "fail"):
+                self._status[outcome] += 1
+        self._episode, self._preview, self._pending = [], [], False
+
+    def _discard_episode(self, *, counted: bool = False) -> None:
+        if counted:
+            with self._lock:
+                self._status["discarded"] += 1
         self._episode, self._preview, self._pending = [], [], False
 
     def shutdown(self) -> None:
@@ -219,6 +236,7 @@ class Recorder:
                 frames=len(self._episode),
                 queue=self.writer.queue_depth,
                 cam_ok=self.cameras.healthy,
+                robot_ok=self.robot.connected,
             )
             return
 
@@ -235,15 +253,13 @@ class Recorder:
             if not self._episode:
                 pass  # nothing recorded
             elif self._btn_outcome == "discard":
-                self._discard_episode()  # leader discard button: end without saving
+                self._discard_episode(counted=True)  # leader discard button: end without saving
             elif self._btn_outcome is not None:
-                self.writer.submit(self._episode, self._btn_outcome, self.cfg.task)  # button auto-label+save
-                self._episode, self._preview = [], []
+                self._submit(self._btn_outcome)  # button auto-label+save
             elif self.cfg.review_before_save:
                 self._pending = True  # hold for Keep/Delete
             else:
-                self.writer.submit(self._episode, None, self.cfg.task)
-                self._episode, self._preview = [], []
+                self._submit(None)
 
         self._set(
             armed=self.gate.armed,
@@ -254,6 +270,7 @@ class Recorder:
             frames=len(self._episode),
             queue=self.writer.queue_depth,
             cam_ok=self.cameras.healthy,
+            robot_ok=self.robot.connected,
         )
 
     def _scan_buttons(self, snap: dict) -> None:

@@ -43,6 +43,12 @@ class PortalBridge:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._client = None
+        self._connected = False
+
+    @property
+    def connected(self) -> bool:
+        """True once the robot server has answered (always True in mock)."""
+        return self.cfg.mock or self._connected
 
     # ------------------------------------------------------------------ public
     def start(self) -> None:
@@ -73,8 +79,10 @@ class PortalBridge:
                 obs = self._client.get_observation()
                 with self._lock:
                     self._snap = self._assemble(obs)
+                self._connected = True
             except Exception:
                 self._client = None  # drop and retry next tick
+                self._connected = False
             time.sleep(period)
 
     @staticmethod

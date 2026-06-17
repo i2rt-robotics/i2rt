@@ -19,7 +19,12 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset recorder")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
-    p.add_argument("--task", default="do the task", help="language instruction")
+    p.add_argument("--task", default="do the task", help="active language instruction")
+    p.add_argument(
+        "--tasks",
+        default="",
+        help="';'-separated task templates for quick switching in the GUI (active task persists)",
+    )
     p.add_argument("--fps", type=int, default=60)
     p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server)")
     p.add_argument("--robot-port", type=int, default=11331)
@@ -45,10 +50,13 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
         for cam, serial in zip(cams, serials, strict=False):
             cam.serial = serial
 
+    tasks = [t.strip() for t in args.tasks.split(";") if t.strip()]
+
     return RecorderConfig(
         repo_id=args.repo_id,
         root=args.root,
         task=args.task,
+        tasks=tasks,
         fps=args.fps,
         cameras=cams,
         robot_host=args.robot_host,
