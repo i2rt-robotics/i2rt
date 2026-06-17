@@ -66,6 +66,11 @@ class RecorderConfig:
     # Robot link: the YAM robot machine running i2rt.serving.run_robot_server (portal).
     robot_host: str = "127.0.0.1"
     robot_port: int = 11331
+    # What drives episode gating + the recorded action:
+    #   "teleop" -> gate on teleop_state (ENGAGED..IDLE), action = applied command
+    #   "dagger" -> gate on intervention (HG-DAgger), action = human (leader) action
+    record_source: str = "teleop"
+    resume: bool = False  # append to an existing dataset at `root` instead of creating a new one
     mock: bool = False  # synthetic cameras + teleop stream (no hardware / robot)
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback

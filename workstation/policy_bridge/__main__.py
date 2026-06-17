@@ -29,6 +29,7 @@ def main() -> None:
     p.add_argument("--rate", type=float, default=30.0)
     p.add_argument("--image-size", type=int, default=224)
     p.add_argument("--prompt", default="do the task")
+    p.add_argument("--no-async", action="store_true", help="disable action-chunk prefetch (query synchronously)")
     p.add_argument("--serials", default="", help="comma-separated RealSense serials: wrist_left,wrist_right,agentview")
     p.add_argument("--mock", action="store_true", help="synthetic cameras (no RealSense)")
     args = p.parse_args()
@@ -48,6 +49,7 @@ def main() -> None:
         rate_hz=args.rate,
         image_size=args.image_size,
         prompt=args.prompt,
+        use_async=not args.no_async,
     )
     PolicyBridge(cfg, recorder_cfg).run()
 

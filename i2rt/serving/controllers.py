@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from i2rt.serving import control_config as cc
-from i2rt.serving.safety import TargetSmoother, is_finite_vector, max_step_from_speed
+from i2rt.serving.safety import TargetSmoother, clamp_limits, is_finite_vector, max_step_from_speed
 from i2rt.serving.state_utils import full_state, to_full_target
 from i2rt.serving.teleop_common import (
     ArmPair,
@@ -58,6 +58,7 @@ class BaseController:
     """
 
     mode = "base"
+    _estop = False
 
     def snapshot(self) -> Dict:
         with self._lock:
@@ -65,6 +66,22 @@ class BaseController:
 
     def metadata(self) -> Dict:
         return dict(self._metadata)
+
+    def set_estop(self, flag: bool) -> None:
+        """Engage/release the e-stop. While engaged, no follower commands are sent."""
+        self._estop = bool(flag)
+
+    def _apply(self, robot: Any, target: np.ndarray) -> Optional[list]:
+        """Clamp ``target`` to the workspace limits and command it — unless e-stopped.
+
+        Returns the commanded target as a list (for the snapshot), or None when
+        e-stopped (the follower simply holds its last command).
+        """
+        if self._estop:
+            return None
+        target = clamp_limits(target, cc.FOLLOWER_JOINT_LIMITS)
+        robot.command_joint_pos(target)
+        return np.asarray(target, dtype=float).tolist()
 
     def set_policy_action(self, data: Dict) -> None: ...
     def set_intervention(self, flag: bool) -> None: ...
@@ -211,12 +228,12 @@ class TeleopController(BaseController):
                     self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
 
-                pair.follower.command_joint_pos(applied)
+                applied_list = self._apply(pair.follower, applied)
                 snap = _side_state(pair.follower)
                 snap["leader_pos"] = np.asarray(pair.leader.get_joint_pos(), dtype=float).tolist()
                 snap["buttons"] = list(buttons[side])
                 snap["gripper_cmd"] = float(grip[side]) if grip[side] is not None else 0.0
-                snap["applied"] = np.asarray(applied, dtype=float).tolist() if applied is not None else None
+                snap["applied"] = applied_list
                 sides_snap[side] = snap
             except Exception as e:
                 logger.warning("[%s] teleop step failed: %s", side, e)
@@ -227,6 +244,7 @@ class TeleopController(BaseController):
                 "t": now,
                 "teleop_state": state,
                 "active": state == TeleopStateMachine.ENGAGED,
+                "estop": self._estop,
                 **sides_snap,
             }
         self._prev_state = state
@@ -365,8 +383,7 @@ class DaggerController(BaseController):
 
                 if desired is not None:
                     target = smoother.step(desired)
-                    pair.follower.command_joint_pos(target)
-                    applied = target
+                    applied = self._apply(pair.follower, target)
                 else:
                     smoother.reset(pair.follower.get_joint_pos())
 
@@ -374,14 +391,20 @@ class DaggerController(BaseController):
                 snap["leader_pos"] = np.asarray(pair.leader.get_joint_pos(), dtype=float).tolist()
                 snap["buttons"] = list(buttons[side])
                 snap["gripper_cmd"] = float(grip_cmd[side]) if grip_cmd[side] is not None else 0.0
-                snap["applied"] = np.asarray(applied, dtype=float).tolist() if applied is not None else None
+                snap["applied"] = applied
                 snap["human"] = np.asarray(human, dtype=float).tolist() if human is not None else None
                 sides_snap[side] = snap
             except Exception as e:
                 logger.warning("[%s] dagger step failed: %s", side, e)
 
         with self._lock:
-            self._snap = {"mode": self.mode, "t": now, "intervention": bool(self._intervening), **sides_snap}
+            self._snap = {
+                "mode": self.mode,
+                "t": now,
+                "intervention": bool(self._intervening),
+                "estop": self._estop,
+                **sides_snap,
+            }
 
     def _drive_leader(self, pair: ArmPair, target_q: np.ndarray, kp_scale: float) -> None:
         leader = pair.leader
@@ -467,17 +490,16 @@ class WrapperController(BaseController):
             try:
                 cmd = self._command[side]
                 if is_finite_vector(cmd, follower.num_dofs()):
-                    applied = smoother.step(cmd)
-                    follower.command_joint_pos(applied)
+                    applied = self._apply(follower, smoother.step(cmd))
                 else:
                     smoother.reset(follower.get_joint_pos())
                 snap = _side_state(follower)
-                snap["applied"] = np.asarray(applied, dtype=float).tolist() if applied is not None else None
+                snap["applied"] = applied
                 sides_snap[side] = snap
             except Exception as e:
                 logger.warning("[%s] wrapper step failed: %s", side, e)
         with self._lock:
-            self._snap = {"mode": self.mode, "t": now, **sides_snap}
+            self._snap = {"mode": self.mode, "t": now, "estop": self._estop, **sides_snap}
 
     def close(self) -> None:
         for f in self.followers.values():

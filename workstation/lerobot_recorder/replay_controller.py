@@ -23,7 +23,9 @@ from workstation.lerobot_recorder.dataset_reader import DatasetReader
 
 
 class ReplayController:
-    def __init__(self, reader: DatasetReader, cfg: RecorderConfig, on_frame: Optional[Callable[[int], None]] = None) -> None:
+    def __init__(
+        self, reader: DatasetReader, cfg: RecorderConfig, on_frame: Optional[Callable[[int], None]] = None
+    ) -> None:
         self.reader = reader
         self.cfg = cfg
         self.on_frame = on_frame

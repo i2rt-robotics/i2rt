@@ -63,7 +63,14 @@ def main() -> None:
     logging.info("Loading policy %s with config %s", args.policy, config)
     policy = load_policy(args.policy, config)
 
+    # Advertise the obs/action spec so the bridge can self-configure (action_horizon,
+    # image keys/size). A policy declares these via attributes / an `obs_spec` dict.
     metadata = {"policy": args.policy, "config": {k: str(v) for k, v in config.items()}}
+    if hasattr(policy, "action_horizon"):
+        metadata["action_horizon"] = int(policy.action_horizon)
+    if isinstance(getattr(policy, "obs_spec", None), dict):
+        metadata.update(policy.obs_spec)
+
     server = WebsocketPolicyServer(policy, host=args.host, port=args.port, metadata=metadata)
     server.serve_forever()
 

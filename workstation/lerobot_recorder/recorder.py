@@ -1,10 +1,10 @@
-"""Recorder orchestrator — cameras + ROS bridge + episode gate + dataset writer.
+"""Recorder orchestrator — cameras + portal bridge + episode gate + dataset writer.
 
 Runs a fixed-rate loop (``cfg.fps``, 60 Hz to match the cameras). Each tick it
-grabs the latest camera frames and the latest ROS snapshot, lets the
-:class:`EpisodeGate` decide start/record/stop from ``/teleop/state``, and writes
-frames accordingly. Recording auto-starts on ENGAGED and (when review is off)
-auto-saves when homing returns to IDLE.
+grabs the latest camera frames and the latest robot snapshot (polled over portal),
+lets the :class:`EpisodeGate` decide start/record/stop from the ``teleop_state``,
+and writes frames accordingly. Recording auto-starts on ENGAGED and (when review
+is off) auto-saves when homing returns to IDLE.
 
 Review/delete: with ``review_before_save`` (default) each finished episode is held
 unsaved in a PENDING state; the GUI plays back the buffered camera and the user
@@ -40,8 +40,13 @@ class Recorder:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._status = {
-            "running": False, "armed": False, "recording": False,
-            "pending": False, "teleop": "—", "episodes": 0, "frames": 0,
+            "running": False,
+            "armed": False,
+            "recording": False,
+            "pending": False,
+            "teleop": "—",
+            "episodes": 0,
+            "frames": 0,
         }
         self._last_images: dict = {}
         self._pending = False
@@ -73,10 +78,10 @@ class Recorder:
             self._discard_pending()
         self._set(armed=False, recording=False, pending=False)
 
-    def keep_episode(self) -> None:
-        """Review decision: keep the pending episode (save it)."""
+    def keep_episode(self, outcome: Optional[str] = None) -> None:
+        """Review decision: keep the pending episode (save it), with an optional outcome label."""
         if self._pending and self.writer is not None:
-            self.writer.save_episode()
+            self.writer.save_episode(outcome=outcome)
             self._pending = False
             self._preview = []
             self._set(pending=False, episodes=self.writer.num_episodes, frames=0)

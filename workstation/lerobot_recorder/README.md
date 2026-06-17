@@ -183,8 +183,17 @@ workstation/yam-data bridge \
 # press a handle button (or RobotClient.set_intervention) to take over both arms.
 ```
 
-You can record DAgger interventions by also running the recorder against the same
-dagger server (it logs `applied` as the action and `intervention` in the gate).
+**Collect HG-DAgger data** by running the recorder against the same dagger server
+with `--source dagger`: an episode = one intervention segment, and the recorded
+action is the **human (leader) action** (`observation.state` is the follower state):
+
+```bash
+# [workstation]  (while the dagger server runs and you take over via the handle)
+workstation/yam-data record --source dagger --robot-host <ROBOT_IP> \
+    --repo-id user/yam_dagger --serials A,B,C
+```
+
+This closes the loop: train → deploy (bridge) → intervene → collect → retrain.
 
 ## D. Replay a dataset onto the robot
 
@@ -216,6 +225,11 @@ Dry run: `workstation/yam-data replay --mock`.
   `config.py` (`CameraSpec`); the record loop tolerates it (grab-latest).
 - `lerobot`'s API can shift between releases — the version-sensitive calls are
   isolated in `dataset_writer.py` and `dataset_reader.py`.
+- **Outcome labels**: in the recorder GUI, **Keep (success)** / **Keep (fail)** tag
+  each episode; the label + task + frame count are appended to `outcomes.jsonl` in
+  the dataset root (a sidecar, since LeRobot has no per-episode label slot).
+- **Resume**: `--resume` appends to an existing dataset at `--root` instead of
+  creating a new one (episode indices continue).
 - The robot link is the snapshot contract in
   [`i2rt/serving/README.md`](../../i2rt/serving/README.md); the policy link is in
   [`policy_serving/README.md`](../../policy_serving/README.md).

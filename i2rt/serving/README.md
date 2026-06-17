@@ -54,7 +54,13 @@ obs = robot.get_observation()            # {"left": {pos,vel,eff,...}, "right": 
 robot.command({"left": q_l, "right": q_r})        # wrapper/replay: direct follower target
 robot.set_policy_action({"left": q_l, "right": q_r})  # dagger: policy target
 robot.set_intervention(True)             # dagger: external gate override
+robot.set_estop(True)                    # network e-stop: hold, ignore all commands
 ```
+
+**Safety:** `set_estop(True)` makes every controller stop commanding the followers
+(they hold their last pose) until released. Every commanded target is also clamped
+to `control_config.FOLLOWER_JOINT_LIMITS` (optional per-joint `[lo, hi]`). The
+snapshot carries `estop` so clients can display it.
 
 ## Snapshot schema (`get_observation()`)
 

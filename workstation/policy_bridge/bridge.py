@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 import numpy as np
-from yam_policy import ActionChunkBroker, WebsocketClientPolicy, image_tools
+from yam_policy import ActionChunkBroker, AsyncActionChunkBroker, WebsocketClientPolicy, image_tools
 
 from workstation.lerobot_recorder.cameras import CameraManager
 from workstation.lerobot_recorder.config import ARM_DOF, ARMS, RecorderConfig
@@ -46,6 +46,7 @@ class BridgeConfig:
     rate_hz: float = 30.0
     image_size: int = 224
     prompt: str = "do the task"
+    use_async: bool = True  # prefetch the next action chunk to hide inference latency
     # camera role -> obs key sent to the policy (align to your policy's config)
     image_keys: Dict[str, str] = field(
         default_factory=lambda: {
@@ -63,10 +64,19 @@ class PolicyBridge:
         self.cfg = cfg
         self.cameras = CameraManager(recorder_cfg)
         self.robot = RobotClient(host=cfg.robot_host, port=cfg.robot_port)
-        self.policy = ActionChunkBroker(
-            WebsocketClientPolicy(host=cfg.policy_host, port=cfg.policy_port),
-            action_horizon=cfg.action_horizon,
-        )
+
+        client = WebsocketClientPolicy(host=cfg.policy_host, port=cfg.policy_port)
+        # Let the server's metadata override the obs/action spec so we don't have to
+        # hand-match action_horizon / image keys / image size to the policy.
+        meta = client.get_server_metadata() or {}
+        self.action_horizon = int(meta.get("action_horizon", cfg.action_horizon))
+        self.image_keys = meta.get("image_keys", cfg.image_keys)
+        self.image_size = int(meta.get("image_size", cfg.image_size))
+        if meta:
+            logger.info("policy server metadata: %s", meta)
+
+        broker_cls = AsyncActionChunkBroker if cfg.use_async else ActionChunkBroker
+        self.policy = broker_cls(client, action_horizon=self.action_horizon)
         self._stop = False
 
     # ---- obs assembly -------------------------------------------------------
@@ -78,9 +88,9 @@ class PolicyBridge:
                 return {}
             state_parts.append(np.asarray(side["pos"], dtype=np.float32))
         obs = {"observation/state": np.concatenate(state_parts), "prompt": self.cfg.prompt}
-        for role, key in self.cfg.image_keys.items():
+        for role, key in self.image_keys.items():
             if role in images:
-                img = image_tools.resize_with_pad(images[role], self.cfg.image_size, self.cfg.image_size)
+                img = image_tools.resize_with_pad(images[role], self.image_size, self.image_size)
                 obs[key] = image_tools.convert_to_uint8(img)
         return obs
 

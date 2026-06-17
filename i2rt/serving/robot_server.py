@@ -43,6 +43,7 @@ class RobotServer:
         self._server.bind("set_intervention", self.controller.set_intervention)
         self._server.bind("command", self.controller.command)
         self._server.bind("set_sim_engage", self.controller.set_sim_engage)
+        self._server.bind("set_estop", self.controller.set_estop)
         self._stop = threading.Event()
 
     def serve(self) -> None:

@@ -95,7 +95,9 @@ class ReplayGUI(QtWidgets.QWidget):
     def _on_load(self) -> None:
         self.cfg.repo_id = self.repo_edit.text().strip()
         self.cfg.root = self.root_edit.text().strip()
-        self.reader = DatasetReader(self.cfg.repo_id, self.cfg.root, display_cam=self.cfg.review_cam, mock=self.cfg.mock)
+        self.reader = DatasetReader(
+            self.cfg.repo_id, self.cfg.root, display_cam=self.cfg.review_cam, mock=self.cfg.mock
+        )
         try:
             self.reader.load()
             self.controller = ReplayController(self.reader, self.cfg)
@@ -104,7 +106,9 @@ class ReplayGUI(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Load failed", str(e))
             return
         self.episode_cb.clear()
-        self.episode_cb.addItems([f"ep {e}  ({self.reader.episode_length(e)} frames)" for e in range(self.reader.num_episodes)])
+        self.episode_cb.addItems(
+            [f"ep {e}  ({self.reader.episode_length(e)} frames)" for e in range(self.reader.num_episodes)]
+        )
         for w in (self.episode_cb, self.play_btn, self.pause_btn, self.stop_btn, self.send_cb, self.speed):
             w.setEnabled(True)
         self.status.setText(f"loaded {self.reader.num_episodes} episodes @ {self.reader.fps} fps")
@@ -122,7 +126,9 @@ class ReplayGUI(QtWidgets.QWidget):
         self.slider.setMaximum(max(self.reader.episode_length(e) - 1, 0))
         self.controller.set_speed(self.speed.value())
         if self.send_cb.isChecked():
-            QtWidgets.QMessageBox.information(self, "Replay", "Sending to robot. Ensure the wrapper is running and the area is clear.")
+            QtWidgets.QMessageBox.information(
+                self, "Replay", "Sending to robot. Ensure the wrapper is running and the area is clear."
+            )
         self.controller.play_episode(e, send_to_robot=self.send_cb.isChecked())
 
     def _on_pause(self) -> None:

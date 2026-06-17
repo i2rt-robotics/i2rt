@@ -13,8 +13,10 @@ Targets the official LeRobot Dataset **v3.0** API (``lerobot >= 0.4.0``):
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Dict, List
+import time
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -41,6 +43,8 @@ class DatasetWriter:
         self._n_episodes = 0
         self._n_frames_total = 0
         self._finalized = False
+        self._root = os.path.expanduser(cfg.root)
+        self._outcomes_path = os.path.join(self._root, "outcomes.jsonl")
 
     # ------------------------------------------------------------------ schema
     def _features(self) -> dict:
@@ -62,7 +66,17 @@ class DatasetWriter:
             print(f"[dataset] MOCK writer (repo_id={self.cfg.repo_id}, fps={self.cfg.fps})")
             return
         LeRobotDataset = _import_lerobot_dataset()
-        root = os.path.expanduser(self.cfg.root)
+        root = self._root
+
+        # Resume: append to an existing dataset instead of creating a fresh one.
+        if self.cfg.resume and os.path.isdir(root):
+            self._ds = LeRobotDataset(self.cfg.repo_id, root=root)
+            self._n_episodes = int(
+                getattr(self._ds, "num_episodes", getattr(getattr(self._ds, "meta", None), "total_episodes", 0))
+            )
+            print(f"[dataset] resuming v3.0 dataset at {root} ({self._n_episodes} existing episodes)")
+            return
+
         self._ds = LeRobotDataset.create(
             repo_id=self.cfg.repo_id,
             fps=self.cfg.fps,
@@ -84,12 +98,35 @@ class DatasetWriter:
         frame["task"] = task  # v3.0: task is a key in the frame dict
         self._ds.add_frame(frame)
 
-    def save_episode(self) -> None:
+    def save_episode(self, outcome: Optional[str] = None) -> None:
         if not self._mock:
             self._ds.save_episode()
+        episode_index = self._n_episodes  # 0-based index of the episode just saved
+        self._record_outcome(episode_index, outcome)
         self._n_episodes += 1
-        print(f"[dataset] saved episode #{self._n_episodes} ({self._n_frames_episode} frames)")
+        print(f"[dataset] saved episode #{self._n_episodes} ({self._n_frames_episode} frames, outcome={outcome})")
         self._n_frames_episode = 0
+
+    def _record_outcome(self, episode_index: int, outcome: Optional[str]) -> None:
+        """Append a per-episode record to a sidecar ``outcomes.jsonl`` next to the dataset.
+
+        Kept outside the LeRobot schema (which has no per-episode label slot), so
+        success/fail + task + frame count are queryable without touching parquet.
+        """
+        entry = {
+            "episode": episode_index,
+            "outcome": outcome,
+            "task": self.cfg.task,
+            "frames": self._n_frames_episode,
+            "source": self.cfg.record_source,
+            "t": time.time(),
+        }
+        try:
+            os.makedirs(self._root, exist_ok=True)
+            with open(self._outcomes_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            print(f"[dataset] could not write outcome sidecar: {e}")
 
     def abort_episode(self) -> None:
         """Discard the in-progress (unsaved) episode buffer (review 'Delete' / aborts)."""

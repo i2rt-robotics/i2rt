@@ -56,7 +56,9 @@ class RecorderGUI(QtWidgets.QWidget):
         form.addRow("repo_id", self.repo_edit)
         form.addRow("root", self.root_edit)
         form.addRow("task (instruction)", self.task_edit)
-        form.addRow("fps", QtWidgets.QLabel(f"{self.cfg.fps}  (mock={self.cfg.mock}, review={self.cfg.review_before_save})"))
+        form.addRow(
+            "fps", QtWidgets.QLabel(f"{self.cfg.fps}  (mock={self.cfg.mock}, review={self.cfg.review_before_save})")
+        )
 
         self.start_btn = QtWidgets.QPushButton("Start")
         self.start_btn.clicked.connect(self._on_start)
@@ -99,14 +101,15 @@ class RecorderGUI(QtWidgets.QWidget):
         self.review_lbl.setAlignment(QtCore.Qt.AlignCenter)
         self.review_lbl.setStyleSheet("background:#111;border:1px solid #333;")
         rbtns = QtWidgets.QHBoxLayout()
-        self.keep_btn = QtWidgets.QPushButton("✓ Keep")
+        self.keep_btn = QtWidgets.QPushButton("✓ Keep (success)")
+        self.keepfail_btn = QtWidgets.QPushButton("Keep (fail)")
         self.del_btn = QtWidgets.QPushButton("✗ Delete")
-        self.keep_btn.clicked.connect(self._on_keep)
+        self.keep_btn.clicked.connect(lambda: self._on_keep("success"))
+        self.keepfail_btn.clicked.connect(lambda: self._on_keep("fail"))
         self.del_btn.clicked.connect(self._on_delete)
-        self.keep_btn.setEnabled(False)
-        self.del_btn.setEnabled(False)
-        rbtns.addWidget(self.keep_btn)
-        rbtns.addWidget(self.del_btn)
+        for b in (self.keep_btn, self.keepfail_btn, self.del_btn):
+            b.setEnabled(False)
+            rbtns.addWidget(b)
         rv.addWidget(self.review_lbl)
         rv.addLayout(rbtns)
 
@@ -149,8 +152,8 @@ class RecorderGUI(QtWidgets.QWidget):
             self.recorder.disarm()
             self.collect_btn.setText("Start collection")
 
-    def _on_keep(self) -> None:
-        self.recorder.keep_episode()
+    def _on_keep(self, outcome: str) -> None:
+        self.recorder.keep_episode(outcome=outcome)
 
     def _on_delete(self) -> None:
         self.recorder.delete_episode()
@@ -170,8 +173,8 @@ class RecorderGUI(QtWidgets.QWidget):
             self.rec_lbl.setText("● ARMED" if st["armed"] else "● IDLE")
             self.rec_lbl.setStyleSheet("color:#888;font-weight:bold;")
 
-        self.keep_btn.setEnabled(st["pending"])
-        self.del_btn.setEnabled(st["pending"])
+        for b in (self.keep_btn, self.keepfail_btn, self.del_btn):
+            b.setEnabled(st["pending"])
         if not st["pending"]:
             self.review_lbl.setText("(no episode pending)")
 

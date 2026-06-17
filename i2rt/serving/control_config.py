@@ -62,6 +62,14 @@ FOLLOWER_PAYLOAD_KG: Optional[float] = None  # extra wrist mass in kg (D405 ≈ 
 FOLLOWER_EE_INERTIA: Optional[List[float]] = None  # optional [ipos(3), quat(4), diaginertia(3)] to place the COM
 
 
+# --- Follower workspace (joint) limits ---------------------------------------
+# Per-joint [lo, hi] clamp (rad; trailing entry is the normalized 0-1 gripper)
+# applied to every commanded follower target as a safety net (teleop / DAgger /
+# replay / policy). None = no clamping. Provide a list of (lo, hi) up to num_dofs;
+# joints past the list are left unclamped.
+FOLLOWER_JOINT_LIMITS: Optional[List[tuple]] = None
+
+
 def _gripper_base_mass(gripper_type: Any) -> Optional[float]:
     """Read the gripper body's own inertial mass (kg) from its MJCF, or None."""
     import xml.etree.ElementTree as ET

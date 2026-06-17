@@ -77,6 +77,10 @@ lint.ignore = [
 lint.extend-select = ["E501"]
 lint.exclude = ["*.ipynb"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests: don't require type annotations, and allow importing after importorskip().
+"tests/**" = ["ANN", "E402"]
+
 [tool.ruff.format]
 docstring-code-format = true
 skip-magic-trailing-comma = false

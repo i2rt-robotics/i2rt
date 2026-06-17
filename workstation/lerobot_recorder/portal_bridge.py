@@ -77,12 +77,18 @@ class PortalBridge:
             parts.append(vec)
         return np.concatenate(parts).astype(np.float32)
 
-    @classmethod
-    def _assemble(cls, obs: Dict) -> dict:
+    def _assemble(self, obs: Dict) -> dict:
         sides = [obs.get(a) for a in ARMS]
-        state = cls._fuse(sides, ("pos", "vel", "eff"), ARM_DOF * 3)
-        action = cls._fuse(sides, ("applied",), ARM_DOF)
-        teleop_state = obs.get("teleop_state") or ("ENGAGED" if obs.get("intervention") else "IDLE")
+        state = self._fuse(sides, ("pos", "vel", "eff"), ARM_DOF * 3)
+        if self.cfg.record_source == "dagger":
+            # HG-DAgger: an episode = an intervention segment; the label is the
+            # human (leader) action, recorded only while intervening.
+            intervening = bool(obs.get("intervention"))
+            teleop_state = "ENGAGED" if intervening else "IDLE"
+            action = self._fuse(sides, ("human",), ARM_DOF) if intervening else None
+        else:
+            teleop_state = obs.get("teleop_state") or ("ENGAGED" if obs.get("intervention") else "IDLE")
+            action = self._fuse(sides, ("applied",), ARM_DOF)
         return {"teleop_state": teleop_state, "state": state, "action": action, "stamp": float(obs.get("t", 0.0))}
 
     # ------------------------------------------------------------------ mock

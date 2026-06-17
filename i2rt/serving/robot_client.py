@@ -34,3 +34,7 @@ class RobotClient:
 
     def set_sim_engage(self, flag: bool) -> None:
         self._client.set_sim_engage(bool(flag))
+
+    def set_estop(self, flag: bool) -> None:
+        """Engage/release the robot e-stop (no follower commands while engaged)."""
+        self._client.set_estop(bool(flag))

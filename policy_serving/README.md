@@ -64,7 +64,16 @@ Then serve it with `--policy your.module:YourPolicy`.
 ## Client side (used by the workstation bridge)
 
 ```python
-from yam_policy import WebsocketClientPolicy, ActionChunkBroker
-policy = ActionChunkBroker(WebsocketClientPolicy(host="policy-host", port=8000), action_horizon=16)
+from yam_policy import WebsocketClientPolicy, AsyncActionChunkBroker
+client = WebsocketClientPolicy(host="policy-host", port=8000)
+policy = AsyncActionChunkBroker(client, action_horizon=16)   # prefetches the next chunk
 action = policy.infer(obs)["actions"]   # one (action_dim,) step per call, re-queries every 16
 ```
+
+- **AsyncActionChunkBroker** fetches the next chunk in a background thread so the
+  per-chunk inference latency doesn't stall the control loop (use
+  `ActionChunkBroker` for the simple synchronous version).
+- **Metadata-driven config**: declare `action_horizon` (and optionally an
+  `obs_spec` dict with `image_keys` / `image_size`) on your policy; `serve.py`
+  puts them in the server metadata and the bridge auto-configures from
+  `get_server_metadata()` — no need to hand-match the bridge to the policy.

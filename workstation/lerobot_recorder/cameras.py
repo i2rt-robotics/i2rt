@@ -97,10 +97,7 @@ def _list_devices() -> None:
         print("No RealSense devices found.")
         return
     for d in devs:
-        print(
-            f"{d.get_info(rs.camera_info.name):24s}  "
-            f"serial={d.get_info(rs.camera_info.serial_number)}"
-        )
+        print(f"{d.get_info(rs.camera_info.name):24s}  serial={d.get_info(rs.camera_info.serial_number)}")
 
 
 if __name__ == "__main__":
