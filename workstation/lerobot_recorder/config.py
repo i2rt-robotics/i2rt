@@ -3,18 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import List
 
 # ----------------------------------------------------------------------------
 # Robot / dataset dimensions
 # ----------------------------------------------------------------------------
 ARMS = ("left", "right")
-ARM_DOF = 7  # 6 joints + gripper per arm
+ARM_DOF = 7  # 6 joints + gripper per arm (follower)
+LEADER_ARM_DOF = 6  # teaching-handle leader exposes 6 arm joints (gripper is a passive trigger)
 
-# observation.state = per arm [pos(7), vel(7), eff(7)] concatenated over arms.
-# action            = per arm applied_action [7] concatenated over arms.
+# The recorded schema is FIXED from the robot's known outputs (no runtime probe).
+# MotorChainRobot.get_observations() gives joint_pos/vel/eff (+ gripper_*), so:
+#   observation.state  = per arm [pos(7), vel(7), eff(7)]  -> 42
+#   observation.leader = per arm leader joint positions    -> 12
+#   action             = per arm applied/human action [7]  -> 14
+# (The robot exposes no end-effector pose, so observation.eef is not recorded.)
 STATE_DIM = len(ARMS) * ARM_DOF * 3  # 42
 ACTION_DIM = len(ARMS) * ARM_DOF  # 14
+LEADER_DIM = len(ARMS) * LEADER_ARM_DOF  # 12
+
+# Per-frame control-mode label (always written as observation.control_mode), so a
+# dataset records whether each frame came from teleop, a policy, an intervention,
+# or replay — useful for HG-DAgger filtering and provenance.
+CONTROL_MODE = {"teleop": 0, "policy": 1, "intervention": 2, "replay": 3}
 
 
 def state_names() -> List[str]:
@@ -27,6 +38,10 @@ def state_names() -> List[str]:
 
 def action_names() -> List[str]:
     return [f"{arm}.act.{i}" for arm in ARMS for i in range(ARM_DOF)]
+
+
+def leader_names() -> List[str]:
+    return [f"{arm}.leader.{i}" for arm in ARMS for i in range(LEADER_ARM_DOF)]
 
 
 # ----------------------------------------------------------------------------
@@ -52,19 +67,6 @@ def default_cameras() -> List[CameraSpec]:
 
 
 # ----------------------------------------------------------------------------
-# ROS 2 topic names (must match i2rt.ros2.run_teleop)
-# ----------------------------------------------------------------------------
-@dataclass
-class TopicConfig:
-    follower_state: Dict[str, str] = field(
-        default_factory=lambda: {a: f"/{a}/follower/joint_states" for a in ARMS}
-    )
-    applied_action: Dict[str, str] = field(default_factory=lambda: {a: f"/{a}/applied_action" for a in ARMS})
-    teleop_state: str = "/teleop/state"
-    teleop_active: str = "/teleop/active"
-
-
-# ----------------------------------------------------------------------------
 # Top-level recorder config
 # ----------------------------------------------------------------------------
 @dataclass
@@ -76,8 +78,15 @@ class RecorderConfig:
     robot_type: str = "yam_bimanual"
     use_videos: bool = True
     cameras: List[CameraSpec] = field(default_factory=default_cameras)
-    topics: TopicConfig = field(default_factory=TopicConfig)
-    mock: bool = False  # synthetic cameras + teleop stream (no hardware / ROS)
+    # Robot link: the YAM robot machine running i2rt.serving.run_robot_server (portal).
+    robot_host: str = "127.0.0.1"
+    robot_port: int = 11331
+    # What drives episode gating + the recorded action:
+    #   "teleop" -> gate on teleop_state (ENGAGED..IDLE), action = applied command
+    #   "dagger" -> gate on intervention (HG-DAgger), action = human (leader) action
+    record_source: str = "teleop"
+    resume: bool = False  # append to an existing dataset at `root` instead of creating a new one
+    mock: bool = False  # synthetic cameras + teleop stream (no hardware / robot)
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback
     review_downscale: int = 4  # spatial stride for the review preview (640x480 -> 160x120)

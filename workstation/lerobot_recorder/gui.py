@@ -3,7 +3,7 @@
 Workflow:
 
 1. Set ``repo_id`` / ``root`` / ``task`` (language instruction).
-2. **Start** — opens cameras, the remote ROS subscriber, and the dataset.
+2. **Start** — opens cameras, the robot link (portal), and the dataset.
 3. **Start collection** — arms the auto-gate: an episode begins the instant teleop
    becomes ENGAGED and ends when homing returns to IDLE.
 4. **Review** (default): each finished episode is held; the panel plays it back and
@@ -20,6 +20,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from workstation.lerobot_recorder.config import RecorderConfig
 from workstation.lerobot_recorder.recorder import Recorder
+from workstation.lerobot_recorder.views import compose_agentview
 
 
 def _np_to_pixmap(img: np.ndarray) -> QtGui.QPixmap:
@@ -56,7 +57,9 @@ class RecorderGUI(QtWidgets.QWidget):
         form.addRow("repo_id", self.repo_edit)
         form.addRow("root", self.root_edit)
         form.addRow("task (instruction)", self.task_edit)
-        form.addRow("fps", QtWidgets.QLabel(f"{self.cfg.fps}  (mock={self.cfg.mock}, review={self.cfg.review_before_save})"))
+        form.addRow(
+            "fps", QtWidgets.QLabel(f"{self.cfg.fps}  (mock={self.cfg.mock}, review={self.cfg.review_before_save})")
+        )
 
         self.start_btn = QtWidgets.QPushButton("Start")
         self.start_btn.clicked.connect(self._on_start)
@@ -79,6 +82,12 @@ class RecorderGUI(QtWidgets.QWidget):
         status.addStretch(1)
         status.addWidget(self.eps_lbl)
 
+        # primary operator view: agentview with the wrist views inset in the corners
+        self.live_lbl = QtWidgets.QLabel("(camera view)")
+        self.live_lbl.setFixedHeight(300)
+        self.live_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        self.live_lbl.setStyleSheet("background:#111;border:1px solid #333;")
+
         previews = QtWidgets.QHBoxLayout()
         for cam in self.cfg.cameras:
             box = QtWidgets.QVBoxLayout()
@@ -99,24 +108,30 @@ class RecorderGUI(QtWidgets.QWidget):
         self.review_lbl.setAlignment(QtCore.Qt.AlignCenter)
         self.review_lbl.setStyleSheet("background:#111;border:1px solid #333;")
         rbtns = QtWidgets.QHBoxLayout()
-        self.keep_btn = QtWidgets.QPushButton("✓ Keep")
+        self.keep_btn = QtWidgets.QPushButton("✓ Keep (success)")
+        self.keepfail_btn = QtWidgets.QPushButton("Keep (fail)")
         self.del_btn = QtWidgets.QPushButton("✗ Delete")
-        self.keep_btn.clicked.connect(self._on_keep)
+        self.keep_btn.clicked.connect(lambda: self._on_keep("success"))
+        self.keepfail_btn.clicked.connect(lambda: self._on_keep("fail"))
         self.del_btn.clicked.connect(self._on_delete)
-        self.keep_btn.setEnabled(False)
-        self.del_btn.setEnabled(False)
-        rbtns.addWidget(self.keep_btn)
-        rbtns.addWidget(self.del_btn)
+        for b in (self.keep_btn, self.keepfail_btn, self.del_btn):
+            b.setEnabled(False)
+            rbtns.addWidget(b)
         rv.addWidget(self.review_lbl)
         rv.addLayout(rbtns)
+
+        self.hint_lbl = QtWidgets.QLabel("keys: [S] keep success   [F] keep fail   [D] delete")
+        self.hint_lbl.setStyleSheet("color:#777;")
 
         root = QtWidgets.QVBoxLayout(self)
         root.addLayout(form)
         root.addLayout(btns)
         root.addWidget(self._hline())
         root.addLayout(status)
+        root.addWidget(self.live_lbl)
         root.addLayout(previews)
         root.addWidget(self.review_box)
+        root.addWidget(self.hint_lbl)
 
     @staticmethod
     def _hline() -> QtWidgets.QFrame:
@@ -149,8 +164,8 @@ class RecorderGUI(QtWidgets.QWidget):
             self.recorder.disarm()
             self.collect_btn.setText("Start collection")
 
-    def _on_keep(self) -> None:
-        self.recorder.keep_episode()
+    def _on_keep(self, outcome: str) -> None:
+        self.recorder.keep_episode(outcome=outcome)
 
     def _on_delete(self) -> None:
         self.recorder.delete_episode()
@@ -158,8 +173,10 @@ class RecorderGUI(QtWidgets.QWidget):
     # ------------------------------------------------------------------ refresh
     def _refresh(self) -> None:
         st = self.recorder.get_status()
-        self.state_lbl.setText(f"teleop: {st['teleop']}")
-        self.eps_lbl.setText(f"episodes: {st['episodes']}   frames: {st['frames']}")
+        cam_txt = "" if st.get("cam_ok", True) else "   ⚠ CAMERA DISCONNECTED — reconnecting…"
+        self.state_lbl.setText(f"teleop: {st['teleop']}{cam_txt}")
+        self.state_lbl.setStyleSheet("color:#e44;font-weight:bold;" if not st.get("cam_ok", True) else "")
+        self.eps_lbl.setText(f"episodes: {st['episodes']}   frames: {st['frames']}   queue: {st.get('queue', 0)}")
         if st["pending"]:
             self.rec_lbl.setText("● REVIEW")
             self.rec_lbl.setStyleSheet("color:#fa0;font-weight:bold;")
@@ -170,15 +187,31 @@ class RecorderGUI(QtWidgets.QWidget):
             self.rec_lbl.setText("● ARMED" if st["armed"] else "● IDLE")
             self.rec_lbl.setStyleSheet("color:#888;font-weight:bold;")
 
-        self.keep_btn.setEnabled(st["pending"])
-        self.del_btn.setEnabled(st["pending"])
+        for b in (self.keep_btn, self.keepfail_btn, self.del_btn):
+            b.setEnabled(st["pending"])
         if not st["pending"]:
             self.review_lbl.setText("(no episode pending)")
 
-        for key, img in self.recorder.get_last_images().items():
+        images = self.recorder.get_last_images()
+        for key, img in images.items():
             lbl = self._previews.get(key)
             if lbl is not None and isinstance(img, np.ndarray) and img.ndim == 3:
                 lbl.setPixmap(_np_to_pixmap(img).scaled(lbl.size(), QtCore.Qt.KeepAspectRatio))
+        composite = compose_agentview(images, agent_key=self.cfg.review_cam)
+        if isinstance(composite, np.ndarray) and composite.ndim == 3:
+            self.live_lbl.setPixmap(_np_to_pixmap(composite).scaled(self.live_lbl.size(), QtCore.Qt.KeepAspectRatio))
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """Keyboard labeling for the pending episode: S=keep success, F=keep fail, D=delete."""
+        if self.recorder.get_status()["pending"]:
+            key = event.key()
+            if key == QtCore.Qt.Key_S:
+                self.recorder.keep_episode(outcome="success")
+            elif key == QtCore.Qt.Key_F:
+                self.recorder.keep_episode(outcome="fail")
+            elif key == QtCore.Qt.Key_D:
+                self.recorder.delete_episode()
+        super().keyPressEvent(event)
 
     def _advance_review(self) -> None:
         if not self.recorder.get_status()["pending"]:

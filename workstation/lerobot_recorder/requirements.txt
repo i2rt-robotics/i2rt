@@ -1,20 +1,21 @@
-# LeRobot recorder/replay — workstation env (SEPARATE from the YAM/i2rt env).
+# LeRobot recorder/replay — workstation env (SEPARATE from the YAM/robot env).
 #
-# rclpy is NOT pip-installed: it comes from your ROS 2 install
-#   source /opt/ros/<distro>/setup.bash
-# Use the SAME ROS 2 distro as the robot machine so DDS discovery matches, and
-# set a matching ROS_DOMAIN_ID on both machines.
+# No ROS. The robot link is portal (plain TCP) via i2rt's RobotClient, so this
+# env just needs i2rt installed (for i2rt.serving.robot_client) plus the deps
+# below. The policy bridge additionally uses yam-policy (websocket client).
 #
 # System packages (apt) needed for LeRobot v3.0 video encoding:
 #   sudo apt install -y ffmpeg
 #
 # Setup (uv; full guide in README.md):
-#   uv venv --python /usr/bin/python3.10 --system-site-packages ~/lerobot_env  # so rclpy (ROS) is visible
-#   source ~/lerobot_env/bin/activate && source /opt/ros/humble/setup.bash
-#   uv pip install -r requirements.txt
+#   uv venv ~/yam_ws                       # any Python >= 3.10; no ROS constraint
+#   source ~/yam_ws/bin/activate
+#   uv pip install -e .                     # i2rt (robot client, portal)
+#   uv pip install -e policy_serving        # yam-policy (websocket client, for the bridge)
+#   uv pip install -r workstation/lerobot_recorder/requirements.txt
 #
 # RealSense udev rules are NOT installed by the pip wheel — see README.md
-# (workstation → RealSense cameras) or cameras fail with permission errors.
+# (workstation -> RealSense cameras) or cameras fail with permission errors.
 
 lerobot>=0.4.0      # LeRobotDataset v3.0 API (create/add_frame/save_episode/finalize)
 pyrealsense2        # RealSense D405 / D455 cameras

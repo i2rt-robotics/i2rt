@@ -1,48 +1,42 @@
 #!/usr/bin/env bash
 #
-# Convenience launcher for the i2rt ROS 2 nodes.
+# Convenience launcher for the i2rt robot server (runs on the ROBOT machine).
 #
-# Activates the uv venv (default: <repo>/.venv-ros, which auto-sources ROS 2
-# Humble) and runs the requested node, forwarding any extra args.
+# Activates the robot uv venv (default: <repo>/.venv) and starts the portal robot
+# server in the requested mode, forwarding any extra args. No ROS.
 #
-#   scripts/yam wrapper [args]   # ① ROS 2 wrapper (followers): state pub + cmd sub
-#   scripts/yam teleop  [args]   # ② bimanual teleop (auto home/engage gate)
-#   scripts/yam dagger  [args]   # ③ HG-DAgger interactive takeover
+#   scripts/yam teleop  [args]   # auto home/engage bimanual teleop
+#   scripts/yam dagger  [args]   # HG-DAgger: policy drives, button takeover
+#   scripts/yam wrapper [args]   # followers track an external command (replay target)
 #   scripts/yam can              # interactive persistent CAN-id setup
 #   scripts/yam canup            # reset/bring up CAN interfaces at 1 Mbit/s
 #
 # Examples:
 #   scripts/yam teleop --sim
-#   scripts/yam teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0
-#   scripts/yam dagger --bilateral-kp 0.15
+#   scripts/yam teleop --bilateral-kp 0.15 --home 0,0,0,0,0,0
+#   scripts/yam dagger --mirror-kp 0.2 --feedback-kp 0.1
 #
 # Override the venv with:  I2RT_VENV=/path/to/venv scripts/yam teleop ...
-# For short aliases (just `yam teleop`):  source scripts/ros2_aliases.sh
-#
-# Note: no `set -u` — ROS 2's setup.bash references unset vars while sourcing.
 set -eo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-VENV="${I2RT_VENV:-$REPO/.venv-ros}"
-if [ ! -f "$VENV/bin/activate" ]; then
-    echo "yam: venv not found at $VENV/bin/activate" >&2
-    echo "     create it (see i2rt/ros2/README.md §1), or set I2RT_VENV=/path/to/venv" >&2
-    exit 1
+VENV="${I2RT_VENV:-$REPO/.venv}"
+if [ -f "$VENV/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$VENV/bin/activate"
 fi
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"   # the activate script also sources ROS 2 Humble
 
 cmd="${1:-}"
 shift || true
 case "$cmd" in
-    wrapper) exec python -m i2rt.ros2.run_wrapper "$@" ;;
-    teleop)  exec python -m i2rt.ros2.run_teleop  "$@" ;;
-    dagger)  exec python -m i2rt.ros2.run_dagger  "$@" ;;
+    teleop)  exec python -m i2rt.serving.run_robot_server teleop  "$@" ;;
+    dagger)  exec python -m i2rt.serving.run_robot_server dagger  "$@" ;;
+    wrapper) exec python -m i2rt.serving.run_robot_server wrapper "$@" ;;
     can)     exec sh "$REPO/scripts/setup_can_ids.sh" "$@" ;;
     canup)   exec sh "$REPO/scripts/reset_all_can.sh" "$@" ;;
     *)
-        echo "usage: yam {wrapper|teleop|dagger|can|canup} [args]" >&2
+        echo "usage: yam {teleop|dagger|wrapper|can|canup} [args]" >&2
         exit 2
         ;;
 esac

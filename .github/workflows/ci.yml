@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Create env + install (i2rt + yam-policy + test deps)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv venv --python 3.11 .venv
+          . .venv/bin/activate
+          uv pip install -e .
+          uv pip install -e policy_serving
+          uv pip install pytest pytest-xdist
+
+      - name: Ruff
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uvx ruff check i2rt/serving/ workstation/ policy_serving/yam_policy/ tests/
+
+      - name: Pytest (sim/mock smoke tests)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          . .venv/bin/activate
+          pytest -q tests/

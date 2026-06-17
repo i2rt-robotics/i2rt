@@ -1,0 +1,28 @@
+[build-system]
+requires = ["flit_core >= 3.4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "yam-policy"
+version = "0.1.0"
+description = "Lightweight, openpi-compatible websocket policy serving for YAM."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "msgpack>=1.0.7",
+    "msgpack-numpy>=0.4.8",
+    "websockets>=13.0",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Install these in the POLICY SERVER env alongside your model deps.
+# openpi itself is installed separately (from its repo), not via PyPI.
+lerobot = ["lerobot>=0.4.0", "torch"]
+
+[project.scripts]
+yam-serve = "yam_policy.serve:main"
+
+[tool.flit.module]
+name = "yam_policy"

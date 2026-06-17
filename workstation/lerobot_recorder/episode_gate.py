@@ -12,7 +12,7 @@ logic, no ROS/cameras — unit-tested directly.
 
 from __future__ import annotations
 
-# Teleop states published by i2rt.ros2.run_teleop on /teleop/state.
+# Teleop states reported by i2rt.serving (TeleopController) in the robot snapshot.
 HOMING = "HOMING"
 IDLE = "IDLE"
 ENGAGED = "ENGAGED"

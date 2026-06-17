@@ -21,7 +21,17 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--task", default="do the task", help="language instruction")
     p.add_argument("--fps", type=int, default=60)
-    p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/ROS/lerobot)")
+    p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server)")
+    p.add_argument("--robot-port", type=int, default=11331)
+    p.add_argument(
+        "--source",
+        choices=["teleop", "dagger", "eval"],
+        default="teleop",
+        help="teleop = gate on teleop_state (action=applied); dagger = HG-DAgger interventions "
+        "(action=human); eval = record a policy rollout from Start to Stop (action=executed)",
+    )
+    p.add_argument("--resume", action="store_true", help="append to an existing dataset at --root")
+    p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/robot/lerobot)")
     p.add_argument(
         "--serials",
         default="",
@@ -36,7 +46,16 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
             cam.serial = serial
 
     return RecorderConfig(
-        repo_id=args.repo_id, root=args.root, task=args.task, fps=args.fps, cameras=cams, mock=args.mock
+        repo_id=args.repo_id,
+        root=args.root,
+        task=args.task,
+        fps=args.fps,
+        cameras=cams,
+        robot_host=args.robot_host,
+        robot_port=args.robot_port,
+        record_source=args.source,
+        resume=args.resume,
+        mock=args.mock,
     )
 
 

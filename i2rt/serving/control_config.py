@@ -27,6 +27,9 @@ FOLLOWER_KD: Optional[Union[float, List[float]]] = None
 # Only the one-time engage approach and the homing return are rate-limited;
 # steady tracking is direct (uses FOLLOWER_KP/KD above).
 RAMP_SPEED: float = 0.8
+# Homing return speed (rad/s) — kept slower than the engage approach so the robot
+# and leaders ease back to home gently (e.g. after a leader "end episode" button).
+HOME_SPEED: float = 0.4
 
 # --- Engage / release gate ---------------------------------------------------
 ENGAGE_THR: float = 0.6
@@ -39,7 +42,7 @@ DWELL_S: float = 0.5
 GATE_JOINTS: List[int] = [1]
 
 # --- Leader stiffness (gains on the human-held gello, NOT speeds) ------------
-HOME_KP: float = 0.3       # pulls the leader back to home while homing
+HOME_KP: float = 0.3  # pulls the leader back to home while homing
 BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel) # This should be 0.0
 
 # --- DAgger leader gains (separate for the two phases) -----------------------
@@ -48,7 +51,7 @@ BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force
 # the leader for force feel); otherwise the policy drives and the leader mirrors
 # the policy action (MIRROR gain). Mirror is usually a touch higher so the human
 # feels/anticipates the policy; feedback is low so it doesn't fight the human.
-DAGGER_MIRROR_KP: float = 0.2    # leader stiffness while the POLICY drives (leader mirrors policy)
+DAGGER_MIRROR_KP: float = 0.2  # leader stiffness while the POLICY drives (leader mirrors policy)
 DAGGER_FEEDBACK_KP: float = 0.1  # leader stiffness while the HUMAN intervenes (force feel)
 
 
@@ -60,6 +63,22 @@ DAGGER_FEEDBACK_KP: float = 0.1  # leader stiffness while the HUMAN intervenes (
 # model (applied identically in teleop / DAgger / replay-wrapper).
 FOLLOWER_PAYLOAD_KG: Optional[float] = None  # extra wrist mass in kg (D405 ≈ 0.05); None = none
 FOLLOWER_EE_INERTIA: Optional[List[float]] = None  # optional [ipos(3), quat(4), diaginertia(3)] to place the COM
+
+
+# --- Leader handle "end episode" buttons -------------------------------------
+# Pressing any of these leader-handle buttons during teleop forces the rig to
+# start HOMING (ending the episode). The recorder maps the same buttons to an
+# outcome — success / fail / discard — so one press both ends and labels the
+# trajectory (button 0 = discard, 1 = success, 2 = fail; see recorder.py).
+HOME_BUTTONS: List[int] = [0, 1, 2]
+
+
+# --- Follower workspace (joint) limits ---------------------------------------
+# Per-joint [lo, hi] clamp (rad; trailing entry is the normalized 0-1 gripper)
+# applied to every commanded follower target as a safety net (teleop / DAgger /
+# replay / policy). None = no clamping. Provide a list of (lo, hi) up to num_dofs;
+# joints past the list are left unclamped.
+FOLLOWER_JOINT_LIMITS: Optional[List[tuple]] = None
 
 
 def _gripper_base_mass(gripper_type: Any) -> Optional[float]:

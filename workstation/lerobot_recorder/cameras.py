@@ -24,6 +24,10 @@ class CameraManager:
         self.cfg = cfg
         self.specs: List[CameraSpec] = cfg.cameras
         self._pipelines: Dict[str, object] = {}
+        self._serials: Dict[str, str] = {}  # resolved serial per key (for reconnect)
+        self._last: Dict[str, np.ndarray] = {}  # last good frame per key
+        self._healthy: Dict[str, bool] = {}
+        self._next_retry: Dict[str, float] = {}
         self._frame_t = 0
 
     # ------------------------------------------------------------------ public
@@ -38,24 +42,67 @@ class CameraManager:
             if not serial:
                 raise RuntimeError(f"no RealSense serial for camera '{spec.key}' (available: {sorted(available)})")
             available.discard(serial)
-            pipe = rs.pipeline()
-            rs_cfg = rs.config()
-            rs_cfg.enable_device(serial)
-            rs_cfg.enable_stream(rs.stream.color, spec.width, spec.height, rs.format.rgb8, spec.fps)
-            pipe.start(rs_cfg)
-            self._pipelines[spec.key] = pipe
+            self._serials[spec.key] = serial
+            self._open_pipe(spec, serial)
+
+    def _open_pipe(self, spec: CameraSpec, serial: str) -> None:
+        import pyrealsense2 as rs
+
+        pipe = rs.pipeline()
+        rs_cfg = rs.config()
+        rs_cfg.enable_device(serial)
+        rs_cfg.enable_stream(rs.stream.color, spec.width, spec.height, rs.format.rgb8, spec.fps)
+        pipe.start(rs_cfg)
+        self._pipelines[spec.key] = pipe
+        self._healthy[spec.key] = True
 
     def read(self) -> Dict[str, np.ndarray]:
-        """Return {key: HxWx3 uint8 RGB} for all cameras (latest frame)."""
+        """Return {key: HxWx3 uint8 RGB}. On a camera fault, returns the last good
+        frame (or black), marks the camera unhealthy, and retries reconnection."""
         if self.cfg.mock:
             return self._mock_frames()
 
         out: Dict[str, np.ndarray] = {}
         for spec in self.specs:
-            frames = self._pipelines[spec.key].wait_for_frames()
-            color = frames.get_color_frame()
-            out[spec.key] = np.asanyarray(color.get_data())  # HxWx3 uint8 (rgb8)
+            try:
+                pipe = self._pipelines.get(spec.key)
+                if pipe is None:
+                    raise RuntimeError("pipeline not open")
+                frames = pipe.wait_for_frames(timeout_ms=1000)
+                img = np.asanyarray(frames.get_color_frame().get_data())  # HxWx3 uint8 (rgb8)
+                self._last[spec.key] = img
+                self._healthy[spec.key] = True
+                out[spec.key] = img
+            except Exception:
+                self._healthy[spec.key] = False
+                self._try_reconnect(spec)
+                out[spec.key] = self._last.get(spec.key, np.zeros((spec.height, spec.width, 3), np.uint8))
         return out
+
+    def _try_reconnect(self, spec: CameraSpec) -> None:
+        """Throttled best-effort reconnection for a faulted camera."""
+        import time
+
+        now = time.monotonic()
+        if now < self._next_retry.get(spec.key, 0.0):
+            return
+        self._next_retry[spec.key] = now + 2.0
+        try:
+            old = self._pipelines.pop(spec.key, None)
+            if old is not None:
+                try:
+                    old.stop()
+                except Exception:
+                    pass
+            self._open_pipe(spec, self._serials.get(spec.key, spec.serial))
+            print(f"[cameras] reconnected '{spec.key}'")
+        except Exception:
+            pass  # stay unhealthy; will retry on the next interval
+
+    @property
+    def healthy(self) -> bool:
+        """True iff every camera delivered a frame on the latest read (always True in mock)."""
+        return all(self._healthy.values()) if self._healthy else True
 
     def stop(self) -> None:
         for pipe in self._pipelines.values():
@@ -97,10 +144,7 @@ def _list_devices() -> None:
         print("No RealSense devices found.")
         return
     for d in devs:
-        print(
-            f"{d.get_info(rs.camera_info.name):24s}  "
-            f"serial={d.get_info(rs.camera_info.serial_number)}"
-        )
+        print(f"{d.get_info(rs.camera_info.name):24s}  serial={d.get_info(rs.camera_info.serial_number)}")
 
 
 if __name__ == "__main__":

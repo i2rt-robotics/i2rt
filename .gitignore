@@ -55,6 +55,8 @@ htmlcov/
 *.cache
 *.pid
 *.lock
+# keep the policy-env lockfile for reproducibility
+!policy_serving/uv.lock
 
 # Ignore Mujoco-related compiled binaries if applicable
 mjkey.txt

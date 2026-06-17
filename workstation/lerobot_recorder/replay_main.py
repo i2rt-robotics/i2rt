@@ -1,10 +1,10 @@
 """Entry point: launch the dataset replay GUI.
 
-    python -m workstation.lerobot_recorder.replay_main --repo-id user/yam_pick --root ~/lerobot_data
-    python -m workstation.lerobot_recorder.replay_main --mock      # synthetic dataset, no ROS/lerobot
+    python -m workstation.lerobot_recorder.replay_main --robot-host <ROBOT_IP> --repo-id user/yam_pick
+    python -m workstation.lerobot_recorder.replay_main --mock      # synthetic dataset, no robot/lerobot
 
-With "Send to robot" enabled, the robot side must run the wrapper:
-    scripts/yam wrapper --arm left:can_follower_l --arm right:can_follower_r
+With "Send to robot" enabled, the robot side must run the wrapper server:
+    scripts/yam wrapper
 """
 
 from __future__ import annotations
@@ -20,10 +20,14 @@ def main(argv: Optional[List[str]] = None) -> None:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset replay")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
-    p.add_argument("--mock", action="store_true", help="synthetic dataset (no ROS/lerobot)")
+    p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server wrapper)")
+    p.add_argument("--robot-port", type=int, default=11331)
+    p.add_argument("--mock", action="store_true", help="synthetic dataset (no robot/lerobot)")
     args = p.parse_args(argv)
 
-    cfg = RecorderConfig(repo_id=args.repo_id, root=args.root, mock=args.mock)
+    cfg = RecorderConfig(
+        repo_id=args.repo_id, root=args.root, robot_host=args.robot_host, robot_port=args.robot_port, mock=args.mock
+    )
 
     from PyQt5 import QtWidgets
 

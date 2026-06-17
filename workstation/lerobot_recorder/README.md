@@ -2,9 +2,10 @@
 
 Record and replay [LeRobot](https://github.com/huggingface/lerobot) **v3.0**
 datasets for the bimanual YAM teleop rig. Runs on the **workstation** (a
-different machine / env than the robot): it connects to the YAM ROS 2 graph
-**remotely**, reads three RealSense cameras **locally**, and **auto-starts/stops
-each episode from the teleop gate** — no manual record button per episode.
+different machine / env than the robot): it connects to the YAM **robot server
+over portal** (plain TCP, **no ROS**), reads three RealSense cameras **locally**,
+and **auto-starts/stops each episode from the teleop gate** — no manual record
+button per episode.
 
 Two tools (both have a PyQt GUI):
 
@@ -15,8 +16,9 @@ Two tools (both have a PyQt GUI):
 
 ## How recording is triggered (the key idea)
 
-`i2rt.ros2.run_teleop` (on the robot machine) publishes `/teleop/state`
-(`HOMING` / `IDLE` / `ENGAGED`). The recorder watches it:
+`i2rt.serving.run_robot_server teleop` (on the robot machine) reports a
+`teleop_state` (`HOMING` / `IDLE` / `ENGAGED`) in its snapshot. The recorder polls
+it over portal:
 
 ```
  press "Start collection"      ──▶  gate armed
@@ -28,7 +30,7 @@ Two tools (both have a PyQt GUI):
 ```
 
 One episode = **ENGAGED → HOMING → IDLE**. The action stored is the robot's
-**`applied_action`** (the rate-limited command actually sent) → reproducible.
+**`applied`** (the rate-limited command actually sent) → reproducible.
 
 ## Dataset schema (LeRobot v3.0)
 
@@ -38,7 +40,7 @@ One episode = **ENGAGED → HOMING → IDLE**. The action stored is the robot's
 | `observation.images.wrist_right` | (H,W,3) uint8 | D405 right wrist |
 | `observation.images.agentview`   | (H,W,3) uint8 | D455 scene |
 | `observation.state` | (42,) float32 | both arms × [pos(7), vel(7), eff(7)] |
-| `action`            | (14,) float32 | both arms × `applied_action`(7) |
+| `action`            | (14,) float32 | both arms × `applied`(7) |
 | task                | string | the language instruction |
 
 Recorded at **60 fps** (matched to the cameras). Uses the official v3.0 API
@@ -49,70 +51,60 @@ Recorded at **60 fps** (matched to the cameras). Uses the official v3.0 API
 
 # One-time setup
 
-### [robot machine] — YAM + ROS 2 (the `.venv-ros` uv venv)
+### [robot machine] — YAM robot server (no ROS)
 
-Already covered in [`i2rt/ros2/README.md`](../../i2rt/ros2/README.md). In short:
+See [`i2rt/serving/README.md`](../../i2rt/serving/README.md) /
+[`scripts/setup_robot_env.sh`](../../scripts/setup_robot_env.sh). In short:
 
 ```bash
-source .venv-ros/bin/activate            # ROS 2 Humble auto-sourced
+sh scripts/setup_robot_env.sh            # uv venv (.venv) + i2rt, no ROS
+source .venv/bin/activate
 sh scripts/setup_can_ids.sh              # persistent CAN names (once)
-export ROS_DOMAIN_ID=64                  # SAME value on both machines
 ```
 
-### [workstation] — prerequisites
+### [workstation] — Python env (uv, no ROS)
 
-The workstation needs **ROS 2 Humble** (same distro as the robot, so DDS
-discovery matches) and **uv**:
+One script does it (`uv` venv at `~/yam_ws`, installs i2rt + yam-policy + recorder
+deps, RealSense udev rules):
 
 ```bash
-# ROS 2 Humble (Ubuntu 22.04) — skip if already installed.
-# Full guide: https://docs.ros.org/en/humble/Installation.html
-sudo apt install -y ros-humble-ros-base
-
-# uv (skip if already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
+sh scripts/setup_workstation_env.sh
+source ~/yam_ws/bin/activate
 ```
 
-### [workstation] — Python env (uv)
-
-The recorder needs `rclpy` (from ROS 2, **not** pip-installable) plus pip deps
-(`lerobot`, `pyrealsense2`, `PyQt5`). So the venv must use the **system Python
-3.10** that Humble's `rclpy` was built against, with `--system-site-packages` so
-the ROS Python packages are visible. (This is the **workstation** env — the robot
-env is separate; see [`i2rt/ros2/README.md §1`](../../i2rt/ros2/README.md).)
+<details><summary>What it installs (manual equivalent)</summary>
 
 ```bash
-sudo apt install -y ffmpeg                          # LeRobot v3.0 video encoding
-
-uv venv --python /usr/bin/python3.10 --system-site-packages ~/lerobot_env
-source ~/lerobot_env/bin/activate
-echo 'source /opt/ros/humble/setup.bash' >> ~/lerobot_env/bin/activate  # auto-source ROS on activate
-source /opt/ros/humble/setup.bash                   # for this shell, now
+sudo apt install -y ffmpeg                # LeRobot v3.0 video encoding
+uv venv ~/yam_ws                          # any Python >= 3.10; NO ROS, NO system-site-packages
+source ~/yam_ws/bin/activate
+uv pip install -e .                       # i2rt (portal RobotClient)
+uv pip install -e policy_serving          # yam-policy (websocket client for the bridge)
 uv pip install -r workstation/lerobot_recorder/requirements.txt
-
-python -c "import rclpy, pyrealsense2, lerobot; print('ready')"
+python -c "import i2rt, yam_policy, lerobot, pyrealsense2; print('ready')"
 ```
+</details>
 
-The `yam-data` launcher activates `~/lerobot_env` + sources ROS for you; override
-with `LEROBOT_ENV=/path` / `ROS_SETUP=/path/setup.bash` if your paths differ.
+The `yam-data` launcher activates `~/yam_ws` for you (override with `LEROBOT_ENV=/path`).
+The robot host/port are passed at launch (`--robot-host`/`--robot-port`, default
+`127.0.0.1:11331`) — both machines just need to be on the same network (plain TCP,
+no `ROS_DOMAIN_ID`, no DDS).
 
 ### [workstation] — RealSense cameras
 
 The pip `pyrealsense2` wheel ships the SDK bindings but **not** the udev rules, so
-without them the cameras open only as root / fail with permission errors. Install
-the rules once:
+without them the cameras open only as root / fail with permission errors (the setup
+script installs them; manual version):
 
 ```bash
-# Minimal: just the udev permission rules from the librealsense repo.
 git clone --depth 1 https://github.com/IntelRealSense/librealsense.git /tmp/librealsense
 sudo cp /tmp/librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
-# (optional) realsense-viewer for live preview — needs Intel's apt repo:
-#   sudo apt install -y librealsense2-utils
+# (optional) realsense-viewer for live preview: sudo apt install -y librealsense2-utils
 ```
 
 Plug the cameras into **USB 3** ports (USB 2 can't sustain 60 fps), then map each
-**serial → role**. Each camera's serial is permanent firmware ID — no udev
+**serial → role**. Each camera's serial is a permanent firmware ID — no udev
 renaming needed (unlike CAN), you just record which serial is which physical view:
 
 ```bash
@@ -120,25 +112,17 @@ workstation/yam-data cams        # lists connected RealSense name + serial
 ```
 
 To find which serial is which view, plug them in **one at a time** and re-run
-`cams` (or use `realsense-viewer` to look at the stream). Then pass them in the
-fixed order `wrist_left,wrist_right,agentview` at launch (`--serials A,B,C`), or
-hard-code them in [`config.py`](config.py) `default_cameras()`.
-
-```bash
-echo 'export ROS_DOMAIN_ID=64' >> ~/lerobot_env/bin/activate   # bake in (MUST match the robot)
-export ROS_DOMAIN_ID=64          # for the current shell, now
-```
-
-> Both machines must share `ROS_DOMAIN_ID` (64 here) and be on the same network
-> so DDS can discover the topics. Baking it into the activate script (as above,
-> and in the robot's `.venv-ros`) guarantees they never drift.
+`cams` (or use `realsense-viewer`). Then pass them in the fixed order
+`wrist_left,wrist_right,agentview` at launch (`--serials A,B,C`), or hard-code them
+in [`config.py`](config.py) `default_cameras()`.
 
 ---
 
 # Runbook — scenarios (run top to bottom)
 
-Commands are tagged **[robot]** (the YAM machine) or **[workstation]**. The
-`scripts/yam` and `workstation/yam-data` launchers activate the right env for you.
+Commands are tagged **[robot]**, **[workstation]**, or **[policy]**. Replace
+`<ROBOT_IP>` / `<POLICY_IP>` with the machine addresses (use `127.0.0.1` if a
+component runs locally).
 
 ## A. Bimanual teleop only (no recording)
 
@@ -152,19 +136,20 @@ scripts/yam teleop --bilateral-kp 0.15
 ## B. Data collection (teleop + LeRobot recorder)  ← main flow
 
 ```bash
-# 1. [robot]   start teleop (publishes state / applied_action / teleop signals)
+# 1. [robot]   start the teleop server (serves state/action/gate over portal)
 scripts/yam canup
 scripts/yam teleop --bilateral-kp 0.15
 
 # 2. [workstation]   start the recorder GUI
 workstation/yam-data record \
+    --robot-host <ROBOT_IP> \
     --repo-id user/yam_pick --root ~/lerobot_data \
     --serials <wrist_left_sn>,<wrist_right_sn>,<agentview_sn>
 ```
 
 Then, in the recorder GUI:
 
-1. Confirm `repo_id` / `root` / `task` → **Start** (opens cameras + ROS + dataset).
+1. Confirm `repo_id` / `root` / `task` → **Start** (opens cameras + robot link + dataset).
 2. **Start collection** (arms the gate).
 3. Teleoperate: **lift both gellos** → an episode records; **bring both home** →
    it ends and the **review panel** plays it back.
@@ -179,41 +164,54 @@ Quick dry run with no robot/cameras/lerobot:
 workstation/yam-data record --mock
 ```
 
-## C. DAgger (policy + human takeover)
+## C. Deployment (policy + human takeover via DAgger)
 
 ```bash
-# [robot]
+# 1. [robot]    dagger server (policy drives followers; handle button = takeover)
 scripts/yam canup
-scripts/yam dagger --bilateral-kp 0.15
-# your policy (anywhere on the ROS graph) publishes /<arm>/policy_action;
-# press a handle button (or /dagger/intervention_cmd) to take over both arms.
+scripts/yam dagger --mirror-kp 0.2
+
+# 2. [policy]   serve your policy (own env; openpi-compatible websocket)
+#               see policy_serving/README.md
+python -m yam_policy.serve --policy <module>:<Class> --config k=v     # :8000
+
+# 3. [workstation]  the bridge: robot (portal) <-> policy (websocket)
+workstation/yam-data bridge \
+    --robot-host <ROBOT_IP> --policy-host <POLICY_IP> \
+    --serials <wrist_left_sn>,<wrist_right_sn>,<agentview_sn> \
+    --prompt "pick up the cube"
+# press a handle button (or RobotClient.set_intervention) to take over both arms.
 ```
 
-(Recording DAgger interventions can reuse the same recorder by subscribing to the
-DAgger streams — ask if you want a DAgger-specific recorder preset.)
+**Collect HG-DAgger data** by running the recorder against the same dagger server
+with `--source dagger`: an episode = one intervention segment, and the recorded
+action is the **human (leader) action** (`observation.state` is the follower state):
+
+```bash
+# [workstation]  (while the dagger server runs and you take over via the handle)
+workstation/yam-data record --source dagger --robot-host <ROBOT_IP> \
+    --repo-id user/yam_dagger --serials A,B,C
+```
+
+This closes the loop: train → deploy (bridge) → intervene → collect → retrain.
 
 ## D. Replay a dataset onto the robot
 
 ```bash
-# 1. [robot]   run the wrapper so /<arm>/command drives the followers
+# 1. [robot]   wrapper server so the followers track an external command
 scripts/yam canup
-scripts/yam wrapper --arm left:can_follower_l --arm right:can_follower_r
+scripts/yam wrapper
 
 # 2. [workstation]   open the replay GUI
-workstation/yam-data replay --repo-id user/yam_pick --root ~/lerobot_data
+workstation/yam-data replay --robot-host <ROBOT_IP> --repo-id user/yam_pick --root ~/lerobot_data
 ```
 
 In the replay GUI: **Load** → pick an **episode** → tick **Send to robot** →
 **Play**. It first ramps the robot from its current pose to the first frame (no
-jump), then streams each frame's `action` to `/<arm>/command`. Untick "Send to
+jump), then streams each frame's `action` to the robot via portal. Untick "Send to
 robot" to just preview the video. **Pause** / **Stop** / **speed** as needed.
 
-Dry run:
-
-```bash
-# [workstation]
-workstation/yam-data replay --mock
-```
+Dry run: `workstation/yam-data replay --mock`.
 
 ---
 
@@ -222,10 +220,34 @@ workstation/yam-data replay --mock
 - **finalize**: closing the recorder window (or `recorder.shutdown()`) calls
   `LeRobotDataset.finalize()`. Skipping it leaves parquet files incomplete.
 - The record loop is clocked at 60 fps; cameras stream at 60 fps and each tick
-  grabs the latest frame plus the latest robot state/action from ROS.
+  grabs the latest frame plus the latest robot state/action polled over portal.
 - If a D405 doesn't support 60 fps at 640×480, lower the resolution/fps in
   `config.py` (`CameraSpec`); the record loop tolerates it (grab-latest).
 - `lerobot`'s API can shift between releases — the version-sensitive calls are
   isolated in `dataset_writer.py` and `dataset_reader.py`.
-- Nothing here imports `i2rt`; it only relies on the ROS topic contract in
-  `i2rt/ros2/README.md`.
+- **Outcome labels**: in the recorder GUI, **Keep (success)** / **Keep (fail)** tag
+  each episode; the label + task + frame count are appended to `outcomes.jsonl` in
+  the dataset root (a sidecar, since LeRobot has no per-episode label slot).
+- **Resume**: `--resume` appends to an existing dataset at `--root` instead of
+  creating a new one (episode indices continue).
+- **Always-on provenance**: every frame carries `observation.control_mode`
+  (teleop / policy / intervention) and whatever the robot reports —
+  `observation.state`, plus `observation.leader` and `observation.eef` when
+  available (the schema is probed from the first snapshot).
+- **Async writer**: a finished episode is queued and saved by a background worker
+  (one at a time), so LeRobot's per-trajectory encoding never blocks the next
+  collection. The GUI shows the pending `queue` depth.
+- **Labeling**: in the review panel use the mouse, **keyboard** ([S] keep success,
+  [F] keep fail, [D] delete), or the **leader handle buttons** — button 1 = success,
+  2 = fail, 0 = discard. A label button also starts homing on the robot, so one
+  press ends + labels + saves the trajectory (records through the homing return).
+- **Eval rollouts**: `--source eval` records a continuous policy rollout from
+  Start to Stop (action = the executed command, labeled policy/intervention) — for
+  saving evaluation episodes as datasets.
+- **Camera fault tolerance**: a disconnected RealSense shows a red ⚠ warning,
+  recording pauses (no garbage frames), and the manager auto-reconnects.
+- **Replay overlay**: tick **Overlay live** to blend an episode's first frame with
+  the live agentview, so you can place objects to match the dataset before Play.
+- The robot link is the snapshot contract in
+  [`i2rt/serving/README.md`](../../i2rt/serving/README.md); the policy link is in
+  [`policy_serving/README.md`](../../policy_serving/README.md).

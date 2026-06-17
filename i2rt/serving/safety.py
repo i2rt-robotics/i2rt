@@ -53,3 +53,20 @@ def is_finite_vector(x: Optional[np.ndarray], n: Optional[int] = None) -> bool:
     if n is not None and x.size != n:
         return False
     return bool(x.size) and bool(np.all(np.isfinite(x)))
+
+
+def clamp_limits(target: np.ndarray, limits: Optional[list]) -> np.ndarray:
+    """Clamp each joint of ``target`` into its ``[lo, hi]`` workspace limit.
+
+    ``limits`` is a list of ``(lo, hi)`` per joint (up to ``len(target)`` entries);
+    ``None``/empty means no clamping. Joints beyond ``limits`` are left untouched.
+    """
+    if not limits:
+        return target
+    t = np.asarray(target, dtype=float).reshape(-1).copy()
+    for i, lohi in enumerate(limits):
+        if i >= t.size or lohi is None:
+            continue
+        lo, hi = lohi
+        t[i] = min(max(t[i], float(lo)), float(hi))
+    return t
