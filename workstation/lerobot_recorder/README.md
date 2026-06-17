@@ -230,6 +230,13 @@ Dry run: `workstation/yam-data replay --mock`.
   the dataset root (a sidecar, since LeRobot has no per-episode label slot).
 - **Resume**: `--resume` appends to an existing dataset at `--root` instead of
   creating a new one (episode indices continue).
+- **Doctor**: `workstation/yam-data doctor --root ~/lerobot_data [--repo-id ...]`
+  prints episode counts, success rate, and per-task stats from `outcomes.jsonl`
+  (and validates the LeRobot dataset if `--repo-id` is given). The replay episode
+  list is annotated with ✓/✗ from the same sidecar.
+- **Safety**: E-STOP button in both GUIs (holds the followers); optional collision
+  soft-stop (`control_config.FOLLOWER_EFFORT_LIMIT`); disk-space guard refuses to
+  save below `min_free_gb`.
 - **Always-on provenance (fixed schema)**: every frame carries
   `observation.state(42)`, `observation.leader(12)`, `observation.eef(14)` (FK from
   the company `Kinematics`; zeros if no model), `observation.control_mode(1)`

@@ -140,8 +140,15 @@ class ReplayGUI(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Load failed", str(e))
             return
         self.episode_cb.clear()
+        from workstation.lerobot_recorder.doctor import outcomes_by_episode
+
+        marks = {"success": "✓", "fail": "✗", "discard": "·"}
+        by_ep = outcomes_by_episode(self.cfg.root)
         self.episode_cb.addItems(
-            [f"ep {e}  ({self.reader.episode_length(e)} frames)" for e in range(self.reader.num_episodes)]
+            [
+                f"ep {e}  ({self.reader.episode_length(e)} frames) {marks.get(by_ep.get(e), '')}".rstrip()
+                for e in range(self.reader.num_episodes)
+            ]
         )
         for w in (self.episode_cb, self.play_btn, self.pause_btn, self.stop_btn, self.send_cb, self.speed):
             w.setEnabled(True)

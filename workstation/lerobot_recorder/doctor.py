@@ -50,6 +50,26 @@ def summarize_outcomes(root: str) -> Dict:
     }
 
 
+def outcomes_by_episode(root: str) -> Dict[int, str]:
+    """Map episode_index -> outcome from the sidecar (for annotating episode lists)."""
+    path = os.path.join(os.path.expanduser(root), "outcomes.jsonl")
+    out: Dict[int, str] = {}
+    if not os.path.exists(path):
+        return out
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if e.get("episode") is not None and e.get("outcome") is not None:
+                out[int(e["episode"])] = str(e["outcome"])
+    return out
+
+
 def _print_summary(s: Dict) -> None:
     if not s["exists"]:
         print(f"[doctor] no outcomes.jsonl at {s['path']} (nothing recorded yet?)")

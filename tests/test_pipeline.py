@@ -8,7 +8,7 @@ import numpy as np
 
 from workstation.lerobot_recorder.config import RecorderConfig
 from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
-from workstation.lerobot_recorder.doctor import summarize_outcomes
+from workstation.lerobot_recorder.doctor import outcomes_by_episode, summarize_outcomes
 from workstation.lerobot_recorder.episode_gate import EV_IDLE, EV_RECORD, EV_START, EV_STOP, EpisodeGate
 
 
@@ -42,6 +42,18 @@ def test_summarize_outcomes(tmp_path):
 
 def test_summarize_outcomes_missing(tmp_path):
     assert summarize_outcomes(str(tmp_path))["exists"] is False
+
+
+def test_outcomes_by_episode(tmp_path):
+    rows = [
+        {"episode": 0, "outcome": "success"},
+        {"episode": 1, "outcome": "fail"},
+        {"episode": 2, "outcome": "discard"},
+    ]
+    (tmp_path / "outcomes.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    m = outcomes_by_episode(str(tmp_path))
+    assert m == {0: "success", 1: "fail", 2: "discard"}
+    assert outcomes_by_episode(str(tmp_path / "nope")) == {}
 
 
 # ---------------------------------------------------------------- async writer

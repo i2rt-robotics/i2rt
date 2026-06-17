@@ -146,9 +146,25 @@ scripts/yam teleop --sim                        # also: dagger / wrapper / can /
 ```
 
 Targets are rate-limited and gravity compensation is always on, so policy↔human
-takeovers ramp smoothly. See [`i2rt/serving/README.md`](i2rt/serving/README.md)
-for the snapshot contract and the workstation client, and
-[`policy_serving/README.md`](policy_serving/README.md) for serving policies.
+takeovers ramp smoothly.
+
+### Data collection & deployment stack
+
+| Subsystem | Path | What it is |
+|-----------|------|------------|
+| Robot serving (portal) | [`i2rt/serving/`](i2rt/serving/README.md) | teleop / DAgger / wrapper servers + `RobotClient`; snapshot contract; safety (e-stop, joint/effort limits, link-loss watchdog), EEF FK + safe resolved-rate OSC |
+| Policy serving (websocket) | [`policy_serving/`](policy_serving/README.md) | openpi-compatible `WebsocketPolicyServer`/`Client` + `serve.py` + policy templates |
+| Workstation tools | [`workstation/lerobot_recorder/`](workstation/lerobot_recorder/README.md) | LeRobot recorder (teleop/dagger/eval), replay+overlay, policy bridge; modern themed GUI with status banner, health, live stats, audio cues, success/fail/discard labeling |
+
+Quick CLIs (workstation): `workstation/yam-data {record\|replay\|bridge\|cams\|doctor}`.
+
+**Safety & ops highlights**: network E-STOP, per-joint position + optional effort
+(collision) limits, command-staleness watchdog (link loss → hold), async dataset
+writer (collect while saving), camera-disconnect auto-reconnect, disk-space guard,
+and a per-episode `outcomes.jsonl` (`yam-data doctor` summarizes success rates).
+
+**Verify on hardware**: follow [`docs/hardware-checklist.md`](docs/hardware-checklist.md)
+— an ordered, runnable confirmation list for every feature.
 
 ## Advanced: Motor Configuration
 
