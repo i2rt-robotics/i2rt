@@ -230,6 +230,24 @@ Dry run: `workstation/yam-data replay --mock`.
   the dataset root (a sidecar, since LeRobot has no per-episode label slot).
 - **Resume**: `--resume` appends to an existing dataset at `--root` instead of
   creating a new one (episode indices continue).
+- **Always-on provenance**: every frame carries `observation.control_mode`
+  (teleop / policy / intervention) and whatever the robot reports —
+  `observation.state`, plus `observation.leader` and `observation.eef` when
+  available (the schema is probed from the first snapshot).
+- **Async writer**: a finished episode is queued and saved by a background worker
+  (one at a time), so LeRobot's per-trajectory encoding never blocks the next
+  collection. The GUI shows the pending `queue` depth.
+- **Labeling**: in the review panel use the mouse, **keyboard** ([S] keep success,
+  [F] keep fail, [D] delete), or the **leader handle buttons** — button 1 = success,
+  2 = fail, 0 = discard. A label button also starts homing on the robot, so one
+  press ends + labels + saves the trajectory (records through the homing return).
+- **Eval rollouts**: `--source eval` records a continuous policy rollout from
+  Start to Stop (action = the executed command, labeled policy/intervention) — for
+  saving evaluation episodes as datasets.
+- **Camera fault tolerance**: a disconnected RealSense shows a red ⚠ warning,
+  recording pauses (no garbage frames), and the manager auto-reconnects.
+- **Replay overlay**: tick **Overlay live** to blend an episode's first frame with
+  the live agentview, so you can place objects to match the dataset before Play.
 - The robot link is the snapshot contract in
   [`i2rt/serving/README.md`](../../i2rt/serving/README.md); the policy link is in
   [`policy_serving/README.md`](../../policy_serving/README.md).

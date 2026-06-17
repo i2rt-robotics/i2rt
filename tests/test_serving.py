@@ -43,6 +43,18 @@ def test_controllers_step_sim():
     dc.close()
 
 
+def test_command_staleness_watchdog():
+    """A wrapper follower holds (applied=None) once external commands go stale."""
+    ctrl = WrapperController(WrapperConfig(sim=True, rate=100.0, command_timeout=0.2))
+    ctrl.command({"left": np.zeros(7), "right": np.zeros(7)})
+    ctrl.step()
+    assert ctrl.snapshot()["left"]["applied"] is not None  # fresh command -> applied
+    time.sleep(0.3)  # let the command go stale (link loss)
+    ctrl.step()
+    assert ctrl.snapshot()["left"]["applied"] is None  # stale -> hold
+    ctrl.close()
+
+
 def test_portal_roundtrip_and_estop():
     port = free_port()
     srv = RobotServer(WrapperController(WrapperConfig(sim=True, rate=100.0)), port=port, rate_hz=100.0)

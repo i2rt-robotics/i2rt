@@ -25,9 +25,10 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p.add_argument("--robot-port", type=int, default=11331)
     p.add_argument(
         "--source",
-        choices=["teleop", "dagger"],
+        choices=["teleop", "dagger", "eval"],
         default="teleop",
-        help="teleop = gate on teleop_state, action=applied; dagger = HG-DAgger, gate on intervention, action=human",
+        help="teleop = gate on teleop_state (action=applied); dagger = HG-DAgger interventions "
+        "(action=human); eval = record a policy rollout from Start to Stop (action=executed)",
     )
     p.add_argument("--resume", action="store_true", help="append to an existing dataset at --root")
     p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/robot/lerobot)")

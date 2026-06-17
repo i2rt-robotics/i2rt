@@ -26,7 +26,7 @@ import numpy as np
 
 from i2rt.serving import control_config as cc
 from i2rt.serving.safety import TargetSmoother, clamp_limits, is_finite_vector, max_step_from_speed
-from i2rt.serving.state_utils import full_state, to_full_target
+from i2rt.serving.state_utils import ee_pose, full_state, to_full_target
 from i2rt.serving.teleop_common import (
     ArmPair,
     LatchingToggle,
@@ -45,7 +45,11 @@ _HOME_TOL = 0.05  # rad; homing considered done when the ramp is within this of 
 
 def _side_state(robot: Any) -> Dict[str, list]:
     pos, vel, eff = full_state(robot)
-    return {"pos": pos.tolist(), "vel": vel.tolist(), "eff": eff.tolist()}
+    out = {"pos": pos.tolist(), "vel": vel.tolist(), "eff": eff.tolist()}
+    pose = ee_pose(robot)
+    if pose is not None:
+        out["eef"] = pose.tolist()
+    return out
 
 
 class BaseController:
@@ -59,6 +63,8 @@ class BaseController:
 
     mode = "base"
     _estop = False
+    command_timeout = 0.5  # s; external commands older than this are considered stale (link loss)
+    _last_cmd_t = -1e9
 
     def snapshot(self) -> Dict:
         with self._lock:
@@ -70,6 +76,15 @@ class BaseController:
     def set_estop(self, flag: bool) -> None:
         """Engage/release the e-stop. While engaged, no follower commands are sent."""
         self._estop = bool(flag)
+
+    def _touch_cmd(self) -> None:
+        """Mark that a fresh external command just arrived (for the staleness watchdog)."""
+        self._last_cmd_t = time.monotonic()
+
+    def _cmd_fresh(self) -> bool:
+        """True if an external command arrived within ``command_timeout`` — else the link
+        is presumed lost and the follower should hold instead of replaying a stale target."""
+        return (time.monotonic() - self._last_cmd_t) < self.command_timeout
 
     def _apply(self, robot: Any, target: np.ndarray) -> Optional[list]:
         """Clamp ``target`` to the workspace limits and command it — unless e-stopped.
@@ -166,6 +181,10 @@ class TeleopController(BaseController):
     def set_sim_engage(self, flag: bool) -> None:
         self._sim_engage = bool(flag)
 
+    @staticmethod
+    def _home_button_pressed(buttons: Dict[str, list]) -> bool:
+        return any(idx < len(b) and bool(b[idx]) for b in buttons.values() for idx in cc.HOME_BUTTONS)
+
     def _homing_done(self) -> bool:
         for side in self.pairs:
             if np.linalg.norm(self._fsmooth[side].cur - self.home_full) > _HOME_TOL:
@@ -190,6 +209,9 @@ class TeleopController(BaseController):
         state = self.sm.update(dists, self._homing_done(), now)
         if self._sim_engage:
             state = TeleopStateMachine.ENGAGED
+        # a leader "end episode" button (success/fail) forces homing while engaged
+        if state == TeleopStateMachine.ENGAGED and self._home_button_pressed(buttons):
+            self.sm.state = state = TeleopStateMachine.HOMING
         if state == TeleopStateMachine.ENGAGED and self._prev_state != TeleopStateMachine.ENGAGED:
             for s in self.pairs:
                 self._caught_up[s] = False
@@ -300,6 +322,7 @@ class DaggerConfig:
     feedback_kp: float = cc.DAGGER_FEEDBACK_KP
     rate: float = 120.0
     max_joint_speed: float = 1.5
+    command_timeout: float = 0.5  # s; stale policy actions (link loss) are ignored -> hold
 
 
 class DaggerController(BaseController):
@@ -307,6 +330,7 @@ class DaggerController(BaseController):
 
     def __init__(self, cfg: DaggerConfig):
         self.cfg = cfg
+        self.command_timeout = cfg.command_timeout
         self.mirror_kp = cfg.mirror_kp
         self.feedback_kp = cfg.feedback_kp
         self.pairs = build_bimanual(default_bimanual_specs(cfg.sim), sim=cfg.sim)
@@ -340,6 +364,7 @@ class DaggerController(BaseController):
                 self._policy_action[side] = to_full_target(np.asarray(pos, dtype=float), self.pairs[side].follower)
             except ValueError as e:
                 logger.warning("[%s] bad policy_action: %s", side, e)
+        self._touch_cmd()
 
     def set_intervention(self, flag: bool) -> None:
         self._toggle.state = bool(flag)
@@ -377,7 +402,8 @@ class DaggerController(BaseController):
                         )
                 else:
                     act = self._policy_action[side]
-                    if is_finite_vector(act, n):
+                    # ignore a stale policy action (workstation/link down) -> follower holds
+                    if is_finite_vector(act, n) and self._cmd_fresh():
                         desired = act[:n]
                         self._drive_leader(pair, act[: pair.leader.num_dofs()], self.mirror_kp)
 
@@ -436,6 +462,8 @@ class WrapperConfig:
     gripper: str = "linear_4310"
     rate: float = 100.0
     max_joint_speed: float = 1.5
+    control: str = "joint"  # "joint" (rate-limited joint targets) or "eef" (end-effector pose; experimental)
+    command_timeout: float = 0.5  # s; stale commands (link loss) are ignored -> hold
     channels: Dict[str, str] = field(default_factory=lambda: {"left": "can_follower_l", "right": "can_follower_r"})
 
 
@@ -447,6 +475,7 @@ class WrapperController(BaseController):
         from i2rt.robots.utils import ArmType, GripperType
 
         self.cfg = cfg
+        self.command_timeout = cfg.command_timeout
         self.followers = {}
         for side, channel in cfg.channels.items():
             ch = ("sim_" + channel) if cfg.sim else channel
@@ -469,7 +498,10 @@ class WrapperController(BaseController):
         logger.info("WrapperController up: sides=%s sim=%s", list(self.followers), cfg.sim)
 
     def command(self, data: Dict) -> None:
-        """data = {side: position_array} target for each follower."""
+        """data = {side: target} for each follower (joint positions, or eef pose in eef mode)."""
+        if self.cfg.control == "eef":
+            self._command_eef(data)
+            return
         for side, pos in (data or {}).items():
             if side not in self.followers:
                 continue
@@ -477,6 +509,25 @@ class WrapperController(BaseController):
                 self._command[side] = to_full_target(np.asarray(pos, dtype=float), self.followers[side])
             except ValueError as e:
                 logger.warning("[%s] bad command: %s", side, e)
+        self._touch_cmd()
+
+    def _command_eef(self, data: Dict) -> None:
+        """EEF-space control (experimental): forward an end-effector pose to the robot's
+        own cartesian controller. Requires the robot to implement ``command_ee_pose``;
+        otherwise it's a logged no-op (joint mode remains the safe default)."""
+        if self._estop:
+            return
+        for side, pose in (data or {}).items():
+            follower = self.followers.get(side)
+            fn = getattr(follower, "command_ee_pose", None)
+            if callable(fn):
+                try:
+                    fn(np.asarray(pose, dtype=float))
+                except Exception as e:
+                    logger.warning("[%s] eef command failed: %s", side, e)
+            elif not getattr(self, "_eef_warned", False):
+                logger.warning("eef control requested but the robot has no command_ee_pose(); ignoring")
+                self._eef_warned = True
 
     # a policy can drive the wrapper too (treated as a direct command)
     set_policy_action = command
@@ -489,7 +540,8 @@ class WrapperController(BaseController):
             applied = None
             try:
                 cmd = self._command[side]
-                if is_finite_vector(cmd, follower.num_dofs()):
+                # ignore stale commands (link loss) -> hold instead of replaying an old target
+                if is_finite_vector(cmd, follower.num_dofs()) and self._cmd_fresh():
                     applied = self._apply(follower, smoother.step(cmd))
                 else:
                     smoother.reset(follower.get_joint_pos())

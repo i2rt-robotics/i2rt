@@ -7,7 +7,7 @@ Replaces the pos/vel/eff packing that used to live in ``ros_conversions``.
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -34,6 +34,30 @@ def full_state(robot: Any) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     vel = _full_vector(obs.get("joint_vel", []), obs.get("gripper_vel", [0.0]), has_grip, n)
     eff = _full_vector(obs.get("joint_eff", []), obs.get("gripper_eff", [0.0]), has_grip, n)
     return pos, vel, eff
+
+
+def ee_pose(robot: Any) -> Optional[np.ndarray]:
+    """Best-effort end-effector pose for the robot, or None if it doesn't expose one.
+
+    Looks for a cartesian field in ``get_observations()`` or a forward-kinematics
+    method on the robot. Returns a flat float vector (e.g. ``[x, y, z, qw, qx, qy, qz]``)
+    so it can be recorded as ``observation.eef`` and used for EEF-space control.
+    """
+    try:
+        obs = robot.get_observations()
+        for k in ("ee_pose", "eef_pose", "ee_pos", "cartesian", "tcp_pose"):
+            if k in obs and obs[k] is not None:
+                return np.asarray(obs[k], dtype=float).reshape(-1)
+    except Exception:
+        pass
+    for m in ("get_ee_pose", "get_eef_pose", "get_tcp_pose", "forward_kinematics"):
+        fn = getattr(robot, m, None)
+        if callable(fn):
+            try:
+                return np.asarray(fn(), dtype=float).reshape(-1)
+            except Exception:
+                pass
+    return None
 
 
 def to_full_target(position: np.ndarray, robot: Any) -> np.ndarray:

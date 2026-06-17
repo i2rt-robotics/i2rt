@@ -62,6 +62,14 @@ FOLLOWER_PAYLOAD_KG: Optional[float] = None  # extra wrist mass in kg (D405 ≈ 
 FOLLOWER_EE_INERTIA: Optional[List[float]] = None  # optional [ipos(3), quat(4), diaginertia(3)] to place the COM
 
 
+# --- Leader handle "end episode" buttons -------------------------------------
+# Pressing any of these leader-handle buttons during teleop forces the rig to
+# start HOMING (ending the episode). The recorder maps the same buttons to an
+# outcome — success / fail / discard — so one press both ends and labels the
+# trajectory (button 0 = discard, 1 = success, 2 = fail; see recorder.py).
+HOME_BUTTONS: List[int] = [0, 1, 2]
+
+
 # --- Follower workspace (joint) limits ---------------------------------------
 # Per-joint [lo, hi] clamp (rad; trailing entry is the normalized 0-1 gripper)
 # applied to every commanded follower target as a safety net (teleop / DAgger /

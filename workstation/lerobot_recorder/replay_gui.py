@@ -11,9 +11,11 @@ from __future__ import annotations
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from workstation.lerobot_recorder.cameras import CameraManager
 from workstation.lerobot_recorder.config import RecorderConfig
 from workstation.lerobot_recorder.dataset_reader import DatasetReader
 from workstation.lerobot_recorder.replay_controller import ReplayController
+from workstation.lerobot_recorder.views import overlay
 
 
 def _np_to_pixmap(img: np.ndarray) -> QtGui.QPixmap:
@@ -28,6 +30,8 @@ class ReplayGUI(QtWidgets.QWidget):
         self.cfg = cfg
         self.reader = DatasetReader(cfg.repo_id, cfg.root, display_cam=cfg.review_cam, mock=cfg.mock)
         self.controller: ReplayController | None = None
+        self.cameras = CameraManager(cfg)  # live feed for the pre-roll overlay
+        self._cams_on = False
         self.setWindowTitle("YAM ↔ LeRobot Replay")
         self._build()
         self._timer = QtCore.QTimer(self)
@@ -66,6 +70,10 @@ class ReplayGUI(QtWidgets.QWidget):
         self.pause_btn.clicked.connect(self._on_pause)
         self.stop_btn.clicked.connect(self._on_stop)
         self.send_cb = QtWidgets.QCheckBox("Send to robot")
+        self.overlay_cb = QtWidgets.QCheckBox("Overlay live (match scene)")
+        self.overlay_cb.setToolTip(
+            "Blend the episode's first frame with the live agentview so you can place objects identically before playing."
+        )
         self.speed = QtWidgets.QDoubleSpinBox()
         self.speed.setRange(0.1, 4.0)
         self.speed.setSingleStep(0.1)
@@ -78,6 +86,7 @@ class ReplayGUI(QtWidgets.QWidget):
         ctl.addWidget(QtWidgets.QLabel("speed"))
         ctl.addWidget(self.speed)
         ctl.addWidget(self.send_cb)
+        ctl.addWidget(self.overlay_cb)
 
         self.status = QtWidgets.QLabel("—")
         for w in (self.play_btn, self.pause_btn, self.stop_btn, self.send_cb, self.speed):
@@ -102,6 +111,12 @@ class ReplayGUI(QtWidgets.QWidget):
             self.reader.load()
             self.controller = ReplayController(self.reader, self.cfg)
             self.controller.connect()
+            if not self._cams_on:
+                try:
+                    self.cameras.start()  # live feed for the overlay
+                    self._cams_on = True
+                except Exception as ce:
+                    print(f"[replay] camera start failed (overlay disabled): {ce}")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Load failed", str(e))
             return
@@ -150,12 +165,25 @@ class ReplayGUI(QtWidgets.QWidget):
         if n:
             self.slider.setMaximum(max(n - 1, 0))
             self.slider.setValue(min(f, n - 1))
-            img = self.reader.get_image(e, min(f, n - 1))
+            # Idle + overlay on: blend the episode's first frame with the live camera so
+            # the operator can place objects to match the dataset before pressing Play.
+            if self.overlay_cb.isChecked() and not self.controller.playing and self._cams_on:
+                live = self.cameras.read().get(self.cfg.review_cam)
+                img = overlay(self.reader.get_image(e, 0), live, alpha=0.5)
+            else:
+                img = self.reader.get_image(e, min(f, n - 1))
             if img is not None and img.ndim == 3:
                 self.view.setPixmap(_np_to_pixmap(img).scaled(self.view.size(), QtCore.Qt.KeepAspectRatio))
-            self.status.setText(f"ep {e}  frame {f}/{n}  {'▶ playing' if self.controller.playing else '⏸ stopped'}")
+            tag = (
+                "▶ playing"
+                if self.controller.playing
+                else ("◍ overlay" if self.overlay_cb.isChecked() else "⏸ stopped")
+            )
+            self.status.setText(f"ep {e}  frame {f}/{n}  {tag}")
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         if self.controller:
             self.controller.shutdown()
+        if self._cams_on:
+            self.cameras.stop()
         super().closeEvent(event)

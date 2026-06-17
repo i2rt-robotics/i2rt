@@ -16,6 +16,11 @@ ARM_DOF = 7  # 6 joints + gripper per arm
 STATE_DIM = len(ARMS) * ARM_DOF * 3  # 42
 ACTION_DIM = len(ARMS) * ARM_DOF  # 14
 
+# Per-frame control-mode label (always written as observation.control_mode), so a
+# dataset records whether each frame came from teleop, a policy, an intervention,
+# or replay — useful for HG-DAgger filtering and provenance.
+CONTROL_MODE = {"teleop": 0, "policy": 1, "intervention": 2, "replay": 3}
+
 
 def state_names() -> List[str]:
     names: List[str] = []

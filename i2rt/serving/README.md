@@ -57,10 +57,16 @@ robot.set_intervention(True)             # dagger: external gate override
 robot.set_estop(True)                    # network e-stop: hold, ignore all commands
 ```
 
-**Safety:** `set_estop(True)` makes every controller stop commanding the followers
-(they hold their last pose) until released. Every commanded target is also clamped
-to `control_config.FOLLOWER_JOINT_LIMITS` (optional per-joint `[lo, hi]`). The
-snapshot carries `estop` so clients can display it.
+**Safety:**
+- `set_estop(True)` makes every controller stop commanding the followers (they hold
+  their last pose) until released; the snapshot carries `estop`.
+- Every commanded target is clamped to `control_config.FOLLOWER_JOINT_LIMITS`
+  (optional per-joint `[lo, hi]`).
+- **Link-loss watchdog:** dagger/wrapper followers hold if no fresh
+  `set_policy_action`/`command` arrives within `command_timeout` (default 0.5 s) —
+  so a workstation crash or network drop can't leave a stale target driving the arm.
+- EEF mode (`run_robot_server wrapper --control eef`) is experimental and forwards
+  poses to the robot's own cartesian controller (`command_ee_pose`) if present.
 
 ## Snapshot schema (`get_observation()`)
 

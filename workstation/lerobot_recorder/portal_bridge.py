@@ -2,11 +2,12 @@
 
 Connects (plain TCP, no ROS) to the robot machine running
 ``i2rt.serving.run_robot_server`` and polls ``get_observation()``. ``get_snapshot()``
-returns the latest fused observation/action vectors plus the teleop gate state, in
-the exact shape the recorder expects:
+returns the latest fused frame the recorder records:
 
-    {teleop_state, state(42,)|None, action(14,)|None, stamp}
+    {teleop_state, control_mode, state(42,), leader, eef, action, buttons,
+     intervention, stamp}
 
+``state``/``leader``/``eef``/``action`` are float32 vectors (or None if missing).
 ``mock=True`` synthesizes a teleop cycle + fake joints so the pipeline runs with no
 robot.
 """
@@ -19,14 +20,26 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from workstation.lerobot_recorder.config import ARM_DOF, ARMS, RecorderConfig
+from workstation.lerobot_recorder.config import ARM_DOF, ARMS, CONTROL_MODE, RecorderConfig
+
+_EMPTY = {
+    "teleop_state": "IDLE",
+    "control_mode": CONTROL_MODE["teleop"],
+    "state": None,
+    "leader": None,
+    "eef": None,
+    "action": None,
+    "buttons": {},
+    "intervention": False,
+    "stamp": 0.0,
+}
 
 
 class PortalBridge:
     def __init__(self, cfg: RecorderConfig) -> None:
         self.cfg = cfg
         self._lock = threading.Lock()
-        self._snap = {"teleop_state": "IDLE", "state": None, "action": None, "stamp": 0.0}
+        self._snap = dict(_EMPTY)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._client = None
@@ -65,14 +78,19 @@ class PortalBridge:
             time.sleep(period)
 
     @staticmethod
-    def _fuse(sides: list, fields: tuple, per_arm: int) -> Optional[np.ndarray]:
-        """Concatenate ``fields`` over both arms, or None if any is missing/wrong size."""
+    def _fuse(sides: list, fields: tuple, per_arm: Optional[int] = None) -> Optional[np.ndarray]:
+        """Concatenate ``fields`` over both arms, or None if any is missing.
+
+        With ``per_arm`` set, also require each arm's vector to match that size
+        (used for the fixed-width state/action); otherwise accept whatever dim the
+        robot provides (leader / eef, which vary by embodiment).
+        """
         parts = []
         for s in sides:
             if not s or any(s.get(f) is None for f in fields):
                 return None
-            vec = np.concatenate([np.asarray(s[f], dtype=np.float32) for f in fields])
-            if vec.size != per_arm:
+            vec = np.concatenate([np.asarray(s[f], dtype=np.float32).reshape(-1) for f in fields])
+            if per_arm is not None and vec.size != per_arm:
                 return None
             parts.append(vec)
         return np.concatenate(parts).astype(np.float32)
@@ -80,16 +98,39 @@ class PortalBridge:
     def _assemble(self, obs: Dict) -> dict:
         sides = [obs.get(a) for a in ARMS]
         state = self._fuse(sides, ("pos", "vel", "eff"), ARM_DOF * 3)
+        leader = self._fuse(sides, ("leader_pos",))  # variable per-arm dof; saved when present
+        eef = self._fuse(sides, ("eef",))  # follower end-effector pose (FK), when the robot provides it
+        intervening = bool(obs.get("intervention"))
+        buttons = {a: (obs.get(a, {}) or {}).get("buttons", []) for a in ARMS}
+
         if self.cfg.record_source == "dagger":
             # HG-DAgger: an episode = an intervention segment; the label is the
             # human (leader) action, recorded only while intervening.
-            intervening = bool(obs.get("intervention"))
             teleop_state = "ENGAGED" if intervening else "IDLE"
             action = self._fuse(sides, ("human",), ARM_DOF) if intervening else None
-        else:
-            teleop_state = obs.get("teleop_state") or ("ENGAGED" if obs.get("intervention") else "IDLE")
+            control_mode = CONTROL_MODE["intervention"] if intervening else CONTROL_MODE["policy"]
+        elif self.cfg.record_source == "eval":
+            # Evaluation rollout: record the executed action every tick, labeled by
+            # who produced it (policy vs human intervention). Episode = arm..disarm.
+            teleop_state = "ENGAGED"
             action = self._fuse(sides, ("applied",), ARM_DOF)
-        return {"teleop_state": teleop_state, "state": state, "action": action, "stamp": float(obs.get("t", 0.0))}
+            control_mode = CONTROL_MODE["intervention"] if intervening else CONTROL_MODE["policy"]
+        else:
+            teleop_state = obs.get("teleop_state") or ("ENGAGED" if intervening else "IDLE")
+            action = self._fuse(sides, ("applied",), ARM_DOF)
+            control_mode = CONTROL_MODE["teleop"]
+
+        return {
+            "teleop_state": teleop_state,
+            "control_mode": int(control_mode),
+            "state": state,
+            "leader": leader,
+            "eef": eef,
+            "action": action,
+            "buttons": buttons,
+            "intervention": intervening,
+            "stamp": float(obs.get("t", 0.0)),
+        }
 
     # ------------------------------------------------------------------ mock
     def _mock_loop(self) -> None:
@@ -106,8 +147,17 @@ class PortalBridge:
             eff = 0.1 * np.ones(ARM_DOF)
             state = np.concatenate([np.concatenate([pos, vel, eff]) for _ in ARMS]).astype(np.float32)
             action = np.concatenate([pos for _ in ARMS]).astype(np.float32)
+            leader = np.concatenate([pos[:6] for _ in ARMS]).astype(np.float32)  # 6-dof leader per arm
             with self._lock:
-                self._snap = {"teleop_state": name, "state": state, "action": action, "stamp": now}
+                self._snap = {
+                    **_EMPTY,
+                    "teleop_state": name,
+                    "control_mode": CONTROL_MODE["teleop"],
+                    "state": state,
+                    "leader": leader,
+                    "action": action,
+                    "stamp": now,
+                }
             if now - seg_start >= dur:
                 i = (i + 1) % len(cycle)
                 seg_start = now

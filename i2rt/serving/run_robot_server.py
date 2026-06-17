@@ -57,6 +57,7 @@ def main() -> None:
     pw.add_argument("--gripper", default="linear_4310")
     pw.add_argument("--rate", type=float, default=100.0)
     pw.add_argument("--max-joint-speed", type=float, default=1.5)
+    pw.add_argument("--control", choices=["joint", "eef"], default="joint", help="command space (eef is experimental)")
 
     args = p.parse_args()
 
@@ -93,6 +94,7 @@ def main() -> None:
                 gripper=args.gripper,
                 rate=args.rate,
                 max_joint_speed=args.max_joint_speed,
+                control=args.control,
             )
         )
 

@@ -1,31 +1,43 @@
-"""Recorder orchestrator — cameras + portal bridge + episode gate + dataset writer.
+"""Recorder orchestrator — cameras + portal bridge + episode gate + async writer.
 
 Runs a fixed-rate loop (``cfg.fps``, 60 Hz to match the cameras). Each tick it
 grabs the latest camera frames and the latest robot snapshot (polled over portal),
 lets the :class:`EpisodeGate` decide start/record/stop from the ``teleop_state``,
-and writes frames accordingly. Recording auto-starts on ENGAGED and (when review
-is off) auto-saves when homing returns to IDLE.
+and **buffers** the frame locally. A finished episode is handed to the
+:class:`AsyncDatasetWriter` queue, so LeRobot's per-trajectory encoding never
+blocks the next collection.
+
+Every frame carries ``observation.control_mode`` (teleop / policy / intervention),
+plus whatever the robot reports (``observation.state``, ``observation.leader``,
+``observation.eef`` when available) — so provenance is always in the dataset.
 
 Review/delete: with ``review_before_save`` (default) each finished episode is held
 unsaved in a PENDING state; the GUI plays back the buffered camera and the user
-keeps (``save_episode``) or deletes (``clear_episode_buffer``) it. While pending,
-new episodes do not start.
+keeps (with a success/fail outcome) or deletes it. Two leader buttons can also
+label+save automatically (see ``record_source`` / ``HOME_BUTTONS``).
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
 from workstation.lerobot_recorder import episode_gate as eg
 from workstation.lerobot_recorder.cameras import CameraManager
-from workstation.lerobot_recorder.config import RecorderConfig
-from workstation.lerobot_recorder.dataset_writer import DatasetWriter
+from workstation.lerobot_recorder.config import ACTION_DIM, STATE_DIM, RecorderConfig
+from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
 from workstation.lerobot_recorder.episode_gate import EpisodeGate
 from workstation.lerobot_recorder.portal_bridge import PortalBridge
+
+# Leader handle buttons that end + label an episode (and trigger homing on the
+# robot). Index into the per-side buttons list reported in the snapshot.
+# "discard" ends the episode without saving it.
+DISCARD_BUTTON = 0
+SUCCESS_BUTTON = 1
+FAIL_BUTTON = 2
 
 
 class Recorder:
@@ -34,7 +46,7 @@ class Recorder:
         self.cameras = CameraManager(cfg)
         self.robot = PortalBridge(cfg)
         self.gate = EpisodeGate()
-        self.writer: Optional[DatasetWriter] = None
+        self.writer: Optional[AsyncDatasetWriter] = None
         self._on_status = on_status
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -47,57 +59,102 @@ class Recorder:
             "teleop": "—",
             "episodes": 0,
             "frames": 0,
+            "queue": 0,
+            "cam_ok": True,
         }
         self._last_images: dict = {}
         self._pending = False
-        self._preview: List[np.ndarray] = []  # downsampled review frames for the pending episode
+        self._opt_keys: List[str] = []  # optional vector keys present in the schema (leader/eef)
+        self._episode: List[dict] = []  # buffered frames for the in-progress / pending episode
+        self._preview: List[np.ndarray] = []  # downsampled review frames
+        self._btn_prev: Dict[str, list] = {}
+        self._btn_outcome: Optional[str] = None  # outcome chosen via a leader button this episode
+        # "eval": record a continuous rollout (policy / intervention) from arm to disarm,
+        # instead of gating on the teleop engage signal.
+        self._eval = cfg.record_source == "eval"
 
     # ------------------------------------------------------------------ control
     def start(self) -> None:
         """Open cameras + robot link + dataset and begin the record loop (gate stays disarmed)."""
         self.cameras.start()
         self.robot.start()
+        sample = self._probe_sample()
+        self._opt_keys = [k for k in ("observation.leader", "observation.eef") if k in sample]
         shapes = {k: self.cameras.shape_of(k) for k in self.cameras.image_keys}
-        self.writer = DatasetWriter(self.cfg, self.cameras.image_keys, shapes)
-        self.writer.open()
+        self.writer = AsyncDatasetWriter(self.cfg, self.cameras.image_keys, shapes)
+        self.writer.open(sample)
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         self._set(running=True)
 
+    def _probe_sample(self) -> dict:
+        """Wait briefly for a real snapshot to learn which optional fields/dims exist."""
+        snap = None
+        for _ in range(60):
+            s = self.robot.get_snapshot()
+            if s.get("state") is not None:
+                snap = s
+                break
+            time.sleep(0.05)
+        sample: dict = {
+            "images": {k: np.zeros(self.cameras.shape_of(k), np.uint8) for k in self.cameras.image_keys},
+            "observation.state": np.zeros(STATE_DIM, np.float32),
+            "action": np.zeros(ACTION_DIM, np.float32),
+            "observation.control_mode": np.zeros(1, np.float32),
+        }
+        if snap is not None:
+            if snap.get("leader") is not None:
+                sample["observation.leader"] = np.zeros(np.asarray(snap["leader"]).size, np.float32)
+            if snap.get("eef") is not None:
+                sample["observation.eef"] = np.zeros(np.asarray(snap["eef"]).size, np.float32)
+        return sample
+
     def arm(self) -> None:
-        """GUI 'Start collection': let episodes auto-start/stop from the teleop gate."""
+        """GUI 'Start collection': begin gating (teleop/dagger) or a rollout (eval)."""
         self.gate.arm()
-        self._set(armed=True)
+        if self._eval:  # eval: arm starts one continuous rollout
+            self._episode, self._preview, self._btn_outcome = [], [], None
+        self._set(armed=True, recording=self._eval)
 
     def disarm(self) -> None:
-        """GUI 'Stop collection': stop auto-recording; discard any in-progress/pending episode."""
-        if self.gate.disarm() == "abort" and self.writer is not None:
-            self.writer.abort_episode()
+        """GUI 'Stop collection'. In eval mode this ENDS the rollout and saves it
+        (or holds it for review); otherwise it just stops the gate and drops partials."""
+        self.gate.disarm()
+        if self._eval:
+            if self._btn_outcome == "discard" or not self._episode:
+                self._discard_episode()
+            elif self.cfg.review_before_save and self._btn_outcome is None:
+                self._pending = True
+            else:
+                self.writer.submit(self._episode, self._btn_outcome, self.cfg.task)
+                self._episode, self._preview = [], []
+            self._set(armed=False, recording=False, pending=self._pending, queue=self.writer.queue_depth)
+            return
         if self._pending:
-            self._discard_pending()
+            self._discard_episode()
         self._set(armed=False, recording=False, pending=False)
 
     def keep_episode(self, outcome: Optional[str] = None) -> None:
-        """Review decision: keep the pending episode (save it), with an optional outcome label."""
+        """Review decision: keep the pending episode (submit it), with an optional outcome label."""
         if self._pending and self.writer is not None:
-            self.writer.save_episode(outcome=outcome)
-            self._pending = False
-            self._preview = []
-            self._set(pending=False, episodes=self.writer.num_episodes, frames=0)
+            self.writer.submit(self._episode, outcome, self.cfg.task)
+            self._episode, self._preview, self._pending = [], [], False
+            self._set(pending=False, episodes=self.writer.num_episodes, frames=0, queue=self.writer.queue_depth)
 
     def delete_episode(self) -> None:
         """Review decision: discard the pending episode."""
         if self._pending:
-            self._discard_pending()
+            self._discard_episode()
             self._set(pending=False, frames=0)
+
+    def _discard_episode(self) -> None:
+        self._episode, self._preview, self._pending = [], [], False
 
     def shutdown(self) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        if self._pending:
-            self._discard_pending()
         if self.writer is not None:
             self.writer.finalize()
         self.cameras.stop()
@@ -123,39 +180,74 @@ class Recorder:
         warned = False
         while not self._stop.is_set():
             try:
-                images = self.cameras.read()  # real: paces at camera fps; mock: instant
+                images = self.cameras.read()
                 with self._lock:
                     self._last_images = images
                 snap = self.robot.get_snapshot()
-
                 if self._pending:
-                    # awaiting Keep/Delete: do not start/record a new episode
-                    self._set(teleop=snap["teleop_state"])
+                    self._set(teleop=snap["teleop_state"])  # awaiting Keep/Delete: don't start a new episode
                 else:
                     self._step(images, snap)
                     warned = self._warn_state(snap, warned)
             except Exception as e:  # keep the loop alive
                 print(f"[recorder] step error: {e}")
-
             if self.cfg.mock:
                 next_t += period
                 time.sleep(max(0.0, next_t - time.perf_counter()))
 
+    def _frame(self, images: dict, snap: dict) -> dict:
+        f = {
+            "images": {k: np.ascontiguousarray(v) for k, v in images.items()},
+            "observation.state": np.asarray(snap["state"], dtype=np.float32),
+            "action": np.asarray(snap["action"], dtype=np.float32),
+            "observation.control_mode": np.array([snap.get("control_mode", 0)], dtype=np.float32),
+        }
+        for key in self._opt_keys:
+            src = snap.get(key.split(".")[-1])  # "observation.leader" -> snap["leader"]
+            f[key] = np.asarray(src, dtype=np.float32) if src is not None else np.zeros(1, np.float32)
+        return f
+
     def _step(self, images: dict, snap: dict) -> None:
+        self._scan_buttons(snap)
+
+        if self._eval:  # continuous rollout while armed; no engage gate
+            if self.gate.armed and self.cameras.healthy and snap["state"] is not None and snap["action"] is not None:
+                self._episode.append(self._frame(images, snap))
+                self._buffer_preview(images)
+            self._set(
+                armed=self.gate.armed,
+                recording=self.gate.armed,
+                pending=self._pending,
+                teleop=snap["teleop_state"],
+                episodes=self.writer.num_episodes,
+                frames=len(self._episode),
+                queue=self.writer.queue_depth,
+                cam_ok=self.cameras.healthy,
+            )
+            return
+
         event = self.gate.update(snap["teleop_state"])
 
         if event in (eg.EV_START, eg.EV_RECORD, eg.EV_STOP):
-            if snap["state"] is not None and snap["action"] is not None:
-                self.writer.add_frame(images, snap["state"], snap["action"], self.cfg.task)
+            if event == eg.EV_START:
+                self._episode, self._preview, self._btn_outcome = [], [], None
+            if snap["state"] is not None and snap["action"] is not None and self.cameras.healthy:
+                self._episode.append(self._frame(images, snap))
                 self._buffer_preview(images)
 
         if event == eg.EV_STOP:
-            if self.writer.frames_in_episode <= 0:
-                self.writer.abort_episode()
+            if not self._episode:
+                pass  # nothing recorded
+            elif self._btn_outcome == "discard":
+                self._discard_episode()  # leader discard button: end without saving
+            elif self._btn_outcome is not None:
+                self.writer.submit(self._episode, self._btn_outcome, self.cfg.task)  # button auto-label+save
+                self._episode, self._preview = [], []
             elif self.cfg.review_before_save:
                 self._pending = True  # hold for Keep/Delete
             else:
-                self.writer.save_episode()
+                self.writer.submit(self._episode, None, self.cfg.task)
+                self._episode, self._preview = [], []
 
         self._set(
             armed=self.gate.armed,
@@ -163,8 +255,23 @@ class Recorder:
             pending=self._pending,
             teleop=snap["teleop_state"],
             episodes=self.writer.num_episodes,
-            frames=self.writer.frames_in_episode,
+            frames=len(self._episode),
+            queue=self.writer.queue_depth,
+            cam_ok=self.cameras.healthy,
         )
+
+    def _scan_buttons(self, snap: dict) -> None:
+        """Latch a success/fail/discard outcome on a rising edge of the leader label buttons."""
+        if not (self.gate.recording or (self._eval and self.gate.armed)):
+            return
+        for side, btns in (snap.get("buttons") or {}).items():
+            prev = self._btn_prev.get(side, [])
+            for idx, outcome in ((SUCCESS_BUTTON, "success"), (FAIL_BUTTON, "fail"), (DISCARD_BUTTON, "discard")):
+                pressed = idx < len(btns) and bool(btns[idx])
+                was = idx < len(prev) and bool(prev[idx])
+                if pressed and not was:
+                    self._btn_outcome = outcome
+            self._btn_prev[side] = list(btns)
 
     def _warn_state(self, snap: dict, warned: bool) -> bool:
         if self.gate.recording and (snap["state"] is None or snap["action"] is None):
@@ -184,12 +291,6 @@ class Recorder:
             self._preview.append(small)
             if len(self._preview) > 1200:  # cap memory (~20 s @ 60 fps downsampled)
                 self._preview.pop(0)
-
-    def _discard_pending(self) -> None:
-        if self.writer is not None:
-            self.writer.abort_episode()
-        self._pending = False
-        self._preview = []
 
     # ------------------------------------------------------------------ status
     def _set(self, **kw: object) -> None:
