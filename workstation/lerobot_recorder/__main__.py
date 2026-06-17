@@ -71,11 +71,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     cfg = build_config(argv)
     from PyQt5 import QtWidgets
 
+    from workstation.lerobot_recorder import theme
     from workstation.lerobot_recorder.gui import RecorderGUI
 
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyleSheet(theme.QSS)  # app-level so every window/dialog is themed
     gui = RecorderGUI(cfg)
-    gui.resize(720, 420)
+    gui.resize(760, 900)
     gui.show()
     sys.exit(app.exec_())
 

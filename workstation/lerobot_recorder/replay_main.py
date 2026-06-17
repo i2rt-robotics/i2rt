@@ -31,11 +31,13 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     from PyQt5 import QtWidgets
 
+    from workstation.lerobot_recorder import theme
     from workstation.lerobot_recorder.replay_gui import ReplayGUI
 
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyleSheet(theme.QSS)  # same modern theme as the recorder
     gui = ReplayGUI(cfg)
-    gui.resize(640, 560)
+    gui.resize(720, 680)
     gui.show()
     sys.exit(app.exec_())
 
