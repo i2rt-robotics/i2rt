@@ -2,8 +2,8 @@
 #
 # Convenience launcher for the i2rt ROS 2 nodes.
 #
-# Activates the conda env (default: i2rt_ros, which auto-sources ROS 2 Humble)
-# and runs the requested node, forwarding any extra args.
+# Activates the uv venv (default: <repo>/.venv-ros, which auto-sources ROS 2
+# Humble) and runs the requested node, forwarding any extra args.
 #
 #   scripts/yam wrapper [args]   # ① ROS 2 wrapper (followers): state pub + cmd sub
 #   scripts/yam teleop  [args]   # ② bimanual teleop (auto home/engage gate)
@@ -16,19 +16,22 @@
 #   scripts/yam teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0
 #   scripts/yam dagger --bilateral-kp 0.15
 #
-# Override the env with:  I2RT_ENV=my_env scripts/yam teleop ...
+# Override the venv with:  I2RT_VENV=/path/to/venv scripts/yam teleop ...
 # For short aliases (just `yam teleop`):  source scripts/ros2_aliases.sh
 #
 # Note: no `set -u` — ROS 2's setup.bash references unset vars while sourcing.
 set -eo pipefail
 
-ENV_NAME="${I2RT_ENV:-i2rt_ros}"
-CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
-# shellcheck disable=SC1091
-source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate "$ENV_NAME"
-
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+VENV="${I2RT_VENV:-$REPO/.venv-ros}"
+if [ ! -f "$VENV/bin/activate" ]; then
+    echo "yam: venv not found at $VENV/bin/activate" >&2
+    echo "     create it (see i2rt/ros2/README.md §1), or set I2RT_VENV=/path/to/venv" >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"   # the activate script also sources ROS 2 Humble
 
 cmd="${1:-}"
 shift || true

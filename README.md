@@ -136,7 +136,7 @@ workstation over ROS 2, using only standard messages (`sensor_msgs`/`std_msgs`) 
 no colcon/ament build. Bimanual by default (2 leaders + 2 followers).
 
 ```bash
-conda activate i2rt_ros                    # ROS 2 Humble auto-sourced
+source .venv-ros/bin/activate              # ROS 2 Humble auto-sourced
 python -m i2rt.ros2.run_wrapper --sim      # ① state publisher + action subscriber
 python -m i2rt.ros2.run_teleop  --sim      # ② bimanual leader-follower teleop
 python -m i2rt.ros2.run_dagger  --sim      # ③ HG-DAgger interactive takeover
@@ -147,7 +147,7 @@ scripts/yam teleop --sim                   # also: wrapper / dagger / can / canu
 
 Targets are rate-limited and gravity compensation is always on, so policy↔human
 takeovers ramp smoothly. See [`i2rt/ros2/README.md`](i2rt/ros2/README.md) for the
-full topic contract, the conda-env setup, and the workstation-side recipe.
+full topic contract, the uv-env setup, and the workstation-side recipe.
 
 ## Advanced: Motor Configuration
 

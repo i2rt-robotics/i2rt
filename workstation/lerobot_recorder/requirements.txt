@@ -8,10 +8,13 @@
 # System packages (apt) needed for LeRobot v3.0 video encoding:
 #   sudo apt install -y ffmpeg
 #
-# Setup:
-#   python -m venv ~/lerobot_env --system-site-packages   # so rclpy (ROS) is visible
-#   source ~/lerobot_env/bin/activate && source /opt/ros/<distro>/setup.bash
-#   pip install -r requirements.txt
+# Setup (uv; full guide in README.md):
+#   uv venv --python /usr/bin/python3.10 --system-site-packages ~/lerobot_env  # so rclpy (ROS) is visible
+#   source ~/lerobot_env/bin/activate && source /opt/ros/humble/setup.bash
+#   uv pip install -r requirements.txt
+#
+# RealSense udev rules are NOT installed by the pip wheel — see README.md
+# (workstation → RealSense cameras) or cameras fail with permission errors.
 
 lerobot>=0.4.0      # LeRobotDataset v3.0 API (create/add_frame/save_episode/finalize)
 pyrealsense2        # RealSense D405 / D455 cameras

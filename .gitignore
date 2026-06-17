@@ -92,3 +92,4 @@ scripts/temp_*/
 
 CLAUDE.md
 *.mjb
+.venv*/

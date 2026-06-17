@@ -20,11 +20,12 @@ Three components:
 
 ## 1. Environment
 
-A dedicated conda env (`i2rt_ros`, Python 3.10) holds i2rt **and** can import
-ROS 2 Humble's `rclpy`. Activating it auto-sources `/opt/ros/humble`.
+A dedicated [uv](https://docs.astral.sh/uv/) venv (`.venv-ros`, Python 3.10) holds
+i2rt **and** can import ROS 2 Humble's `rclpy`. Activating it auto-sources
+`/opt/ros/humble`.
 
 ```bash
-conda activate i2rt_ros          # sources ROS 2 Humble automatically
+source .venv-ros/bin/activate    # sources ROS 2 Humble automatically
 python -c "import rclpy, i2rt; print('ready')"
 ```
 
@@ -32,26 +33,38 @@ python -c "import rclpy, i2rt; print('ready')"
 <summary>How this env was created (one-time, for reference)</summary>
 
 ```bash
-conda create -y -n i2rt_ros -c conda-forge --override-channels python=3.10
-conda activate i2rt_ros
-python -m ensurepip --upgrade
-pip install -e /home/droid/i2rt_rllab
-# auto-source ROS 2 on activate:
-mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
-echo 'source /opt/ros/humble/setup.bash' > "$CONDA_PREFIX/etc/conda/activate.d/ros2_humble.sh"
+# uv (skip if already installed):
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
+
+# Build against the SYSTEM Python 3.10 — see ABI note below.
+cd /home/droid/i2rt_rllab
+uv venv --python /usr/bin/python3.10 .venv-ros
+source .venv-ros/bin/activate
+uv pip install -e .
+# auto-source ROS 2 + pin the DDS domain every time the venv is activated:
+echo 'source /opt/ros/humble/setup.bash' >> .venv-ros/bin/activate
+echo 'export ROS_DOMAIN_ID=64' >> .venv-ros/bin/activate   # MUST match the workstation
 ```
 
-The conda Python (3.10) is ABI-compatible with Humble's system Python (3.10), so
-the prebuilt `rclpy` loads directly — no RoboStack needed.
+**ABI note:** Humble's prebuilt `rclpy` C extensions are linked against Ubuntu
+22.04's **system** Python 3.10, so the venv must use that exact interpreter
+(`--python /usr/bin/python3.10`) for `import rclpy` to load — a uv-managed
+download of Python 3.10 may not be ABI-compatible. If `import rclpy` still raises
+a symbol/ABI error, recreate with system site-packages exposed:
+`uv venv --python /usr/bin/python3.10 --system-site-packages .venv-ros` (this also
+surfaces apt-installed ROS Python deps). No RoboStack needed.
+
+> The `echo … >> .venv-ros/bin/activate` line bakes the ROS source into the
+> activate script; re-run it if you ever recreate the venv.
 </details>
 
-All commands below assume `conda activate i2rt_ros`. Add `--sim` to any of them to
-run without hardware (uses `SimRobot`).
+All commands below assume `source .venv-ros/bin/activate`. Add `--sim` to any of
+them to run without hardware (uses `SimRobot`).
 
 ### Shortcuts
 
 [`scripts/yam`](../../scripts/yam) activates the env for you and launches a node,
-so you don't type the full `conda activate … && python -m …`:
+so you don't type the full `source .venv-ros/bin/activate && python -m …`:
 
 ```bash
 scripts/yam teleop  --sim                 # ② teleop
