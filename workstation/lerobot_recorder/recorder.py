@@ -27,7 +27,7 @@ import numpy as np
 
 from workstation.lerobot_recorder import episode_gate as eg
 from workstation.lerobot_recorder.cameras import CameraManager
-from workstation.lerobot_recorder.config import ACTION_DIM, LEADER_DIM, STATE_DIM, RecorderConfig
+from workstation.lerobot_recorder.config import ACTION_DIM, EEF_DIM, LEADER_DIM, STATE_DIM, RecorderConfig
 from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
 from workstation.lerobot_recorder.episode_gate import EpisodeGate
 from workstation.lerobot_recorder.portal_bridge import PortalBridge
@@ -91,6 +91,7 @@ class Recorder:
             "images": {k: np.zeros(self.cameras.shape_of(k), np.uint8) for k in self.cameras.image_keys},
             "observation.state": np.zeros(STATE_DIM, np.float32),
             "observation.leader": np.zeros(LEADER_DIM, np.float32),
+            "observation.eef": np.zeros(EEF_DIM, np.float32),
             "observation.control_mode": np.zeros(1, np.float32),
             "action": np.zeros(ACTION_DIM, np.float32),
         }
@@ -104,7 +105,7 @@ class Recorder:
         if a.size == dim:
             return a
         out = np.zeros(dim, np.float32)
-        out[: min(dim, a.size)] = a[: dim]
+        out[: min(dim, a.size)] = a[:dim]
         return out
 
     def arm(self) -> None:
@@ -197,6 +198,7 @@ class Recorder:
             "images": {k: np.ascontiguousarray(v) for k, v in images.items()},
             "observation.state": self._fit(snap.get("state"), STATE_DIM),
             "observation.leader": self._fit(snap.get("leader"), LEADER_DIM),
+            "observation.eef": self._fit(snap.get("eef"), EEF_DIM),
             "observation.control_mode": np.array([snap.get("control_mode", 0)], dtype=np.float32),
             "action": self._fit(snap.get("action"), ACTION_DIM),
         }

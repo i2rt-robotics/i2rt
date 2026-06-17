@@ -55,6 +55,27 @@ def test_teleop_bilateral_engage_steps():
     tc.close()
 
 
+def test_eef_obs_and_safe_osc_roundtrip():
+    """EEF FK populates the snapshot; commanding the current EE pose (resolved-rate
+    IK -> joint impedance) holds ~the current joints."""
+    import numpy as np
+
+    wc = WrapperController(WrapperConfig(sim=True, control="eef", rate=100.0))
+    side = "left"
+    kin = wc._kin[side]
+    assert kin.available  # sim model builds
+    cur = np.asarray(wc.followers[side].get_joint_pos(), dtype=float)
+    pose = kin.fk(cur)
+    assert pose is not None and pose.shape == (7,)
+
+    wc.command({side: pose})  # EEF target = current pose
+    wc.step()
+    applied = wc.snapshot()[side]["applied"]
+    assert applied is not None
+    assert np.allclose(np.asarray(applied)[:-1], cur[:-1], atol=1e-2)  # arm holds
+    wc.close()
+
+
 def test_command_staleness_watchdog():
     """A wrapper follower holds (applied=None) once external commands go stale."""
     ctrl = WrapperController(WrapperConfig(sim=True, rate=100.0, command_timeout=0.2))

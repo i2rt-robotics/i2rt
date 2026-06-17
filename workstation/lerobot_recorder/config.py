@@ -21,6 +21,8 @@ LEADER_ARM_DOF = 6  # teaching-handle leader exposes 6 arm joints (gripper is a 
 STATE_DIM = len(ARMS) * ARM_DOF * 3  # 42
 ACTION_DIM = len(ARMS) * ARM_DOF  # 14
 LEADER_DIM = len(ARMS) * LEADER_ARM_DOF  # 12
+EEF_POSE_DIM = 7  # per arm: position(3) + quaternion wxyz(4)
+EEF_DIM = len(ARMS) * EEF_POSE_DIM  # 14 (zeros when the robot can't provide FK)
 
 # Per-frame control-mode label (always written as observation.control_mode), so a
 # dataset records whether each frame came from teleop, a policy, an intervention,
@@ -42,6 +44,11 @@ def action_names() -> List[str]:
 
 def leader_names() -> List[str]:
     return [f"{arm}.leader.{i}" for arm in ARMS for i in range(LEADER_ARM_DOF)]
+
+
+def eef_names() -> List[str]:
+    comp = ["x", "y", "z", "qw", "qx", "qy", "qz"]
+    return [f"{arm}.eef.{c}" for arm in ARMS for c in comp]
 
 
 # ----------------------------------------------------------------------------

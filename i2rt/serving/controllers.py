@@ -25,8 +25,9 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from i2rt.serving import control_config as cc
+from i2rt.serving.eef import ArmKinematics
 from i2rt.serving.safety import TargetSmoother, clamp_limits, is_finite_vector, max_step_from_speed
-from i2rt.serving.state_utils import ee_pose, full_state, to_full_target
+from i2rt.serving.state_utils import full_state, to_full_target
 from i2rt.serving.teleop_common import (
     ArmPair,
     LatchingToggle,
@@ -43,13 +44,18 @@ logger = logging.getLogger(__name__)
 _HOME_TOL = 0.05  # rad; homing considered done when the ramp is within this of home
 
 
-def _side_state(robot: Any) -> Dict[str, list]:
+def _side_state(robot: Any, kin: Optional[ArmKinematics] = None) -> Dict[str, list]:
     pos, vel, eff = full_state(robot)
     out = {"pos": pos.tolist(), "vel": vel.tolist(), "eff": eff.tolist()}
-    pose = ee_pose(robot)
+    pose = kin.fk(robot.get_joint_pos()) if kin is not None else None
     if pose is not None:
         out["eef"] = pose.tolist()
     return out
+
+
+def _build_kin(robots: Dict[str, Any]) -> Dict[str, ArmKinematics]:
+    """One ArmKinematics per follower (for EEF FK in the snapshot / IK control)."""
+    return {side: ArmKinematics(robot) for side, robot in robots.items()}
 
 
 class BaseController:
@@ -147,6 +153,7 @@ class TeleopController(BaseController):
         self.sm = TeleopStateMachine(cfg.engage_thr, cfg.release_thr, cfg.dwell)
         self._sim_engage = False
 
+        self._kin = _build_kin({s: p.follower for s, p in self.pairs.items()})
         self._fsmooth, self._lsmooth = {}, {}
         for side, pair in self.pairs.items():
             self._fsmooth[side] = TargetSmoother(pair.follower.get_joint_pos(), self._ramp_step)
@@ -256,7 +263,7 @@ class TeleopController(BaseController):
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
 
                 applied_list = self._apply(pair.follower, applied)
-                snap = _side_state(pair.follower)
+                snap = _side_state(pair.follower, self._kin.get(side))
                 snap["leader_pos"] = np.asarray(pair.leader.get_joint_pos(), dtype=float).tolist()
                 snap["buttons"] = list(buttons[side])
                 snap["gripper_cmd"] = float(grip[side]) if grip[side] is not None else 0.0
@@ -344,6 +351,7 @@ class DaggerController(BaseController):
         self._intervening = False
         self._toggle = LatchingToggle(initial=False)
         self._policy_action: Dict[str, Optional[np.ndarray]] = {s: None for s in self.pairs}
+        self._kin = _build_kin({s: p.follower for s, p in self.pairs.items()})
         self._smooth = {s: TargetSmoother(p.follower.get_joint_pos(), max_step) for s, p in self.pairs.items()}
         self._has_grip = "gripper_pos" in next(iter(self.pairs.values())).follower.get_observations()
 
@@ -418,7 +426,7 @@ class DaggerController(BaseController):
                 else:
                     smoother.reset(pair.follower.get_joint_pos())
 
-                snap = _side_state(pair.follower)
+                snap = _side_state(pair.follower, self._kin.get(side))
                 snap["leader_pos"] = np.asarray(pair.leader.get_joint_pos(), dtype=float).tolist()
                 snap["buttons"] = list(buttons[side])
                 snap["gripper_cmd"] = float(grip_cmd[side]) if grip_cmd[side] is not None else 0.0
@@ -493,6 +501,7 @@ class WrapperController(BaseController):
             )
             cc.apply_follower_gains(self.followers[side])
 
+        self._kin = _build_kin(self.followers)
         max_step = max_step_from_speed(cfg.max_joint_speed, cfg.rate)
         self._smooth = {s: TargetSmoother(f.get_joint_pos(), max_step) for s, f in self.followers.items()}
         self._command: Dict[str, Optional[np.ndarray]] = {s: None for s in self.followers}
@@ -517,22 +526,28 @@ class WrapperController(BaseController):
         self._touch_cmd()
 
     def _command_eef(self, data: Dict) -> None:
-        """EEF-space control (experimental): forward an end-effector pose to the robot's
-        own cartesian controller. Requires the robot to implement ``command_ee_pose``;
-        otherwise it's a logged no-op (joint mode remains the safe default)."""
-        if self._estop:
-            return
+        """Safe operational-space (resolved-rate) control: resolve each EE pose target to
+        joint positions with the company IK (mink, limits + damping), seeded at the
+        current pose, then drive them through the SAME joint path as joint mode — the
+        TargetSmoother rate limit, joint clamp, e-stop and watchdog all still apply.
+        """
         for side, pose in (data or {}).items():
             follower = self.followers.get(side)
-            fn = getattr(follower, "command_ee_pose", None)
-            if callable(fn):
-                try:
-                    fn(np.asarray(pose, dtype=float))
-                except Exception as e:
-                    logger.warning("[%s] eef command failed: %s", side, e)
-            elif not getattr(self, "_eef_warned", False):
-                logger.warning("eef control requested but the robot has no command_ee_pose(); ignoring")
-                self._eef_warned = True
+            kin = self._kin.get(side)
+            if follower is None or kin is None or not kin.available:
+                if not getattr(self, "_eef_warned", False):
+                    logger.warning("eef control requested but no IK model is available; ignoring")
+                    self._eef_warned = True
+                continue
+            cur = np.asarray(follower.get_joint_pos(), dtype=float)
+            q = kin.ik(np.asarray(pose, dtype=float), init_q=cur)  # full model config (nq) or None
+            if q is None:
+                continue
+            n_arm = cur.size - 1  # gripper is the trailing dof; arm joints lead
+            target = cur.copy()
+            target[:n_arm] = q[:n_arm]  # IK arm solution; keep the current gripper opening
+            self._command[side] = target
+        self._touch_cmd()
 
     # a policy can drive the wrapper too (treated as a direct command)
     set_policy_action = command
@@ -550,7 +565,7 @@ class WrapperController(BaseController):
                     applied = self._apply(follower, smoother.step(cmd))
                 else:
                     smoother.reset(follower.get_joint_pos())
-                snap = _side_state(follower)
+                snap = _side_state(follower, self._kin.get(side))
                 snap["applied"] = applied
                 sides_snap[side] = snap
             except Exception as e:

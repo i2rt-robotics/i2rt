@@ -164,10 +164,16 @@ workstation/yam-data replay --robot-host <ROBOT_IP> --repo-id user/yam_pick --ro
 - [ ] **Load**, pick an episode, tick **Overlay live** → live agentview is blended with the episode's first frame; arrange objects to match.
 - [ ] Tick **Send to robot** + **Play** → robot ramps to the first frame then follows the trajectory. Untick send = video-only preview.
 
-## 14. EEF (note, not a blocker)
+## 14. EEF observation + safe OSC control
 
-- The current `MotorChainRobot` exposes **no** end-effector pose, so `observation.eef`
-  is **not** recorded and `--control eef` is a no-op (logs a warning). If you want
-  EEF, the robot needs a `get_ee_pose()` (FK) and/or `command_ee_pose()` (IK) —
-  ping me and I'll wire it to mink.
-- [ ] (Optional) confirm `--control eef` logs "no command_ee_pose(); ignoring" and joint mode still works.
+EEF now uses the company `Kinematics` (mink) on `robot.xml_path`'s `grasp_site`.
+Verified in sim (FK populates obs; IK round-trip holds). Confirm on hardware:
+
+```bash
+# [ws]  with a teleop/dagger server running, check the snapshot carries eef
+python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host='<ROBOT_IP>'); print(c.get_observation()['left'].get('eef'))"
+```
+- [ ] `observation.eef` is a 7-vector `[x,y,z,qw,qx,qy,qz]` that **moves sensibly** as you move the arm (and is recorded as `observation.eef(14)` in datasets).
+- [ ] **Safe OSC**: `scripts/yam wrapper --control eef`, then from the workstation send an EE-pose target via `RobotClient.command({"left": pose7, "right": pose7})`. The arm should track the target smoothly (resolved-rate IK → joint impedance + smoother), **no jump near singularities**. Start with small offsets from the current pose (get it from the snapshot's `eef`).
+- [ ] Confirm the IK site is correct for your gripper (default `grasp_site`; teaching handle uses `tcp_site`). If poses look off, set the site in `i2rt/serving/eef.py` (`ArmKinematics(..., site=...)`).
+- Note: torque-level OSC (`Jᵀ·F`) is intentionally not the default (singularity safety); ask if you want it as an opt-in since the motors are in MIT/torque mode.

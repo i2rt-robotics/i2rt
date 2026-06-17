@@ -65,8 +65,18 @@ robot.set_estop(True)                    # network e-stop: hold, ignore all comm
 - **Link-loss watchdog:** dagger/wrapper followers hold if no fresh
   `set_policy_action`/`command` arrives within `command_timeout` (default 0.5 s) —
   so a workstation crash or network drop can't leave a stale target driving the arm.
-- EEF mode (`run_robot_server wrapper --control eef`) is experimental and forwards
-  poses to the robot's own cartesian controller (`command_ee_pose`) if present.
+**End-effector (EEF):**
+- `observation.eef` (per-arm `[x,y,z,qw,qx,qy,qz]`) is computed by the company
+  `Kinematics` FK (mink) from `robot.xml_path`'s `grasp_site` and added to the
+  snapshot (zeros if a model isn't available).
+- **Safe operational-space control** (`run_robot_server wrapper --control eef`):
+  each EE-pose target is resolved to joint positions by `Kinematics.ik` (mink QP,
+  joint limits + LM damping), seeded at the current pose, then driven through the
+  **same joint path** as joint mode — `command_joint_pos` (MIT impedance) +
+  `TargetSmoother` rate limit + joint clamp + e-stop + watchdog. This is resolved-rate
+  OSC; it avoids the singularity torque spikes of a torque-level OSC. (Motors run
+  MIT/torque mode, so a `Jᵀ·F` torque OSC is possible too but intentionally not the
+  default for safety.)
 
 ## Snapshot schema (`get_observation()`)
 

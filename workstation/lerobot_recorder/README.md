@@ -230,10 +230,11 @@ Dry run: `workstation/yam-data replay --mock`.
   the dataset root (a sidecar, since LeRobot has no per-episode label slot).
 - **Resume**: `--resume` appends to an existing dataset at `--root` instead of
   creating a new one (episode indices continue).
-- **Always-on provenance**: every frame carries `observation.control_mode`
-  (teleop / policy / intervention) and whatever the robot reports —
-  `observation.state`, plus `observation.leader` and `observation.eef` when
-  available (the schema is probed from the first snapshot).
+- **Always-on provenance (fixed schema)**: every frame carries
+  `observation.state(42)`, `observation.leader(12)`, `observation.eef(14)` (FK from
+  the company `Kinematics`; zeros if no model), `observation.control_mode(1)`
+  (teleop/policy/intervention), and `action(14)`. The schema is **predefined from the
+  robot's known outputs** (no runtime probe).
 - **Async writer**: a finished episode is queued and saved by a background worker
   (one at a time), so LeRobot's per-trajectory encoding never blocks the next
   collection. The GUI shows the pending `queue` depth.

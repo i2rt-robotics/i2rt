@@ -64,12 +64,14 @@ def test_control_mode_in_frame():
         "state": np.zeros(42, np.float32),
         "action": np.zeros(14, np.float32),
         "leader": np.zeros(12, np.float32),
+        "eef": np.zeros(14, np.float32),
         "control_mode": 2,
     }
     frame = rec._frame({"agentview": np.zeros((4, 4, 3), np.uint8)}, snap)
     assert frame["observation.control_mode"].tolist() == [2.0]
     assert frame["observation.state"].shape == (42,)
     assert frame["observation.leader"].shape == (12,)
+    assert frame["observation.eef"].shape == (14,)  # zeros if the robot can't FK
     assert frame["action"].shape == (14,)
     assert "agentview" in frame["images"]
 

@@ -62,7 +62,7 @@ class AsyncDatasetWriter:
     # ------------------------------------------------------------------ schema
     @staticmethod
     def _vector_names(key: str, dim: int) -> List[str]:
-        from workstation.lerobot_recorder.config import action_names, leader_names, state_names
+        from workstation.lerobot_recorder.config import action_names, eef_names, leader_names, state_names
 
         if key == "observation.state":
             return state_names()
@@ -70,6 +70,8 @@ class AsyncDatasetWriter:
             return action_names()
         if key == "observation.leader":
             return leader_names()
+        if key == "observation.eef":
+            return eef_names()
         return [f"{key.rsplit('.', 1)[-1]}.{i}" for i in range(dim)]
 
     def _build_features(self, sample: dict) -> dict:
