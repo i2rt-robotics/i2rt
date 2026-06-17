@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import threading
 import time
 from typing import Dict, List, Optional
@@ -58,6 +59,14 @@ class AsyncDatasetWriter:
         self._lock = threading.Lock()
         self._n_episodes = 0  # saved episodes (incremented by the worker)
         self._n_submitted = 0
+        self.low_disk = False  # set when an episode was refused for lack of free space
+
+    def _free_gb(self) -> float:
+        path = self._root if os.path.isdir(self._root) else (os.path.dirname(self._root) or ".")
+        try:
+            return shutil.disk_usage(path).free / 1e9
+        except Exception:
+            return float("inf")
 
     # ------------------------------------------------------------------ schema
     @staticmethod
@@ -151,6 +160,12 @@ class AsyncDatasetWriter:
                 self._queue.task_done()
 
     def _save_episode(self, frames: List[dict], outcome: Optional[str], task: str) -> None:
+        free = self._free_gb()
+        if free < self.cfg.min_free_gb:
+            self.low_disk = True
+            print(f"[dataset] LOW DISK: {free:.1f} GB free (< {self.cfg.min_free_gb} GB) — episode NOT saved")
+            return
+        self.low_disk = False
         if not self._mock:
             for f in frames:
                 frame = {f"observation.images.{k}": v for k, v in f["images"].items()}

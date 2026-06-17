@@ -61,10 +61,16 @@ class RecorderGUI(QtWidgets.QWidget):
         self.health.setTextFormat(QtCore.Qt.RichText)
         self.stats = QtWidgets.QLabel("episodes 0")
         self.stats.setStyleSheet(f"color:{theme.MUTED};")
+        self.estop_btn = QtWidgets.QPushButton("■ E-STOP")
+        self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:600;")
+        self.estop_btn.setCheckable(True)
+        self.estop_btn.toggled.connect(self._on_estop)
         strip = QtWidgets.QHBoxLayout()
         strip.addWidget(self.health)
         strip.addStretch(1)
         strip.addWidget(self.stats)
+        strip.addStretch(1)
+        strip.addWidget(self.estop_btn)
 
         # session config + task templates
         form = QtWidgets.QFormLayout()
@@ -189,6 +195,10 @@ class RecorderGUI(QtWidgets.QWidget):
     def _on_delete(self) -> None:
         self.recorder.delete_episode()
 
+    def _on_estop(self, engaged: bool) -> None:
+        self.recorder.set_estop(engaged)
+        self.estop_btn.setText("■ E-STOP (engaged)" if engaged else "■ E-STOP")
+
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
         if key == QtCore.Qt.Key_Space and self.collect_btn.isEnabled():
@@ -229,7 +239,9 @@ class RecorderGUI(QtWidgets.QWidget):
         self._prev = st
 
     def _update_banner(self, st: dict) -> None:
-        if not (st["cam_ok"] and st.get("robot_ok", True)):
+        if not st.get("disk_ok", True):
+            text, color = "⚠ LOW DISK — not saving", theme.STATE_COLORS["ERROR"]
+        elif not (st["cam_ok"] and st.get("robot_ok", True)):
             text, color = "⚠ DEVICE FAULT", theme.STATE_COLORS["ERROR"]
         elif st["pending"]:
             text, color = "REVIEW — keep [S/F] or delete [D]", theme.STATE_COLORS["REVIEW"]
@@ -247,8 +259,10 @@ class RecorderGUI(QtWidgets.QWidget):
         rob = theme.dot(st.get("robot_ok", False))
         q = st.get("queue", 0)
         qcol = theme.OK if q <= 2 else theme.WARN
+        disk = theme.dot(st.get("disk_ok", True))
         self.health.setText(
-            f'{rob} robot &nbsp;&nbsp; {cam} cameras &nbsp;&nbsp; <span style="color:{qcol};">●</span> save queue {q}'
+            f"{rob} robot &nbsp;&nbsp; {cam} cameras &nbsp;&nbsp; {disk} disk &nbsp;&nbsp; "
+            f'<span style="color:{qcol};">●</span> save queue {q}'
         )
 
     def _update_stats(self, st: dict) -> None:

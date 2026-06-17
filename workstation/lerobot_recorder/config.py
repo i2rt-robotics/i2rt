@@ -94,6 +94,7 @@ class RecorderConfig:
     #   "dagger" -> gate on intervention (HG-DAgger), action = human (leader) action
     record_source: str = "teleop"
     resume: bool = False  # append to an existing dataset at `root` instead of creating a new one
+    min_free_gb: float = 1.0  # refuse to save an episode when free disk drops below this
     mock: bool = False  # synthetic cameras + teleop stream (no hardware / robot)
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback

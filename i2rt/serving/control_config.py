@@ -80,6 +80,13 @@ HOME_BUTTONS: List[int] = [0, 1, 2]
 # joints past the list are left unclamped.
 FOLLOWER_JOINT_LIMITS: Optional[List[tuple]] = None
 
+# --- Collision / overload soft-stop ------------------------------------------
+# If set, any follower arm joint whose |effort| (Nm) exceeds this triggers an
+# automatic e-stop (the rig holds until you release it) — a simple collision /
+# overload guard. None = disabled (default; tune to your arm before enabling so it
+# doesn't false-trip). The gripper joint is excluded (grasping is legitimately high).
+FOLLOWER_EFFORT_LIMIT: Optional[float] = None
+
 
 def _gripper_base_mass(gripper_type: Any) -> Optional[float]:
     """Read the gripper body's own inertial mass (kg) from its MJCF, or None."""

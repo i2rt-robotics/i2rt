@@ -44,11 +44,17 @@ class PortalBridge:
         self._thread: Optional[threading.Thread] = None
         self._client = None
         self._connected = False
+        self._estop_req = False
+        self._estop_sent: Optional[bool] = None
 
     @property
     def connected(self) -> bool:
         """True once the robot server has answered (always True in mock)."""
         return self.cfg.mock or self._connected
+
+    def set_estop(self, flag: bool) -> None:
+        """Request a robot e-stop; applied (and re-applied on reconnect) by the poll loop."""
+        self._estop_req = bool(flag)
 
     # ------------------------------------------------------------------ public
     def start(self) -> None:
@@ -80,9 +86,13 @@ class PortalBridge:
                 with self._lock:
                     self._snap = self._assemble(obs)
                 self._connected = True
+                if self._estop_sent != self._estop_req:  # apply e-stop (and re-apply on reconnect)
+                    self._client.set_estop(self._estop_req)
+                    self._estop_sent = self._estop_req
             except Exception:
                 self._client = None  # drop and retry next tick
                 self._connected = False
+                self._estop_sent = None  # force re-apply after reconnect
             time.sleep(period)
 
     @staticmethod

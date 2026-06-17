@@ -31,8 +31,9 @@ case "$cmd" in
     replay) exec python -m workstation.lerobot_recorder.replay_main "$@" ;;
     bridge) exec python -m workstation.policy_bridge "$@" ;;
     cams)   exec python -m workstation.lerobot_recorder.cameras --list ;;
+    doctor) exec python -m workstation.lerobot_recorder.doctor "$@" ;;
     *)
-        echo "usage: yam-data {record|replay|bridge|cams} [args]" >&2
+        echo "usage: yam-data {record|replay|bridge|cams|doctor} [args]" >&2
         exit 2
         ;;
 esac

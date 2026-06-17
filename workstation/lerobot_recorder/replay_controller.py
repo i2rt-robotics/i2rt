@@ -58,6 +58,18 @@ class ReplayController:
 
         threading.Thread(target=_connect, daemon=True).start()
 
+    @property
+    def connected(self) -> bool:
+        return self._client is not None
+
+    def set_estop(self, flag: bool) -> None:
+        """Forward an e-stop to the robot (no-op in mock / before connect)."""
+        if self._client is not None:
+            try:
+                self._client.set_estop(flag)
+            except Exception:
+                pass
+
     def _split(self, action: np.ndarray) -> Dict[str, np.ndarray]:
         return {arm: np.asarray(action[i * ARM_DOF : (i + 1) * ARM_DOF], dtype=float) for i, arm in enumerate(ARMS)}
 

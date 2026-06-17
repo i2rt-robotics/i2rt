@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from workstation.lerobot_recorder import theme
 from workstation.lerobot_recorder.cameras import CameraManager
 from workstation.lerobot_recorder.config import RecorderConfig
 from workstation.lerobot_recorder.dataset_reader import DatasetReader
@@ -40,6 +41,20 @@ class ReplayGUI(QtWidgets.QWidget):
 
     # ------------------------------------------------------------------ layout
     def _build(self) -> None:
+        self.banner = QtWidgets.QLabel("not loaded")
+        self.banner.setAlignment(QtCore.Qt.AlignCenter)
+        self.banner.setStyleSheet(theme.banner_style(theme.IDLE))
+        self.health = QtWidgets.QLabel()
+        self.health.setTextFormat(QtCore.Qt.RichText)
+        self.estop_btn = QtWidgets.QPushButton("■ E-STOP")
+        self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:600;")
+        self.estop_btn.setCheckable(True)
+        self.estop_btn.toggled.connect(self._on_estop)
+        strip = QtWidgets.QHBoxLayout()
+        strip.addWidget(self.health)
+        strip.addStretch(1)
+        strip.addWidget(self.estop_btn)
+
         form = QtWidgets.QFormLayout()
         self.repo_edit = QtWidgets.QLineEdit(self.cfg.repo_id)
         self.root_edit = QtWidgets.QLineEdit(self.cfg.root)
@@ -93,6 +108,10 @@ class ReplayGUI(QtWidgets.QWidget):
             w.setEnabled(False)
 
         root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+        root.addWidget(self.banner)
+        root.addLayout(strip)
         root.addLayout(form)
         root.addLayout(top)
         root.addWidget(self.view)
@@ -154,8 +173,16 @@ class ReplayGUI(QtWidgets.QWidget):
         if self.controller:
             self.controller.stop()
 
+    def _on_estop(self, engaged: bool) -> None:
+        if self.controller:
+            self.controller.set_estop(engaged)
+        if engaged and self.controller:
+            self.controller.stop()  # also halt playback locally
+        self.estop_btn.setText("■ E-STOP (engaged)" if engaged else "■ E-STOP")
+
     # ------------------------------------------------------------------ refresh
     def _refresh(self) -> None:
+        self._update_banner_health()
         if self.controller is None:
             return
         self.controller.set_speed(self.speed.value())
@@ -180,6 +207,26 @@ class ReplayGUI(QtWidgets.QWidget):
                 else ("◍ overlay" if self.overlay_cb.isChecked() else "⏸ stopped")
             )
             self.status.setText(f"ep {e}  frame {f}/{n}  {tag}")
+
+    def _update_banner_health(self) -> None:
+        loaded = self.controller is not None
+        playing = loaded and self.controller.playing
+        sending = playing and self.send_cb.isChecked()
+        if self.estop_btn.isChecked():
+            text, color = "■ E-STOP ENGAGED", theme.STATE_COLORS["ERROR"]
+        elif sending:
+            text, color = "▶ SENDING TO ROBOT", theme.STATE_COLORS["REC"]
+        elif playing:
+            text, color = "▶ playing (preview)", theme.STATE_COLORS["ARMED"]
+        elif loaded and self.overlay_cb.isChecked():
+            text, color = "◍ scene overlay", theme.STATE_COLORS["REVIEW"]
+        else:
+            text, color = ("loaded" if loaded else "not loaded"), theme.IDLE
+        self.banner.setText(text)
+        self.banner.setStyleSheet(theme.banner_style(color))
+        rob = theme.dot(loaded and self.controller.connected)
+        cam = theme.dot(self._cams_on)
+        self.health.setText(f"{rob} robot &nbsp;&nbsp; {cam} cameras (overlay)")
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         if self.controller:

@@ -83,6 +83,21 @@ class BaseController:
         """Engage/release the e-stop. While engaged, no follower commands are sent."""
         self._estop = bool(flag)
 
+    def _effort_guard(self, robot: Any) -> None:
+        """Collision/overload guard: trip the e-stop if a follower arm effort exceeds
+        ``FOLLOWER_EFFORT_LIMIT`` (no-op when unset or already e-stopped)."""
+        lim = cc.FOLLOWER_EFFORT_LIMIT
+        if lim is None or self._estop:
+            return
+        try:
+            _, _, eff = full_state(robot)
+            arm = np.abs(np.asarray(eff, dtype=float).reshape(-1)[:-1])  # exclude gripper
+            if arm.size and float(arm.max()) > float(lim):
+                logger.warning("effort guard tripped (|eff|=%.1f > %.1f Nm) -> e-stop", float(arm.max()), lim)
+                self.set_estop(True)
+        except Exception:
+            pass
+
     def _touch_cmd(self) -> None:
         """Mark that a fresh external command just arrived (for the staleness watchdog)."""
         self._last_cmd_t = time.monotonic()
@@ -232,6 +247,7 @@ class TeleopController(BaseController):
             fsm, lsm = self._fsmooth[side], self._lsmooth[side]
             applied = None
             try:
+                self._effort_guard(pair.follower)
                 if state == TeleopStateMachine.ENGAGED:
                     desired = build_follower_target(pair.follower, arm_q[side], grip[side])
                     if not is_finite_vector(desired, n):
@@ -405,6 +421,7 @@ class DaggerController(BaseController):
             applied = None
             human = None
             try:
+                self._effort_guard(pair.follower)
                 desired = None
                 if self._intervening:
                     if valid[side]:
@@ -559,6 +576,7 @@ class WrapperController(BaseController):
             smoother = self._smooth[side]
             applied = None
             try:
+                self._effort_guard(follower)
                 cmd = self._command[side]
                 # ignore stale commands (link loss) -> hold instead of replaying an old target
                 if is_finite_vector(cmd, follower.num_dofs()) and self._cmd_fresh():

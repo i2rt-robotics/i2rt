@@ -62,6 +62,7 @@ class Recorder:
             "queue": 0,
             "cam_ok": True,
             "robot_ok": False,
+            "disk_ok": True,
             "kept": 0,
             "success": 0,
             "fail": 0,
@@ -176,9 +177,15 @@ class Recorder:
         self.robot.stop()
         self._set(running=False)
 
+    def set_estop(self, flag: bool) -> None:
+        """Forward an e-stop request to the robot (holds the followers until released)."""
+        self.robot.set_estop(flag)
+
     def get_status(self) -> dict:
         with self._lock:
-            return dict(self._status)
+            d = dict(self._status)
+        d["disk_ok"] = self.writer is None or not self.writer.low_disk
+        return d
 
     def get_last_images(self) -> dict:
         with self._lock:
