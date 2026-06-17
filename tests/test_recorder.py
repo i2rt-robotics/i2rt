@@ -60,7 +60,6 @@ def test_eval_rollout_records_from_arm_to_disarm(tmp_path):
 def test_control_mode_in_frame():
     cfg = RecorderConfig(record_source="teleop", mock=False)
     rec = Recorder(cfg)
-    rec._opt_keys = ["observation.leader"]
     snap = {
         "state": np.zeros(42, np.float32),
         "action": np.zeros(14, np.float32),
@@ -69,7 +68,9 @@ def test_control_mode_in_frame():
     }
     frame = rec._frame({"agentview": np.zeros((4, 4, 3), np.uint8)}, snap)
     assert frame["observation.control_mode"].tolist() == [2.0]
+    assert frame["observation.state"].shape == (42,)
     assert frame["observation.leader"].shape == (12,)
+    assert frame["action"].shape == (14,)
     assert "agentview" in frame["images"]
 
 

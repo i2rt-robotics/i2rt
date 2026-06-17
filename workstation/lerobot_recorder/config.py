@@ -9,12 +9,18 @@ from typing import List
 # Robot / dataset dimensions
 # ----------------------------------------------------------------------------
 ARMS = ("left", "right")
-ARM_DOF = 7  # 6 joints + gripper per arm
+ARM_DOF = 7  # 6 joints + gripper per arm (follower)
+LEADER_ARM_DOF = 6  # teaching-handle leader exposes 6 arm joints (gripper is a passive trigger)
 
-# observation.state = per arm [pos(7), vel(7), eff(7)] concatenated over arms.
-# action            = per arm applied_action [7] concatenated over arms.
+# The recorded schema is FIXED from the robot's known outputs (no runtime probe).
+# MotorChainRobot.get_observations() gives joint_pos/vel/eff (+ gripper_*), so:
+#   observation.state  = per arm [pos(7), vel(7), eff(7)]  -> 42
+#   observation.leader = per arm leader joint positions    -> 12
+#   action             = per arm applied/human action [7]  -> 14
+# (The robot exposes no end-effector pose, so observation.eef is not recorded.)
 STATE_DIM = len(ARMS) * ARM_DOF * 3  # 42
 ACTION_DIM = len(ARMS) * ARM_DOF  # 14
+LEADER_DIM = len(ARMS) * LEADER_ARM_DOF  # 12
 
 # Per-frame control-mode label (always written as observation.control_mode), so a
 # dataset records whether each frame came from teleop, a policy, an intervention,
@@ -32,6 +38,10 @@ def state_names() -> List[str]:
 
 def action_names() -> List[str]:
     return [f"{arm}.act.{i}" for arm in ARMS for i in range(ARM_DOF)]
+
+
+def leader_names() -> List[str]:
+    return [f"{arm}.leader.{i}" for arm in ARMS for i in range(LEADER_ARM_DOF)]
 
 
 # ----------------------------------------------------------------------------

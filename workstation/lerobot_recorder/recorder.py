@@ -27,7 +27,7 @@ import numpy as np
 
 from workstation.lerobot_recorder import episode_gate as eg
 from workstation.lerobot_recorder.cameras import CameraManager
-from workstation.lerobot_recorder.config import ACTION_DIM, STATE_DIM, RecorderConfig
+from workstation.lerobot_recorder.config import ACTION_DIM, LEADER_DIM, STATE_DIM, RecorderConfig
 from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
 from workstation.lerobot_recorder.episode_gate import EpisodeGate
 from workstation.lerobot_recorder.portal_bridge import PortalBridge
@@ -64,7 +64,6 @@ class Recorder:
         }
         self._last_images: dict = {}
         self._pending = False
-        self._opt_keys: List[str] = []  # optional vector keys present in the schema (leader/eef)
         self._episode: List[dict] = []  # buffered frames for the in-progress / pending episode
         self._preview: List[np.ndarray] = []  # downsampled review frames
         self._btn_prev: Dict[str, list] = {}
@@ -78,37 +77,35 @@ class Recorder:
         """Open cameras + robot link + dataset and begin the record loop (gate stays disarmed)."""
         self.cameras.start()
         self.robot.start()
-        sample = self._probe_sample()
-        self._opt_keys = [k for k in ("observation.leader", "observation.eef") if k in sample]
         shapes = {k: self.cameras.shape_of(k) for k in self.cameras.image_keys}
         self.writer = AsyncDatasetWriter(self.cfg, self.cameras.image_keys, shapes)
-        self.writer.open(sample)
+        self.writer.open(self._sample_frame())
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         self._set(running=True)
 
-    def _probe_sample(self) -> dict:
-        """Wait briefly for a real snapshot to learn which optional fields/dims exist."""
-        snap = None
-        for _ in range(60):
-            s = self.robot.get_snapshot()
-            if s.get("state") is not None:
-                snap = s
-                break
-            time.sleep(0.05)
-        sample: dict = {
+    def _sample_frame(self) -> dict:
+        """The FIXED recorded schema, derived from the robot's known outputs (see config)."""
+        return {
             "images": {k: np.zeros(self.cameras.shape_of(k), np.uint8) for k in self.cameras.image_keys},
             "observation.state": np.zeros(STATE_DIM, np.float32),
-            "action": np.zeros(ACTION_DIM, np.float32),
+            "observation.leader": np.zeros(LEADER_DIM, np.float32),
             "observation.control_mode": np.zeros(1, np.float32),
+            "action": np.zeros(ACTION_DIM, np.float32),
         }
-        if snap is not None:
-            if snap.get("leader") is not None:
-                sample["observation.leader"] = np.zeros(np.asarray(snap["leader"]).size, np.float32)
-            if snap.get("eef") is not None:
-                sample["observation.eef"] = np.zeros(np.asarray(snap["eef"]).size, np.float32)
-        return sample
+
+    @staticmethod
+    def _fit(vec: Optional[np.ndarray], dim: int) -> np.ndarray:
+        """Coerce a vector to exactly ``dim`` (zeros if missing; pad/truncate otherwise)."""
+        if vec is None:
+            return np.zeros(dim, np.float32)
+        a = np.asarray(vec, dtype=np.float32).reshape(-1)
+        if a.size == dim:
+            return a
+        out = np.zeros(dim, np.float32)
+        out[: min(dim, a.size)] = a[: dim]
+        return out
 
     def arm(self) -> None:
         """GUI 'Start collection': begin gating (teleop/dagger) or a rollout (eval)."""
@@ -196,16 +193,13 @@ class Recorder:
                 time.sleep(max(0.0, next_t - time.perf_counter()))
 
     def _frame(self, images: dict, snap: dict) -> dict:
-        f = {
+        return {
             "images": {k: np.ascontiguousarray(v) for k, v in images.items()},
-            "observation.state": np.asarray(snap["state"], dtype=np.float32),
-            "action": np.asarray(snap["action"], dtype=np.float32),
+            "observation.state": self._fit(snap.get("state"), STATE_DIM),
+            "observation.leader": self._fit(snap.get("leader"), LEADER_DIM),
             "observation.control_mode": np.array([snap.get("control_mode", 0)], dtype=np.float32),
+            "action": self._fit(snap.get("action"), ACTION_DIM),
         }
-        for key in self._opt_keys:
-            src = snap.get(key.split(".")[-1])  # "observation.leader" -> snap["leader"]
-            f[key] = np.asarray(src, dtype=np.float32) if src is not None else np.zeros(1, np.float32)
-        return f
 
     def _step(self, images: dict, snap: dict) -> None:
         self._scan_buttons(snap)
