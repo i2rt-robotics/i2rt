@@ -40,7 +40,7 @@ GATE_JOINTS: List[int] = [1]
 
 # --- Leader stiffness (gains on the human-held gello, NOT speeds) ------------
 HOME_KP: float = 0.3       # pulls the leader back to home while homing
-BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel)
+BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel) # This should be 0.0
 
 # --- DAgger leader gains (separate for the two phases) -----------------------
 # Intervention is TOGGLED by a handle button (press once to take over, press again
