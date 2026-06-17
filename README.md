@@ -129,25 +129,26 @@ client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 | Single motor PD control | `examples/single_motor_position_pd_control/` |
 | MuJoCo control interface | `examples/control_with_mujoco/` |
 
-## ROS 2 Integration
+## Networking & deployment (no ROS)
 
-A **build-less** ROS 2 layer (`i2rt/ros2/`) exposes the YAM arms to a main
-workstation over ROS 2, using only standard messages (`sensor_msgs`/`std_msgs`) —
-no colcon/ament build. Bimanual by default (2 leaders + 2 followers).
+The YAM rig is exposed to a workstation over **`portal`** (plain TCP) — no ROS,
+no DDS, no Python-3.10 constraint. Policy inference is a separate
+**websocket** link (openpi-compatible). Bimanual by default (2 leaders + 2 followers).
 
 ```bash
-source .venv-ros/bin/activate              # ROS 2 Humble auto-sourced
-python -m i2rt.ros2.run_wrapper --sim      # ① state publisher + action subscriber
-python -m i2rt.ros2.run_teleop  --sim      # ② bimanual leader-follower teleop
-python -m i2rt.ros2.run_dagger  --sim      # ③ HG-DAgger interactive takeover
+source .venv/bin/activate                       # robot env (uv; scripts/setup_robot_env.sh)
+python -m i2rt.serving.run_robot_server teleop  --sim   # auto home/engage teleop
+python -m i2rt.serving.run_robot_server dagger  --sim   # HG-DAgger: policy + button takeover
+python -m i2rt.serving.run_robot_server wrapper --sim   # followers track an external command
 
 # …or the shortcut launcher (activates the env for you):
-scripts/yam teleop --sim                   # also: wrapper / dagger / can / canup
+scripts/yam teleop --sim                        # also: dagger / wrapper / can / canup
 ```
 
 Targets are rate-limited and gravity compensation is always on, so policy↔human
-takeovers ramp smoothly. See [`i2rt/ros2/README.md`](i2rt/ros2/README.md) for the
-full topic contract, the uv-env setup, and the workstation-side recipe.
+takeovers ramp smoothly. See [`i2rt/serving/README.md`](i2rt/serving/README.md)
+for the snapshot contract and the workstation client, and
+[`policy_serving/README.md`](policy_serving/README.md) for serving policies.
 
 ## Advanced: Motor Configuration
 

@@ -39,7 +39,7 @@ DWELL_S: float = 0.5
 GATE_JOINTS: List[int] = [1]
 
 # --- Leader stiffness (gains on the human-held gello, NOT speeds) ------------
-HOME_KP: float = 0.3       # pulls the leader back to home while homing
+HOME_KP: float = 0.3  # pulls the leader back to home while homing
 BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force feel) # This should be 0.0
 
 # --- DAgger leader gains (separate for the two phases) -----------------------
@@ -48,7 +48,7 @@ BILATERAL_KP: float = 0.0  # teleop: back-drives the leader while engaged (force
 # the leader for force feel); otherwise the policy drives and the leader mirrors
 # the policy action (MIRROR gain). Mirror is usually a touch higher so the human
 # feels/anticipates the policy; feedback is low so it doesn't fight the human.
-DAGGER_MIRROR_KP: float = 0.2    # leader stiffness while the POLICY drives (leader mirrors policy)
+DAGGER_MIRROR_KP: float = 0.2  # leader stiffness while the POLICY drives (leader mirrors policy)
 DAGGER_FEEDBACK_KP: float = 0.1  # leader stiffness while the HUMAN intervenes (force feel)
 
 

@@ -1,13 +1,13 @@
-"""Replay a recorded episode onto the robot over ROS 2.
+"""Replay a recorded episode onto the robot over portal (no ROS).
 
-Publishes each frame's ``action`` (14-d = both arms x 7) to the YAM wrapper's
-``/<arm>/command`` topics, so the robot follows the dataset. Before playing it
-**ramps from the robot's current pose to the first frame** (over ``ramp_s``) to
-avoid a jump — so the robot side must be running the wrapper
-(``scripts/yam wrapper``) and publishing ``/<arm>/follower/joint_states``.
+Sends each frame's ``action`` (14-d = both arms x 7) to the robot server via
+``RobotClient.command({"left": ..., "right": ...})``, so the robot follows the
+dataset. Before playing it **ramps from the robot's current pose to the first
+frame** (over ``ramp_s``) to avoid a jump — so the robot side must be running
+``i2rt.serving.run_robot_server wrapper``.
 
 If ``send_to_robot`` is False it just advances frames for preview (no commands).
-``mock=True`` skips ROS entirely.
+``mock=True`` skips the robot link entirely.
 """
 
 from __future__ import annotations
@@ -29,58 +29,56 @@ class ReplayController:
         self.on_frame = on_frame
         self.speed = 1.0
         self._mock = cfg.mock
-        self._lock = threading.Lock()
-        self._current: Dict[str, Optional[np.ndarray]] = {a: None for a in ARMS}
-        self._node = None
-        self._pubs: Dict[str, object] = {}
-        self._spin_stop = threading.Event()
+        self._client = None
         self._play_thread: Optional[threading.Thread] = None
         self._pause = threading.Event()
         self._stop = threading.Event()
         self._frame = 0
         self._playing = False
 
-    # ------------------------------------------------------------------ ROS
+    # ------------------------------------------------------------------ robot link
     def connect(self) -> None:
+        """Connect to the robot in the background so the GUI never blocks.
+
+        Preview (Send-to-robot off) works regardless; if the robot server is down,
+        ``_client`` stays None and commands are no-ops until it comes up.
+        """
         if self._mock:
             return
-        import rclpy
-        from rclpy.node import Node
-        from sensor_msgs.msg import JointState
 
-        if not rclpy.ok():
-            rclpy.init()
-        node = Node("yam_replay")
-        self._node = node
-        t = self.cfg.topics
-        for arm in ARMS:
-            self._pubs[arm] = node.create_publisher(JointState, t.applied_action[arm].replace("/applied_action", "/command"), 10)
-            node.create_subscription(JointState, t.follower_state[arm], self._make_state_cb(arm), 10)
+        def _connect() -> None:
+            from i2rt.serving.robot_client import RobotClient
 
-        def spin() -> None:
-            while not self._spin_stop.is_set() and rclpy.ok():
-                rclpy.spin_once(node, timeout_sec=0.1)
+            try:
+                self._client = RobotClient(host=self.cfg.robot_host, port=self.cfg.robot_port)
+            except Exception:
+                self._client = None
 
-        threading.Thread(target=spin, daemon=True).start()
+        threading.Thread(target=_connect, daemon=True).start()
 
-    def _make_state_cb(self, arm: str) -> Callable[[object], None]:
-        def cb(msg) -> None:  # noqa: ANN001  sensor_msgs/JointState
-            with self._lock:
-                self._current[arm] = np.asarray(msg.position, dtype=np.float32)
-        return cb
+    def _split(self, action: np.ndarray) -> Dict[str, np.ndarray]:
+        return {arm: np.asarray(action[i * ARM_DOF : (i + 1) * ARM_DOF], dtype=float) for i, arm in enumerate(ARMS)}
 
     def _publish(self, action: np.ndarray) -> None:
-        if self._mock:
+        if self._mock or self._client is None:
             return
-        from sensor_msgs.msg import JointState
+        self._client.command(self._split(action))
 
-        for i, arm in enumerate(ARMS):
-            seg = np.asarray(action[i * ARM_DOF : (i + 1) * ARM_DOF], dtype=float)
-            msg = JointState()
-            msg.header.stamp = self._node.get_clock().now().to_msg()
-            msg.name = [f"joint_{j + 1}" for j in range(ARM_DOF - 1)] + ["gripper"]
-            msg.position = seg.tolist()
-            self._pubs[arm].publish(msg)
+    def _current_pose(self) -> Optional[np.ndarray]:
+        """Concatenated follower pose (both arms) from the robot, or None."""
+        if self._mock or self._client is None:
+            return None
+        try:
+            obs = self._client.get_observation()
+            parts = []
+            for a in ARMS:
+                side = obs.get(a)
+                if not side or "pos" not in side:
+                    return None
+                parts.append(np.asarray(side["pos"], dtype=np.float32))
+            return np.concatenate(parts)
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ playback
     def play_episode(self, episode: int, send_to_robot: bool, ramp_s: float = 2.0) -> None:
@@ -116,8 +114,7 @@ class ReplayController:
         self._playing = False
 
     def _ramp_to(self, target: np.ndarray, ramp_s: float) -> None:
-        with self._lock:
-            cur = np.concatenate([self._current[a] for a in ARMS]) if all(self._current[a] is not None for a in ARMS) else None
+        cur = self._current_pose()
         if cur is None or cur.size != target.size:
             self._publish(target)  # no known current pose; send once
             return
@@ -153,13 +150,4 @@ class ReplayController:
 
     def shutdown(self) -> None:
         self.stop()
-        self._spin_stop.set()
-        if self._node is not None:
-            try:
-                import rclpy
-
-                self._node.destroy_node()
-                if rclpy.ok():
-                    rclpy.shutdown()
-            except Exception:
-                pass
+        self._client = None

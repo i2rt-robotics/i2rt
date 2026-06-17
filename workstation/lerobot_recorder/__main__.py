@@ -21,7 +21,9 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--task", default="do the task", help="language instruction")
     p.add_argument("--fps", type=int, default=60)
-    p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/ROS/lerobot)")
+    p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server)")
+    p.add_argument("--robot-port", type=int, default=11331)
+    p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/robot/lerobot)")
     p.add_argument(
         "--serials",
         default="",
@@ -36,7 +38,14 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
             cam.serial = serial
 
     return RecorderConfig(
-        repo_id=args.repo_id, root=args.root, task=args.task, fps=args.fps, cameras=cams, mock=args.mock
+        repo_id=args.repo_id,
+        root=args.root,
+        task=args.task,
+        fps=args.fps,
+        cameras=cams,
+        robot_host=args.robot_host,
+        robot_port=args.robot_port,
+        mock=args.mock,
     )
 
 

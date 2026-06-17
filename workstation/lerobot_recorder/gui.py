@@ -3,7 +3,7 @@
 Workflow:
 
 1. Set ``repo_id`` / ``root`` / ``task`` (language instruction).
-2. **Start** — opens cameras, the remote ROS subscriber, and the dataset.
+2. **Start** — opens cameras, the robot link (portal), and the dataset.
 3. **Start collection** — arms the auto-gate: an episode begins the instant teleop
    becomes ENGAGED and ends when homing returns to IDLE.
 4. **Review** (default): each finished episode is held; the panel plays it back and

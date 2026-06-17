@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import List
 
 # ----------------------------------------------------------------------------
 # Robot / dataset dimensions
@@ -52,19 +52,6 @@ def default_cameras() -> List[CameraSpec]:
 
 
 # ----------------------------------------------------------------------------
-# ROS 2 topic names (must match i2rt.ros2.run_teleop)
-# ----------------------------------------------------------------------------
-@dataclass
-class TopicConfig:
-    follower_state: Dict[str, str] = field(
-        default_factory=lambda: {a: f"/{a}/follower/joint_states" for a in ARMS}
-    )
-    applied_action: Dict[str, str] = field(default_factory=lambda: {a: f"/{a}/applied_action" for a in ARMS})
-    teleop_state: str = "/teleop/state"
-    teleop_active: str = "/teleop/active"
-
-
-# ----------------------------------------------------------------------------
 # Top-level recorder config
 # ----------------------------------------------------------------------------
 @dataclass
@@ -76,8 +63,10 @@ class RecorderConfig:
     robot_type: str = "yam_bimanual"
     use_videos: bool = True
     cameras: List[CameraSpec] = field(default_factory=default_cameras)
-    topics: TopicConfig = field(default_factory=TopicConfig)
-    mock: bool = False  # synthetic cameras + teleop stream (no hardware / ROS)
+    # Robot link: the YAM robot machine running i2rt.serving.run_robot_server (portal).
+    robot_host: str = "127.0.0.1"
+    robot_port: int = 11331
+    mock: bool = False  # synthetic cameras + teleop stream (no hardware / robot)
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback
     review_downscale: int = 4  # spatial stride for the review preview (640x480 -> 160x120)

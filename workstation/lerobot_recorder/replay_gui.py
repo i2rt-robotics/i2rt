@@ -1,8 +1,9 @@
 """PyQt panel to review a recorded dataset and replay it onto the robot.
 
 Load a dataset, pick an episode, and Play — the frames are shown and (if "Send to
-robot" is on) each frame's action is published to the YAM wrapper so the robot
-follows the dataset. The robot side must be running ``scripts/yam wrapper``.
+robot" is on) each frame's action is sent to the YAM wrapper server (over portal)
+so the robot follows the dataset. The robot side must be running
+``scripts/yam wrapper``.
 """
 
 from __future__ import annotations

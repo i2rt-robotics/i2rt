@@ -8,7 +8,7 @@
 # that builds /etc/udev/rules.d/90-can.rules so the names always map to the same
 # physical adapter regardless of future plug order.
 #
-# Names match i2rt/ros2/README.md  (must start with "can", <=13 chars):
+# Names match i2rt/serving/teleop_common.py  (must start with "can", <=13 chars):
 #   can_leader_l  can_leader_r  can_follower_l  can_follower_r
 #
 # Usage:

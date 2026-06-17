@@ -25,14 +25,14 @@ from workstation.lerobot_recorder.cameras import CameraManager
 from workstation.lerobot_recorder.config import RecorderConfig
 from workstation.lerobot_recorder.dataset_writer import DatasetWriter
 from workstation.lerobot_recorder.episode_gate import EpisodeGate
-from workstation.lerobot_recorder.ros_bridge import RosBridge
+from workstation.lerobot_recorder.portal_bridge import PortalBridge
 
 
 class Recorder:
     def __init__(self, cfg: RecorderConfig, on_status: Optional[Callable[[dict], None]] = None) -> None:
         self.cfg = cfg
         self.cameras = CameraManager(cfg)
-        self.ros = RosBridge(cfg)
+        self.robot = PortalBridge(cfg)
         self.gate = EpisodeGate()
         self.writer: Optional[DatasetWriter] = None
         self._on_status = on_status
@@ -49,9 +49,9 @@ class Recorder:
 
     # ------------------------------------------------------------------ control
     def start(self) -> None:
-        """Open cameras + ROS + dataset and begin the record loop (gate stays disarmed)."""
+        """Open cameras + robot link + dataset and begin the record loop (gate stays disarmed)."""
         self.cameras.start()
-        self.ros.start()
+        self.robot.start()
         shapes = {k: self.cameras.shape_of(k) for k in self.cameras.image_keys}
         self.writer = DatasetWriter(self.cfg, self.cameras.image_keys, shapes)
         self.writer.open()
@@ -96,7 +96,7 @@ class Recorder:
         if self.writer is not None:
             self.writer.finalize()
         self.cameras.stop()
-        self.ros.stop()
+        self.robot.stop()
         self._set(running=False)
 
     def get_status(self) -> dict:
@@ -121,7 +121,7 @@ class Recorder:
                 images = self.cameras.read()  # real: paces at camera fps; mock: instant
                 with self._lock:
                     self._last_images = images
-                snap = self.ros.get_snapshot()
+                snap = self.robot.get_snapshot()
 
                 if self._pending:
                     # awaiting Keep/Delete: do not start/record a new episode
@@ -164,7 +164,7 @@ class Recorder:
     def _warn_state(self, snap: dict, warned: bool) -> bool:
         if self.gate.recording and (snap["state"] is None or snap["action"] is None):
             if not warned:
-                print("[recorder] waiting for robot state/action on ROS topics…")
+                print("[recorder] waiting for robot state/action from the robot server…")
             return True
         return False
 
