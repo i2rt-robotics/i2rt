@@ -51,42 +51,43 @@ Recorded at **60 fps** (matched to the cameras). Uses the official v3.0 API
 
 # One-time setup
 
-### [robot machine] — YAM robot server (no ROS)
-
-See [`i2rt/serving/README.md`](../../i2rt/serving/README.md) /
-[`scripts/setup_robot_env.sh`](../../scripts/setup_robot_env.sh). In short:
+### [robot machine] — YAM robot server (uv, no ROS, nothing to activate)
 
 ```bash
-sh scripts/setup_robot_env.sh            # uv venv (.venv) + i2rt, no ROS
-source .venv/bin/activate
+sh scripts/setup_robot_env.sh            # optional: pre-create .venv + install i2rt
 sh scripts/setup_can_ids.sh              # persistent CAN names (once)
 ```
 
-### [workstation] — Python env (uv, no ROS)
+You don't need to activate anything — `scripts/yam` uses **`uv run`**, which resolves
+(and on first run creates) the env automatically. Already inside a conda/venv? set
+`YAM_NO_UV=1` and it uses plain `python`.
 
-One script does it (`uv` venv at `~/yam_ws`, installs i2rt + yam-policy + recorder
-deps, RealSense udev rules):
+### [workstation] — conda env + uv (no ROS)
+
+conda owns the env (so you can also `pip install` other policy repos into it); uv
+does the fast installs for this repo:
 
 ```bash
-sh scripts/setup_workstation_env.sh
-source ~/yam_ws/bin/activate
+sh scripts/setup_workstation_env.sh       # conda create yam_ws + uv pip install + udev rules
+conda activate yam_ws
 ```
 
-<details><summary>What it installs (manual equivalent)</summary>
+<details><summary>What it does (manual equivalent)</summary>
 
 ```bash
-sudo apt install -y ffmpeg                # LeRobot v3.0 video encoding
-uv venv ~/yam_ws                          # any Python >= 3.10; NO ROS, NO system-site-packages
-source ~/yam_ws/bin/activate
-uv pip install -e .                       # i2rt (portal RobotClient)
-uv pip install -e policy_serving          # yam-policy (websocket client for the bridge)
+conda create -y -n yam_ws python=3.11      # any Python >= 3.10; no ROS
+conda activate yam_ws
+sudo apt install -y ffmpeg                  # LeRobot v3.0 video encoding
+uv pip install -e .                         # i2rt (portal RobotClient) — uv targets the conda env
+uv pip install -e policy_serving            # yam-policy (websocket client for the bridge)
 uv pip install -r workstation/lerobot_recorder/requirements.txt
-python -c "import i2rt, yam_policy, lerobot, pyrealsense2; print('ready')"
+# another policy repo in the SAME env:  pip install -e /path/to/policy_repo   (or uv pip install)
 ```
 </details>
 
-The `yam-data` launcher activates `~/yam_ws` for you (override with `LEROBOT_ENV=/path`).
-The robot host/port are passed at launch (`--robot-host`/`--robot-port`, default
+The `yam-data` launcher activates the **conda** env for you (default `yam_ws`,
+override with `YAM_WS_ENV=...`). The robot host/port come from `rig.yaml` (or
+`--robot-host`/`--robot-port`, default
 `127.0.0.1:11331`) — both machines just need to be on the same network (plain TCP,
 no `ROS_DOMAIN_ID`, no DDS).
 

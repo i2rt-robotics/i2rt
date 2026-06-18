@@ -12,14 +12,17 @@ Transports: robot↔workstation = **portal** (TCP, default `:11331`); workstatio
 ## 0. Environments (one-time)
 
 ```bash
-# [robot]
-sh scripts/setup_robot_env.sh && source .venv/bin/activate
-# [ws]
-sh scripts/setup_workstation_env.sh && source ~/yam_ws/bin/activate
+# [robot]   uv-managed; scripts/yam uses `uv run` (no activation needed)
+sh scripts/setup_robot_env.sh                       # optional pre-create + verify
+# [ws]      conda env + uv installs
+sh scripts/setup_workstation_env.sh && conda activate yam_ws
 # [policy]  (any host/GPU)
 sh policy_serving/setup_policy_env.sh && source policy_serving/.venv/bin/activate
 ```
-- [ ] All three envs import cleanly (`python -c "import i2rt"`, `import yam_policy`, `import lerobot, pyrealsense2`).
+- [ ] Workstation env imports cleanly (`python -c "import i2rt, yam_policy, lerobot, pyrealsense2"`).
+- [ ] Robot: `scripts/yam teleop --sim` boots (uv resolves the env on first run).
+- [ ] Put one `rig.yaml` at the **repo root** (copy `rig.example.yaml`); every tool
+      auto-finds it — no `--config`, no env var, regardless of directory.
 
 ## 1. CAN + cameras
 

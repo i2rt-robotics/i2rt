@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 #
-# Reproducible setup of the WORKSTATION environment (no ROS).
+# Reproducible setup of the WORKSTATION environment — conda + uv (no ROS).
 #
-# Creates a uv venv (default: ~/yam_ws) and installs i2rt (portal RobotClient),
+# conda owns the environment (so you can also `pip install` other policy repos into
+# it), and uv does the fast installs for THIS repo. Installs i2rt (portal client),
 # yam-policy (websocket client for the bridge), and the LeRobot recorder deps.
-# The robot link is plain TCP (portal), so there is NO ROS / rclpy / system
-# site-packages requirement here.
 #
 #   sh scripts/setup_workstation_env.sh
 #
-# Env overrides:  WS_PY=3.11  LEROBOT_ENV=~/yam_ws
+# Env overrides:  YAM_WS_ENV=yam_ws  WS_PY=3.11
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+ENV="${YAM_WS_ENV:-yam_ws}"
 PY="${WS_PY:-3.11}"
-VENV="${LEROBOT_ENV:-$HOME/yam_ws}"
+
+if ! command -v conda >/dev/null 2>&1; then
+    echo "[setup] conda not found — install Miniconda first: https://docs.conda.io/en/latest/miniconda.html" >&2
+    exit 1
+fi
+# shellcheck disable=SC1091
+source "$(conda info --base)/etc/profile.d/conda.sh"
+
+echo "[setup] conda env '$ENV' (python $PY) ..."
+conda activate "$ENV" 2>/dev/null || { conda create -y -n "$ENV" python="$PY"; conda activate "$ENV"; }
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "[setup] installing uv ..."
@@ -29,17 +38,12 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "[setup] system deps (ffmpeg for LeRobot v3.0 video) ..."
 sudo apt-get install -y ffmpeg || echo "  (skip apt; install ffmpeg manually if missing)"
 
-echo "[setup] creating venv at $VENV (python $PY) ..."
-uv venv --python "$PY" "$VENV"
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
-
-echo "[setup] installing i2rt + yam-policy + recorder deps ..."
-uv pip install -e .
+echo "[setup] uv-installing i2rt + yam-policy + recorder deps into conda env '$ENV' ..."
+uv pip install -e .                                   # uv targets the active conda env
 uv pip install -e policy_serving
 uv pip install -r workstation/lerobot_recorder/requirements.txt
 
-echo "[setup] installing RealSense udev rules (USB permissions) ..."
+echo "[setup] RealSense udev rules (USB permissions) ..."
 if [ ! -e /etc/udev/rules.d/99-realsense-libusb.rules ]; then
     git clone --depth 1 https://github.com/IntelRealSense/librealsense.git /tmp/librealsense 2>/dev/null || true
     if [ -f /tmp/librealsense/config/99-realsense-libusb.rules ]; then
@@ -50,14 +54,14 @@ if [ ! -e /etc/udev/rules.d/99-realsense-libusb.rules ]; then
     fi
 fi
 
-python -c "import i2rt, yam_policy, lerobot, pyrealsense2; print('workstation env ready')" || \
+python -c "import i2rt, yam_policy, lerobot, pyrealsense2; print('workstation env ready')" ||
     echo "  (verify deps; pyrealsense2/lerobot may need a moment)"
 
 cat <<EOF
 
-[setup] done.
-  Activate:  source $VENV/bin/activate
-  Cameras:   workstation/yam-data cams
-  Record:    workstation/yam-data record --robot-host <ROBOT_IP> --serials A,B,C
-  Bridge:    workstation/yam-data bridge --robot-host <ROBOT_IP> --policy-host <POLICY_IP>
+[setup] done — conda env: $ENV
+  Activate:  conda activate $ENV
+  Run:       workstation/yam-data record    (auto-activates '$ENV')
+  Another policy repo in the SAME env:
+             conda activate $ENV && pip install -e /path/to/policy_repo   # or: uv pip install -e ...
 EOF

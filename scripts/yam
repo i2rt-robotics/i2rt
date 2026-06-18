@@ -2,8 +2,8 @@
 #
 # Convenience launcher for the i2rt robot server (runs on the ROBOT machine).
 #
-# Activates the robot uv venv (default: <repo>/.venv) and starts the portal robot
-# server in the requested mode, forwarding any extra args. No ROS.
+# Uses `uv run` from the repo, so there is NOTHING to source/activate — uv resolves
+# (and on first run creates) the project environment automatically. No ROS.
 #
 #   scripts/yam teleop  [args]   # auto home/engage bimanual teleop
 #   scripts/yam dagger  [args]   # HG-DAgger: policy drives, button takeover
@@ -14,25 +14,28 @@
 # Examples:
 #   scripts/yam teleop --sim
 #   scripts/yam teleop --bilateral-kp 0.15 --home 0,0,0,0,0,0
-#   scripts/yam dagger --mirror-kp 0.2 --feedback-kp 0.1
 #
-# Override the venv with:  I2RT_VENV=/path/to/venv scripts/yam teleop ...
+# If you'd rather use an already-activated env (conda/venv), set YAM_NO_UV=1 and the
+# launcher calls plain `python` instead of `uv run`.
 set -eo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO"
+export PATH="$HOME/.local/bin:$PATH"
 
-VENV="${I2RT_VENV:-$REPO/.venv}"
-if [ -f "$VENV/bin/activate" ]; then
-    # shellcheck disable=SC1091
-    source "$VENV/bin/activate"
-fi
+run() {
+    if [ -n "${YAM_NO_UV:-}" ] || ! command -v uv >/dev/null 2>&1; then
+        exec python -m "$@"
+    fi
+    exec uv run python -m "$@"
+}
 
 cmd="${1:-}"
 shift || true
 case "$cmd" in
-    teleop)  exec python -m i2rt.serving.run_robot_server teleop  "$@" ;;
-    dagger)  exec python -m i2rt.serving.run_robot_server dagger  "$@" ;;
-    wrapper) exec python -m i2rt.serving.run_robot_server wrapper "$@" ;;
+    teleop)  run i2rt.serving.run_robot_server teleop  "$@" ;;
+    dagger)  run i2rt.serving.run_robot_server dagger  "$@" ;;
+    wrapper) run i2rt.serving.run_robot_server wrapper "$@" ;;
     can)     exec sh "$REPO/scripts/setup_can_ids.sh" "$@" ;;
     canup)   exec sh "$REPO/scripts/reset_all_can.sh" "$@" ;;
     *)

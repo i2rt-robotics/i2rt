@@ -2,27 +2,33 @@
 #
 # Convenience launcher for the workstation-side tools (recorder / replay / bridge).
 #
-# Activates the workstation uv venv and runs a tool, forwarding args. No ROS.
+# Activates the workstation **conda** env (default: yam_ws) and runs a tool. No ROS.
+# Inside that conda env this repo is installed with uv; you can pip/uv-install other
+# policy repos into the same env.
 #
 #   workstation/yam-data record [args]   # GUI recorder (teleop-gated LeRobot capture)
 #   workstation/yam-data replay [args]   # GUI replay (drive the robot from a dataset)
 #   workstation/yam-data bridge [args]   # policy bridge (portal robot <-> websocket policy)
 #   workstation/yam-data cams            # list connected RealSense serials
+#   workstation/yam-data doctor [args]   # dataset stats / validation
 #
-# Override the venv with:  LEROBOT_ENV=~/yam_ws  workstation/yam-data record ...
-#
-# Examples:
-#   workstation/yam-data record --robot-host 192.168.1.10 --serials A,B,C
-#   workstation/yam-data bridge --robot-host 192.168.1.10 --policy-host 192.168.1.20
-#   workstation/yam-data record --mock          # no hardware/robot/lerobot
+# Override the conda env:  YAM_WS_ENV=my_env workstation/yam-data record ...
+# (Fallback: if conda is absent but LEROBOT_ENV points to a venv, that is used.)
 set -eo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
-ENV_PATH="${LEROBOT_ENV:-$HOME/yam_ws}"
-# shellcheck disable=SC1091
-[ -f "$ENV_PATH/bin/activate" ] && source "$ENV_PATH/bin/activate"
+ENV="${YAM_WS_ENV:-yam_ws}"
+if command -v conda >/dev/null 2>&1; then
+    CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
+    # shellcheck disable=SC1091
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+    conda activate "$ENV" 2>/dev/null || echo "yam-data: conda env '$ENV' not found (see scripts/setup_workstation_env.sh)" >&2
+elif [ -n "${LEROBOT_ENV:-}" ] && [ -f "$LEROBOT_ENV/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$LEROBOT_ENV/bin/activate"
+fi
 
 cmd="${1:-}"
 shift || true

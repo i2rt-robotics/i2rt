@@ -44,14 +44,28 @@ _CONTROL_MAP = {
 }
 
 
-def find_rig(explicit: Optional[str] = None) -> Optional[str]:
-    """Resolve which rig file to use without forcing ``--config`` every time.
+def _repo_root() -> str:
+    """Absolute repo root (…/i2rt/serving/rig_config.py -> …)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    Order: explicit ``--config`` > ``$YAM_RIG`` > ``./rig.yaml`` (the launchers cd to
-    the repo root, so a repo-root ``rig.yaml`` is picked up automatically). None if
-    nothing is found.
+
+def find_rig(explicit: Optional[str] = None) -> Optional[str]:
+    """Resolve the rig file by FIXED paths — no need to ``--config`` or care about cwd.
+
+    Order (first that exists wins):
+      1. explicit ``--config``
+      2. ``$YAM_RIG``
+      3. ``<repo>/rig.yaml``  (the repo never moves, so this is the global config)
+      4. ``~/.config/yam/rig.yaml``
+
+    Put one ``rig.yaml`` at the repo root and every tool finds it from anywhere.
     """
-    for cand in (explicit, os.environ.get("YAM_RIG"), "rig.yaml"):
+    for cand in (
+        explicit,
+        os.environ.get("YAM_RIG"),
+        os.path.join(_repo_root(), "rig.yaml"),
+        os.path.expanduser("~/.config/yam/rig.yaml"),
+    ):
         if cand and os.path.exists(os.path.expanduser(cand)):
             return os.path.abspath(os.path.expanduser(cand))
     return None

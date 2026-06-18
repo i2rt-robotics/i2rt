@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import argparse
 
+import i2rt.serving.rig_config as rc
 from i2rt.serving import control_config as cc
 from i2rt.serving.rig_config import Resolver, apply_camera_serials, apply_control_overrides, find_rig, load_rig
 from workstation.lerobot_recorder.config import default_cameras
+
+
+def _isolate(monkeypatch, tmp_path):
+    """No env rig, empty repo root, empty HOME -> nothing auto-discovered."""
+    monkeypatch.delenv("YAM_RIG", raising=False)
+    monkeypatch.setattr(rc, "_repo_root", lambda: str(tmp_path / "norepo"))
+    monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
 
 
 def test_load_rig(tmp_path, monkeypatch):
@@ -15,25 +23,27 @@ def test_load_rig(tmp_path, monkeypatch):
     rig = load_rig(str(p))
     assert rig["robot"] == {"host": "1.2.3.4", "port": 9}
     assert rig["tasks"] == ["a", "b"]
-    # no explicit path, no env, isolated cwd -> nothing found
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    monkeypatch.delenv("YAM_RIG", raising=False)
-    monkeypatch.chdir(empty)
+    _isolate(monkeypatch, tmp_path)
     assert load_rig(None) == {}
 
 
 def test_find_rig_discovery(tmp_path, monkeypatch):
-    rig = tmp_path / "rig.yaml"
-    rig.write_text("robot: {host: x}\n")
+    _isolate(monkeypatch, tmp_path)
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text("x: 1\n")
+    env = tmp_path / "env.yaml"
+    env.write_text("y: 1\n")
+    monkeypatch.setenv("YAM_RIG", str(env))
+    assert find_rig() == str(env)  # env when no explicit
+    assert find_rig(str(explicit)) == str(explicit)  # explicit beats env
+
+    # repo-root is the fixed global location
     monkeypatch.delenv("YAM_RIG", raising=False)
-    monkeypatch.chdir(tmp_path)
-    assert find_rig() == str(rig)  # ./rig.yaml auto-found
-    other = tmp_path / "custom.yaml"
-    other.write_text("a: 1\n")
-    monkeypatch.setenv("YAM_RIG", str(other))
-    assert find_rig() == str(other)  # env beats cwd
-    assert find_rig(str(rig)) == str(rig)  # explicit beats env
+    rr = tmp_path / "repo"
+    rr.mkdir()
+    (rr / "rig.yaml").write_text("z: 1\n")
+    monkeypatch.setattr(rc, "_repo_root", lambda: str(rr))
+    assert find_rig() == str(rr / "rig.yaml")
 
 
 def test_apply_control_overrides(monkeypatch):

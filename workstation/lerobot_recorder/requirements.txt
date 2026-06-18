@@ -7,12 +7,13 @@
 # System packages (apt) needed for LeRobot v3.0 video encoding:
 #   sudo apt install -y ffmpeg
 #
-# Setup (uv; full guide in README.md):
-#   uv venv ~/yam_ws                       # any Python >= 3.10; no ROS constraint
-#   source ~/yam_ws/bin/activate
-#   uv pip install -e .                     # i2rt (robot client, portal)
-#   uv pip install -e policy_serving        # yam-policy (websocket client, for the bridge)
+# Setup (conda env + uv installs; full guide in README.md):
+#   conda create -y -n yam_ws python=3.11   # any Python >= 3.10; no ROS constraint
+#   conda activate yam_ws
+#   uv pip install -e .                      # i2rt (robot client, portal) — targets the conda env
+#   uv pip install -e policy_serving         # yam-policy (websocket client, for the bridge)
 #   uv pip install -r workstation/lerobot_recorder/requirements.txt
+#   # another policy repo in the SAME env:  pip install -e /path/to/policy_repo
 #
 # RealSense udev rules are NOT installed by the pip wheel — see README.md
 # (workstation -> RealSense cameras) or cameras fail with permission errors.
