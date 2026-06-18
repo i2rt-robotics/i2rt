@@ -1,0 +1,28 @@
+[Unit]
+Description=i2rt FlowBase controller (base only, 8 motors)
+Documentation=https://github.com/i2rt-robotics/i2rt
+# CAN comes up via devices/rules/flow_base.rules; wait for the interface before starting.
+After=network.target sys-subsystem-net-devices-can0.device
+Wants=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+User=i2rt
+WorkingDirectory=/srv/i2rt
+# Wait (up to ~30s) for can0 to be present and up, in case udev brings it up after boot.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do ip link show can0 up >/dev/null 2>&1 && exit 0; sleep 0.5; done; echo "can0 not up after 30s" >&2; exit 1'
+ExecStart=/srv/i2rt/.venv/bin/python /srv/i2rt/i2rt/flow_base/flow_base_controller.py --channel can0
+
+# The control loop requests SCHED_FIFO; grant the capability and RT priority so it succeeds.
+AmbientCapabilities=CAP_SYS_NICE
+LimitRTPRIO=99
+
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
