@@ -32,6 +32,12 @@ it over portal:
 One episode = **ENGAGED → HOMING → IDLE**. The action stored is the robot's
 **`applied`** (the rate-limited command actually sent) → reproducible.
 
+`config.yaml` tunes the flow: **`auto_arm`** arms on START (skip "Start collection"),
+**`review_before_save: false`** auto-saves each episode (skip Keep/Delete), and a
+leader **button** can end+label in one press (see *Labeling*). The engage/release
+thresholds (`control.engage_thr` / `release_thr` / `dwell` / `gate_joints`) live in
+`config.yaml` too and are applied by the robot server.
+
 ## Dataset schema (LeRobot v3.0)
 
 | Key | Shape | Source |
@@ -147,15 +153,22 @@ workstation/yam-data record \
     --serials <wrist_left_sn>,<wrist_right_sn>,<agentview_sn>
 ```
 
-Then, in the recorder GUI:
+The recorder opens on a **Setup page**:
 
-1. Confirm `repo_id` / `root` / `task` → **Start** (opens cameras + robot link + dataset).
-2. **Start collection** (arms the gate).
-3. Teleoperate: **lift both gellos** → an episode records; **bring both home** →
-   it ends and the **review panel** plays it back.
-4. **Keep** (save) or **Delete** (discard), then repeat from step 3.
-5. **Stop collection** when done, then close the window (this calls `finalize()`
-   so the dataset is complete).
+1. Confirm `repo_id` / `root` / `task` and the **source** (teleop / dagger / eval).
+   The dataset is written to **`<root>/<name>`** (name = last segment of `repo_id`,
+   e.g. `~/lerobot_data` + `hello/pick_and_place` → `~/lerobot_data/pick_and_place`).
+   The status line shows cameras detected and whether that dataset already exists.
+2. Tick **Continue collecting** to resume/append; otherwise **START** creates it
+   fresh (and asks **twice** before overwriting an existing folder).
+3. **START** connects the robot, opens cameras + dataset, and — with `auto_arm` —
+   arms collection immediately.
+
+Then teleoperate: **lift both gellos** → records; **bring both home** → episode ends.
+With `review_before_save: true` it's held in the **review panel** for **Keep** (S/F) /
+**Delete** (D); with `review_before_save: false` it **auto-saves** each engage→idle.
+A **leader handle button** ends + labels in one press (see *Labeling* below). Close
+the window when done — this calls `finalize()` so the dataset is complete.
 
 Quick dry run with no robot/cameras/lerobot:
 
@@ -219,17 +232,27 @@ Dry run: `workstation/yam-data replay --mock`.
 
 - **finalize**: closing the recorder window (or `recorder.shutdown()`) calls
   `LeRobotDataset.finalize()`. Skipping it leaves parquet files incomplete.
-- The record loop is clocked at 60 fps; cameras stream at 60 fps and each tick
-  grabs the latest frame plus the latest robot state/action polled over portal.
-- If a D405 doesn't support 60 fps at 640×480, lower the resolution/fps in
-  `config.py` (`CameraSpec`); the record loop tolerates it (grab-latest).
+- The record loop is clocked at 60 fps. Cameras grab on their **own capture thread**
+  and cache the latest frame; the loop and GUI read that cache **non-blocking**, so a
+  slow frame or a pipe re-open never stalls recording or freezes the view. Each tick
+  pairs the latest cached frame with the latest robot state/action polled over portal.
+- **Camera fps fallback**: the requested fps (60) is auto-reduced to the highest the
+  device supports (e.g. 30 on USB 2.0) — no config edit needed. Over **USB 2.0** a
+  640×480 stream caps at 30 fps and can drop frames under 3-camera load, so use the
+  **USB 3 cables** for true 60 fps (a USB-2 cable downgrades the link even on a USB-3 port).
+- **Single instance**: the recorder takes a lock so a second instance can't fight
+  over the cameras; starting a second one reports a clear error instead of flapping.
 - `lerobot`'s API can shift between releases — the version-sensitive calls are
   isolated in `dataset_writer.py` and `dataset_reader.py`.
-- **Outcome labels**: in the recorder GUI, **Keep (success)** / **Keep (fail)** tag
-  each episode; the label + task + frame count are appended to `outcomes.jsonl` in
-  the dataset root (a sidecar, since LeRobot has no per-episode label slot).
-- **Resume**: `--resume` appends to an existing dataset at `--root` instead of
-  creating a new one (episode indices continue).
+- **Dataset location**: `root` is a **parent dir**; the dataset lives at
+  `<root>/<name>` (name = last segment of `repo_id`), so several datasets can sit
+  side by side under one `root`. The reader/replay resolve the same path.
+- **Outcome labels**: **Keep (success)** / **Keep (fail)** tag each episode; the
+  label + task + frame count are appended to `outcomes.jsonl` **inside the dataset
+  folder** (a sidecar, since LeRobot has no per-episode label slot).
+- **Resume**: tick **Continue collecting** in the GUI (or `--resume`) to append to
+  the existing dataset at `<root>/<name>` instead of creating a new one (episode
+  indices continue).
 - **Doctor**: `workstation/yam-data doctor --root ~/lerobot_data [--repo-id ...]`
   prints episode counts, success rate, and per-task stats from `outcomes.jsonl`
   (and validates the LeRobot dataset if `--repo-id` is given). The replay episode
@@ -247,8 +270,11 @@ Dry run: `workstation/yam-data replay --mock`.
   collection. The GUI shows the pending `queue` depth.
 - **Labeling**: in the review panel use the mouse, **keyboard** ([S] keep success,
   [F] keep fail, [D] delete, [space] toggle collection), or the **leader handle
-  buttons** — button 1 = success, 2 = fail, 0 = discard. A label button also starts
-  homing on the robot, so one press ends + labels + saves (records through homing).
+  buttons**. The button→outcome map is **per-(side, index)** and configurable in
+  `config.yaml` under `recorder.buttons` (keyed `<side>.<index>`, upper=0/lower=1).
+  Default: **left lower = success, right lower = fail, either upper = discard** — so
+  all three outcomes are reachable with two buttons per arm. A label button also
+  starts homing, so one press ends + labels + saves (records through homing).
 - **Operator UI**: a big color status **banner** (IDLE/ARMED/REC/REVIEW/fault), a
   **health strip** (robot link · cameras · save queue), **live stats** (kept ✓/✗,
   discarded, success rate), **audio cues** (start, keep/fail/delete, fault), and a
@@ -259,8 +285,9 @@ Dry run: `workstation/yam-data replay --mock`.
 - **Eval rollouts**: `--source eval` records a continuous policy rollout from
   Start to Stop (action = the executed command, labeled policy/intervention) — for
   saving evaluation episodes as datasets.
-- **Camera fault tolerance**: a disconnected RealSense shows a red ⚠ warning,
-  recording pauses (no garbage frames), and the manager auto-reconnects.
+- **Camera fault tolerance**: a faulted RealSense shows a red ⚠ warning, recording
+  pauses (no garbage frames), and the capture thread auto-reconnects in the
+  background (logging only the down/recovered transitions, not every retry).
 - **Replay overlay**: tick **Overlay live** to blend an episode's first frame with
   the live agentview, so you can place objects to match the dataset before Play.
 - The robot link is the snapshot contract in

@@ -138,14 +138,18 @@ scripts/yam teleop --bilateral-kp 0.15</code></pre>
       <p><strong>2.</strong> <span class="pill sim">workstation</span> — start the recorder GUI (host + serials come from <code>config.yaml</code>):</p>
       <span class="code-label">bash · workstation</span>
 <pre><code>workstation/yam-data record --repo-id user/yam_pick</code></pre>
-      <p><strong>3.</strong> In the recorder GUI:</p>
+      <p><strong>3.</strong> The recorder opens on a <strong>Setup page</strong>:</p>
       <ol>
-        <li>Set <code>repo_id</code> / <code>root</code> / <code>task</code> → <strong>Start</strong> (opens cameras + robot link + dataset).</li>
-        <li><strong>Start collection</strong> (arms the gate).</li>
-        <li>Teleoperate: <strong>lift both gellos</strong> → records; <strong>bring both home</strong> → episode ends and the <strong>review panel</strong> plays it back.</li>
-        <li><strong>Keep</strong> (save) or <strong>Delete</strong> (discard), then repeat.</li>
-        <li><strong>Stop collection</strong>, then close the window (calls <code>finalize()</code> so the dataset is complete).</li>
+        <li>Confirm <code>repo_id</code> / <code>root</code> / <code>task</code> and the <strong>source</strong> (teleop / dagger / eval). The dataset is written to <code>&lt;root&gt;/&lt;name&gt;</code>, where <em>name</em> is the last segment of <code>repo_id</code> (e.g. <code>~/lerobot_data</code> + <code>hello/pick_and_place</code> → <code>~/lerobot_data/pick_and_place</code>). The status line shows cameras detected and whether that dataset already exists.</li>
+        <li>To add to an existing dataset, tick <strong>Continue collecting</strong> (resume/append). Otherwise <strong>START</strong> creates it fresh — and if the folder already exists it asks twice before overwriting.</li>
+        <li><strong>START</strong> connects the robot, opens cameras + dataset, and (with <code>auto_arm</code>) arms collection immediately.</li>
       </ol>
+      <p>Then teleoperate — <strong>lift both gellos</strong> to start recording, <strong>bring both home</strong> to end the episode:</p>
+      <ul>
+        <li>With <code>review_before_save: true</code> the episode is held in the <strong>review panel</strong> for <strong>Keep</strong> (S/F) or <strong>Delete</strong> (D). With <code>review_before_save: false</code> it <strong>auto-saves</strong> on each engage→idle.</li>
+        <li><strong>Leader handle buttons</strong> end and label in one press (configurable in <code>config.yaml</code> under <code>recorder.buttons</code>, keyed <code>&lt;side&gt;.&lt;index&gt;</code>). Default: left lower → <strong>success</strong>, right lower → <strong>fail</strong>, either upper → <strong>discard</strong> (force-home without saving).</li>
+        <li>Close the window when done (calls <code>finalize()</code> so the dataset is complete). The cameras run on their own capture thread, so the live view and saving never stall on a slow frame.</li>
+      </ul>
       <div class="callout">
         <div class="callout-title">Dry run (no hardware)</div>
         <p><code>workstation/yam-data record --mock</code> — synthetic teleop cycle + fake frames, exercises the whole pipeline with no robot/cameras/lerobot.</p>
@@ -955,7 +959,7 @@ scripts/yam wrapper                          # replay target</code></pre>
       <p><strong>Teleop auto-gate (both arms together, no button):</strong> <code>HOMING</code> → robot &amp; gellos ramp home; <code>IDLE</code> → at home, gellos free; <strong>lift both</strong> past <code>--engage-thr</code> → <code>ENGAGED</code> (followers track directly via their own PD gains, no lag); bring both home for <code>--dwell</code>s → back to <code>HOMING</code>. The exact rate-limited command sent is the recorded <code>action</code>, so episodes reproduce precisely. Only the one-time engage approach + the (gentler) homing return are ramped (<code>--ramp-speed</code> / <code>--home-speed</code>).</p>
       <div class="callout tip">
         <div class="callout-title">Bilateral engage — no leader yank</div>
-        <p>With <code>--bilateral-kp&gt;0</code>, the leader is back-driven only <strong>after the follower has caught up</strong> to it — so engaging from home with the gellos lifted does not snap the leader toward home. Leader buttons can also end an episode: button 1 = success, 2 = fail, 0 = discard (each also starts the gentle homing return).</p>
+        <p>With <code>--bilateral-kp&gt;0</code>, the leader is back-driven only <strong>after the follower has caught up</strong> to it — so engaging from home with the gellos lifted does not snap the leader toward home. Leader buttons can also end an episode: the per-button outcome is set in <code>config.yaml</code> (<code>recorder.buttons</code>), defaulting to left lower → success, right lower → fail, either upper → discard (each also starts the gentle homing return).</p>
       </div>
       <p>The snapshot (<code>get_observation()</code>) carries, per side, follower <code>pos/vel/eff</code>, <code>leader_pos</code>, <code>applied</code> (the action), <code>human</code> (while intervening), <code>buttons</code>, plus the gate state and <code>estop</code>. Follower gains live in one place — <code>i2rt/serving/control_config.py</code> — and apply to teleop, dagger, and the replay wrapper, so collection and replay match.</p>
 
