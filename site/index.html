@@ -77,12 +77,12 @@
         <a href="#flowbase">Flow Base</a>
       </div>
       <div class="nav-group">
-        <div class="nav-title">ROS 2 Integration</div>
-        <a href="#ros2">Overview &amp; Setup</a>
-        <a href="#ros2-wrapper">① Wrapper</a>
-        <a href="#ros2-teleop">② Teleop</a>
-        <a href="#ros2-dagger">③ DAgger</a>
-        <a href="#ros2-safety">Safety Model</a>
+        <div class="nav-title">Networking &amp; Serving</div>
+        <a href="#ros2">Overview (portal)</a>
+        <a href="#ros2-teleop">Robot server modes</a>
+        <a href="#ros2-policy">Policy serving</a>
+        <a href="#ros2-safety">Safety model</a>
+        <a href="#ros2-lerobot">Data tools &amp; config</a>
       </div>
       <div class="nav-group">
         <div class="nav-title">Reference</div>
@@ -102,28 +102,27 @@
     <section id="scenarios">
       <span class="eyebrow">Start here</span>
       <h1 style="font-size:2.1rem;margin-bottom:6px;">Scenarios — what to run</h1>
-      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the ROS 2 teleop nodes) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects remotely over ROS 2). Two launchers activate the right environment for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. Run the steps in each scenario top to bottom.</p>
+      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the <strong>portal robot server</strong>) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects over <strong>portal / plain TCP</strong>). <strong>No ROS.</strong> Two launchers run the right env for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. A single <code>config.yaml</code> at the repo root holds shared settings (robot host, camera serials, gains…), auto-discovered by every tool. Run each scenario top to bottom.</p>
 
       <div class="callout tip">
         <div class="callout-title">Legend</div>
-        <p><span class="pill real">robot</span> = run on the YAM machine (env <code>i2rt_ros</code>) · <span class="pill sim">workstation</span> = run on the data machine (the LeRobot venv). Both machines must share the same <code>ROS_DOMAIN_ID</code> and network.</p>
+        <p><span class="pill real">robot</span> = run on the YAM machine (uv-managed; <code>scripts/yam</code> uses <code>uv run</code>, nothing to activate) · <span class="pill sim">workstation</span> = run on the data machine (conda env <code>yam_ws</code>). Just same LAN — the robot address is <code>robot.host</code> in <code>config.yaml</code> (no <code>ROS_DOMAIN_ID</code>, no DDS).</p>
       </div>
 
       <h3 id="sc-setup">One-time setup</h3>
-      <p><span class="pill real">robot</span> — YAM + ROS 2 (env <code>i2rt_ros</code>), persistent CAN names:</p>
+      <p><span class="pill real">robot</span> — persistent CAN names (no env to activate; <code>scripts/yam</code> resolves it via <code>uv run</code>):</p>
       <span class="code-label">bash · robot</span>
-<pre><code>conda activate i2rt_ros            # ROS 2 Humble auto-sourced
-sh scripts/setup_can_ids.sh        # plug 4 adapters one-by-one → fixed names
-export ROS_DOMAIN_ID=42            # SAME value on both machines</code></pre>
-      <p><span class="pill sim">workstation</span> — LeRobot env (separate from the robot):</p>
+<pre><code>sh scripts/setup_robot_env.sh      # optional: pre-create the uv env + install
+sh scripts/setup_can_ids.sh        # plug 4 adapters one-by-one → fixed names</code></pre>
+      <p><span class="pill sim">workstation</span> — conda env + uv (so you can also <code>pip install</code> other policy repos into it):</p>
       <span class="code-label">bash · workstation</span>
-<pre><code>sudo apt install -y ffmpeg                              # LeRobot v3.0 video encoding
-python -m venv ~/lerobot_env --system-site-packages    # so ROS rclpy is visible
-source ~/lerobot_env/bin/activate
-source /opt/ros/&lt;distro&gt;/setup.bash                     # SAME distro as the robot
-pip install -r workstation/lerobot_recorder/requirements.txt
-export ROS_DOMAIN_ID=42                                 # MUST match the robot
-workstation/yam-data cams                               # list RealSense serials</code></pre>
+<pre><code>sh scripts/setup_workstation_env.sh   # conda create yam_ws + uv pip install + udev rules
+conda activate yam_ws
+workstation/yam-data cams             # list RealSense serials</code></pre>
+      <p>Then edit <code>config.yaml</code> at the repo root — at least the camera serials and <code>robot.host</code>:</p>
+      <span class="code-label">config.yaml</span>
+<pre><code>robot:   {host: 192.168.0.42, port: 11331}
+cameras: {agentview: "&lt;D455&gt;", wrist_left: "&lt;D405&gt;", wrist_right: "&lt;D405&gt;"}</code></pre>
 
       <h3 id="sc-teleop">A · Bimanual teleop only (no recording)</h3>
       <span class="code-label">bash · robot</span>
@@ -132,18 +131,16 @@ scripts/yam teleop --bilateral-kp 0.15
 # lift both gellos to engage; bring both home to stop &amp; auto-return.</code></pre>
 
       <h3 id="sc-collect">B · Data collection (teleop + LeRobot recorder) — main flow</h3>
-      <p><strong>1.</strong> <span class="pill real">robot</span> — start teleop (publishes state / <code>applied_action</code> / teleop signals):</p>
+      <p><strong>1.</strong> <span class="pill real">robot</span> — start the teleop server (serves state / action / gate over portal):</p>
       <span class="code-label">bash · robot</span>
 <pre><code>scripts/yam canup
 scripts/yam teleop --bilateral-kp 0.15</code></pre>
-      <p><strong>2.</strong> <span class="pill sim">workstation</span> — start the recorder GUI:</p>
+      <p><strong>2.</strong> <span class="pill sim">workstation</span> — start the recorder GUI (host + serials come from <code>config.yaml</code>):</p>
       <span class="code-label">bash · workstation</span>
-<pre><code>workstation/yam-data record \
-    --repo-id user/yam_pick --root ~/lerobot_data \
-    --serials &lt;wrist_left_sn&gt;,&lt;wrist_right_sn&gt;,&lt;agentview_sn&gt;</code></pre>
+<pre><code>workstation/yam-data record --repo-id user/yam_pick</code></pre>
       <p><strong>3.</strong> In the recorder GUI:</p>
       <ol>
-        <li>Set <code>repo_id</code> / <code>root</code> / <code>task</code> → <strong>Start</strong> (opens cameras + ROS + dataset).</li>
+        <li>Set <code>repo_id</code> / <code>root</code> / <code>task</code> → <strong>Start</strong> (opens cameras + robot link + dataset).</li>
         <li><strong>Start collection</strong> (arms the gate).</li>
         <li>Teleoperate: <strong>lift both gellos</strong> → records; <strong>bring both home</strong> → episode ends and the <strong>review panel</strong> plays it back.</li>
         <li><strong>Keep</strong> (save) or <strong>Delete</strong> (discard), then repeat.</li>
@@ -154,23 +151,24 @@ scripts/yam teleop --bilateral-kp 0.15</code></pre>
         <p><code>workstation/yam-data record --mock</code> — synthetic teleop cycle + fake frames, exercises the whole pipeline with no robot/cameras/lerobot.</p>
       </div>
 
-      <h3 id="sc-dagger">C · DAgger (policy + human takeover)</h3>
-      <span class="code-label">bash · robot</span>
-<pre><code>scripts/yam canup
-scripts/yam dagger --mirror-kp 0.2 --feedback-kp 0.1
-# your policy publishes /&lt;arm&gt;/policy_action; press a handle button
-# (or /dagger/intervention_cmd) to take over both arms; release to hand back.</code></pre>
+      <h3 id="sc-dagger">C · Deployment / DAgger (policy + human takeover)</h3>
+      <p><strong>1.</strong> <span class="pill real">robot</span> dagger server · <strong>2.</strong> <span class="pill sim">policy</span> a websocket policy server · <strong>3.</strong> <span class="pill sim">workstation</span> the bridge that joins them:</p>
+      <span class="code-label">bash</span>
+<pre><code>scripts/yam dagger --mirror-kp 0.2 --feedback-kp 0.1     # robot
+python -m yam_policy.serve                               # policy host (:8000)
+workstation/yam-data bridge --prompt "pick up the cube"  # workstation (reads config.yaml)
+# press a handle button (or RobotClient.set_intervention) to take over; release to hand back.</code></pre>
 
       <h3 id="sc-replay">D · Replay a dataset onto the robot</h3>
-      <p><strong>1.</strong> <span class="pill real">robot</span> — run the wrapper so <code>/&lt;arm&gt;/command</code> drives the followers:</p>
+      <p><strong>1.</strong> <span class="pill real">robot</span> — run the wrapper server so it tracks the streamed targets:</p>
       <span class="code-label">bash · robot</span>
 <pre><code>scripts/yam canup
-scripts/yam wrapper --arm left:can_follower_l --arm right:can_follower_r</code></pre>
-      <p><strong>2.</strong> <span class="pill sim">workstation</span> — open the replay GUI, then <strong>Load → pick episode → tick "Send to robot" → Play</strong> (it ramps to the first frame, then streams each frame's action):</p>
+scripts/yam wrapper</code></pre>
+      <p><strong>2.</strong> <span class="pill sim">workstation</span> — open the replay GUI, then <strong>Load → pick episode → (tick "Overlay live" to match the scene) → tick "Send to robot" → Play</strong> (it ramps to the first frame, then streams each frame's action over portal):</p>
       <span class="code-label">bash · workstation</span>
-<pre><code>workstation/yam-data replay --repo-id user/yam_pick --root ~/lerobot_data</code></pre>
+<pre><code>workstation/yam-data replay --repo-id user/yam_pick</code></pre>
 
-      <p style="color:var(--text-faint);font-size:0.92rem;margin-top:18px;">Below: the full codebase reference — architecture, motor/CAN protocol, robot layer, the ROS 2 integration, and the data tools.</p>
+      <p style="color:var(--text-faint);font-size:0.92rem;margin-top:18px;">Below: the full codebase reference — architecture, motor/CAN protocol, robot layer, the portal/websocket serving stack, and the data tools.</p>
       <hr>
     </section>
 
@@ -917,138 +915,87 @@ client.reset_odometry()</code></pre>
 
     <!-- ===================== ROS 2 ===================== -->
     <section id="ros2">
-      <h2 id="ros2-h">ROS 2 Integration</h2>
-      <p>A <strong>build-less</strong> ROS 2 layer (<code>i2rt/ros2/</code>) exposes the YAM arms to a main workstation over ROS 2. It uses only standard message types (<code>sensor_msgs</code>/<code>std_msgs</code>), so there is <strong>no colcon/ament package to build</strong> — just activate the environment and run the modules. The setup is <strong>bimanual by default</strong> (2 leaders + 2 followers); this machine is the robot side, the workstation reads state and sends actions.</p>
+      <h2 id="ros2-h">Networking &amp; Serving <span style="color:var(--text-faint);font-weight:400;">(no ROS)</span></h2>
+      <p>The YAM rig is exposed to the workstation over <strong><code>portal</code> (plain TCP)</strong> — not ROS. The robot machine runs a <code>portal</code> server (<code>i2rt/serving/</code>) that owns the real-time control loop; the workstation connects with <code>RobotClient</code>. Policy inference is a separate <strong>websocket + msgpack</strong> link (openpi-compatible). No <code>rclpy</code>, no DDS, no Python-3.10 ABI constraint — every machine is a clean env. Bimanual by default (2 leaders + 2 followers).</p>
 
       <div class="card-grid cols-3">
         <div class="card">
-          <div class="ico">①</div>
-          <h4>Wrapper</h4>
-          <p><code>run_wrapper</code> — wrap follower arms: publish <code>JointState</code>, subscribe to joint targets.</p>
+          <div class="ico">▦</div>
+          <h4>Robot link · portal</h4>
+          <p>robot ↔ workstation over TCP. <code>RobotServer</code> serves a state snapshot + input setters; <code>RobotClient</code> is the handle. Default port 11331.</p>
         </div>
         <div class="card">
-          <div class="ico">②</div>
-          <h4>Teleop</h4>
-          <p><code>run_teleop</code> — bimanual leader→follower teleop, publish every stream for demo recording.</p>
+          <div class="ico">◆</div>
+          <h4>Policy link · websocket</h4>
+          <p>workstation ↔ policy server, msgpack-numpy. openpi-compatible <code>WebsocketPolicyServer</code>/<code>Client</code> + action-chunk broker.</p>
         </div>
         <div class="card">
-          <div class="ico">③</div>
-          <h4>DAgger</h4>
-          <p><code>run_dagger</code> — policy drives followers; a button hands control to the human (HG-DAgger).</p>
+          <div class="ico">⚙</div>
+          <h4>One config</h4>
+          <p><code>config.yaml</code> at the repo root (robot host, gains/limits, camera serials, tasks, policy endpoint) is auto-discovered by every tool.</p>
         </div>
       </div>
 
-      <h3 id="ros2-env">Environment</h3>
-      <p>A dedicated conda env (<code>i2rt_ros</code>, Python 3.10) holds i2rt <em>and</em> can import ROS 2 Humble's <code>rclpy</code>. Activating it auto-sources <code>/opt/ros/humble</code> (the conda Python 3.10 is ABI-compatible with Humble's system Python, so the prebuilt <code>rclpy</code> loads directly — no RoboStack needed). All commands accept <code>--sim</code> to run without hardware.</p>
-      <span class="code-label">bash</span>
-<pre><code>conda activate i2rt_ros          # sources ROS 2 Humble automatically
-python -c "import rclpy, i2rt; print('ready')"</code></pre>
-      <p>Each node runs as <code>python -m i2rt.ros2.run_*</code>, or via the shortcut launcher <code>scripts/yam &lt;node&gt;</code> (which activates the env for you): <code>scripts/yam teleop --sim</code>, <code>scripts/yam dagger</code>, <code>scripts/yam wrapper</code>. Source <code>scripts/ros2_aliases.sh</code> for an even shorter <code>yam teleop</code> alias.</p>
-
-      <h3 id="ros2-wrapper">① Wrapper — <code>run_wrapper</code></h3>
-      <p>Wraps each <strong>follower</strong> arm as a node. The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; the node only samples state and forwards targets.</p>
-      <span class="code-label">bash</span>
-<pre><code># two simulated followers (no hardware)
-python -m i2rt.ros2.run_wrapper --sim
-# real bimanual hardware
-python -m i2rt.ros2.run_wrapper \
-    --arm left:can_follower_l --arm right:can_follower_r --gripper linear_4310</code></pre>
+      <h3 id="ros2-teleop">Robot server modes — <code>i2rt.serving.run_robot_server</code></h3>
+      <p>The robot runs one of three modes (launch with <code>scripts/yam &lt;mode&gt;</code>, which uses <code>uv run</code> — nothing to activate; add <code>--sim</code> for no hardware). The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; each mode reads the rig and serves a snapshot over portal.</p>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Dir</th><th>Topic (per arm <code>&lt;name&gt;</code>)</th><th>Type</th></tr></thead>
+        <thead><tr><th>Mode</th><th>What it does</th></tr></thead>
         <tbody>
-          <tr><td>pub</td><td><code>&lt;name&gt;/joint_states</code></td><td><code>sensor_msgs/JointState</code> — <code>[joint_1..6, gripper]</code>, pos/vel/eff</td></tr>
-          <tr><td>sub</td><td><code>&lt;name&gt;/command</code></td><td><code>sensor_msgs/JointState</code> — target → <code>command_joint_pos</code></td></tr>
-          <tr><td>pub</td><td><code>&lt;name&gt;/buttons</code></td><td><code>sensor_msgs/Joy</code> — only with a teaching handle</td></tr>
+          <tr><td><code>teleop</code></td><td>Auto home/engage gate, bimanual leader→follower (the data-collection driver).</td></tr>
+          <tr><td><code>dagger</code></td><td>HG-DAgger: a policy drives the followers; a handle button hands control to the human.</td></tr>
+          <tr><td><code>wrapper</code></td><td>Followers track an external command (replay / direct control). Optional EEF mode.</td></tr>
         </tbody>
       </table>
       </div>
-      <p>The gripper element is normalized <strong>0 = closed, 1 = open</strong>. A command may be the full vector (<code>num_dofs</code>) or arm-only (<code>num_dofs-1</code>, keeping the current gripper).</p>
-
-      <h3 id="ros2-teleop">② Teleop — <code>run_teleop</code></h3>
-      <p>Activates both pairs and drives them with a <strong>single global auto-gate</strong> (no per-arm buttons — teleop on/off is always both arms together). A state machine returns the robot and gellos to a home pose, watches the leaders' distance from home, and turns teleop on/off automatically:</p>
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>State</th><th>Behavior</th><th>Leaves when</th></tr></thead>
-        <tbody>
-          <tr><td><code>HOMING</code></td><td>robot <strong>and</strong> leaders ramp smoothly to home</td><td>ramp reaches home</td></tr>
-          <tr><td><code>IDLE</code></td><td>at home, leaders free (gravity-comp)</td><td><strong>both</strong> leaders lifted past <code>--engage-thr</code></td></tr>
-          <tr><td><code>ENGAGED</code></td><td>followers track leaders (rate-limited, no jump)</td><td><strong>both</strong> leaders back within <code>--release-thr</code> of home for <code>--dwell</code> s → HOMING</td></tr>
-        </tbody>
-      </table>
+      <span class="code-label">bash · robot</span>
+<pre><code>scripts/yam teleop --bilateral-kp 0.15      # auto-reads config.yaml
+scripts/yam dagger --mirror-kp 0.2
+scripts/yam wrapper                          # replay target</code></pre>
+      <p><strong>Teleop auto-gate (both arms together, no button):</strong> <code>HOMING</code> → robot &amp; gellos ramp home; <code>IDLE</code> → at home, gellos free; <strong>lift both</strong> past <code>--engage-thr</code> → <code>ENGAGED</code> (followers track directly via their own PD gains, no lag); bring both home for <code>--dwell</code>s → back to <code>HOMING</code>. The exact rate-limited command sent is the recorded <code>action</code>, so episodes reproduce precisely. Only the one-time engage approach + the (gentler) homing return are ramped (<code>--ramp-speed</code> / <code>--home-speed</code>).</p>
+      <div class="callout tip">
+        <div class="callout-title">Bilateral engage — no leader yank</div>
+        <p>With <code>--bilateral-kp&gt;0</code>, the leader is back-driven only <strong>after the follower has caught up</strong> to it — so engaging from home with the gellos lifted no longer snaps the leader toward home. Leader buttons can also end an episode: button 1 = success, 2 = fail, 0 = discard (each also starts the gentle homing return).</p>
       </div>
-      <p>So you <strong>lift both gellos to start</strong> and <strong>bring them home to stop</strong> — no button. Crucially, the <strong>exact rate-limited target sent to the robot</strong> is published on <code>&lt;s&gt;/applied_action</code>, so an external node can log it and reproduce the episode precisely.</p>
-      <p><strong>Steady tracking is direct</strong> — while engaged the follower is commanded straight to the leader pose and tracked by its <em>own PD gains</em> (exactly like the original <code>minimum_gello</code>; no rate-limit lag). Only the one-time engage approach and the homing return are ramped, via <code>--ramp-speed</code> (default 0.8 rad/s; lower = smoother return). the gate keys on the <strong>2nd joint alone by default</strong> (lift it to start, lower it to return — other joints don't block homing); <code>--gate-joints</code> picks other joints or <code>""</code> for all-joint L2. The <code>kp</code> args (<code>--bilateral-kp</code>, <code>--home-kp</code>) are leader <em>stiffness</em> gains, unrelated to ramp speed.</p>
-      <p>The <strong>follower's tracking gains are a single global config</strong> (<code>i2rt/ros2/control_config.py</code>, default = <code>yam.yml</code>) applied in teleop, DAgger, <em>and</em> the wrapper used by replay — so a replayed episode behaves exactly like when it was collected.</p>
+      <p>The snapshot (<code>get_observation()</code>) carries, per side, follower <code>pos/vel/eff</code>, <code>leader_pos</code>, <code>applied</code> (the action), <code>human</code> (while intervening), <code>buttons</code>, plus the gate state and <code>estop</code>. Follower gains live in one place — <code>i2rt/serving/control_config.py</code> — and apply to teleop, dagger, and the replay wrapper, so collection and replay match.</p>
+
+      <h3 id="ros2-policy">Policy serving &amp; the bridge</h3>
+      <p>Policies run in their <strong>own unconstrained env</strong> (any Python / CUDA, even a remote GPU box) behind an <strong>openpi-compatible websocket server</strong>; the workstation <strong>bridge</strong> joins the two links — it reads the robot snapshot + cameras, builds an openpi obs dict, queries the policy (prefetching the next action chunk to hide latency), and sends the result to the robot.</p>
       <span class="code-label">bash</span>
-<pre><code>python -m i2rt.ros2.run_teleop --sim
-python -m i2rt.ros2.run_teleop --bilateral-kp 0.2 --home 0,0,0,0,0,0   # real hardware</code></pre>
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>Dir</th><th>Topic (per side <code>&lt;s&gt;</code> ∈ left/right; or global)</th><th>Type</th></tr></thead>
-        <tbody>
-          <tr><td>pub</td><td><code>&lt;s&gt;/leader/joint_states</code> · <code>&lt;s&gt;/follower/joint_states</code></td><td><code>sensor_msgs/JointState</code></td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/applied_action</code></td><td><code>sensor_msgs/JointState</code> — smoothed command to the robot (log this)</td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/buttons</code></td><td><code>sensor_msgs/Joy</code></td></tr>
-          <tr><td>pub</td><td><code>/teleop/state</code> · <code>/teleop/active</code></td><td><code>std_msgs/String</code> · <code>std_msgs/Bool</code></td></tr>
-        </tbody>
-      </table>
-      </div>
+<pre><code>python -m yam_policy.serve --policy &lt;module&gt;:&lt;Class&gt; --config k=v   # policy host (:8000)
+scripts/yam dagger                                                # robot
+workstation/yam-data bridge --prompt "pick up the cube"          # workstation</code></pre>
+      <p>The bridge auto-configures the action horizon and image keys from the server's metadata, so a real openpi checkpoint drops in unchanged. Add your own policy by subclassing <code>BasePolicy.infer(obs)→{"actions": (H, D)}</code> (see <code>policy_serving/</code> with dummy / openpi / lerobot templates).</p>
 
-      <h3 id="ros2-dagger">③ DAgger — <code>run_dagger</code></h3>
-      <p><strong>HG-DAgger</strong> interactive takeover, <strong>bimanual with a single gate</strong>. The gate is a <strong>toggle</strong>: press a handle button once to take over, press again to hand control back (no holding while teleoperating).</p>
+      <h3 id="ros2-safety">Safety model</h3>
       <ul>
-        <li><strong>Policy (default):</strong> the workstation policy publishes <code>&lt;s&gt;/policy_action</code>; the node applies it to the followers and back-drives the leaders at the <strong>mirror</strong> gain so a human resting on the handles feels what the policy intends.</li>
-        <li><strong>Intervention (toggled on):</strong> switches <strong>both</strong> arms to human control — each follower tracks its leader, leader back-driven at the <strong>feedback</strong> gain — and streams <code>&lt;s&gt;/human_action</code> plus <code>/dagger/intervention=true</code> so the workstation can aggregate <code>(obs, action)</code> pairs. Press again to return to the policy.</li>
-      </ul>
-      <p>The two leader gains are separate (<code>control_config.py</code>): <code>--mirror-kp</code> (policy driving, default 0.2) and <code>--feedback-kp</code> (human intervening, default 0.1).</p>
-      <div class="callout">
-        <div class="callout-title">📷 Wrist camera in gravity compensation</div>
-        <p>A wrist-mounted D405 adds mass the model doesn't know about, so the distal joints sag. Set <code>FOLLOWER_PAYLOAD_KG = 0.05</code> (≈50 g) in <code>control_config.py</code> — it adds that mass to the follower's end-effector inertial (<code>ee_mass</code>) for gravity comp, applied identically in teleop, DAgger, and the replay wrapper. (Gravity comp is quasi-static, so only mass &amp; COM matter.)</p>
-      </div>
-      <span class="code-label">bash</span>
-<pre><code>python -m i2rt.ros2.run_dagger --sim
-python -m i2rt.ros2.run_dagger --mirror-kp 0.2 --feedback-kp 0.1   # real hardware</code></pre>
-      <div class="table-wrap">
-      <table>
-        <thead><tr><th>Dir</th><th>Topic</th><th>Type · note</th></tr></thead>
-        <tbody>
-          <tr><td>sub</td><td><code>&lt;s&gt;/policy_action</code></td><td><code>JointState</code> — from the policy</td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/follower/joint_states</code> · <code>&lt;s&gt;/leader/joint_states</code></td><td><code>JointState</code></td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/applied_action</code></td><td><code>JointState</code> — what was actually sent</td></tr>
-          <tr><td>pub</td><td><code>&lt;s&gt;/human_action</code></td><td><code>JointState</code> — leader q while intervening</td></tr>
-          <tr><td>pub</td><td><code>/dagger/intervention</code></td><td><code>std_msgs/Bool</code> — gate (both arms)</td></tr>
-          <tr><td>sub</td><td><code>/dagger/intervention_cmd</code></td><td><code>std_msgs/Bool</code> — external gate</td></tr>
-        </tbody>
-      </table>
-      </div>
-
-      <h3 id="ros2-safety">Safety Model</h3>
-      <p>Three properties keep the interactive modes safe:</p>
-      <ul>
-        <li><strong>Gravity compensation is always on.</strong> It is added inside <code>MotorChainRobot</code>'s control loop every tick, independent of mode — so during a takeover the leader is freely back-drivable, and on release the policy resumes against the same compensation.</li>
-        <li><strong>Smooth transitions, direct tracking.</strong> Teleop tracks the leader <em>directly</em> while engaged (follower PD gains, no lag); only the one-time engage approach and the homing return are ramped by <code>--ramp-speed</code> (default 0.8 rad/s) — the safety equivalent of <code>minimum_gello</code>'s <code>slow_move</code>. DAgger still rate-limits its policy↔human transitions (<code>--max-joint-speed</code>, default 1.5) since those are not human-driven.</li>
-        <li><strong>Fail-safe holds.</strong> A missing/invalid leader reading, or a not-yet-arrived policy action, holds position rather than commanding garbage. The motor 400&nbsp;ms watchdog remains the hardware backstop.</li>
+        <li><strong>Network E-STOP</strong> — a button in both GUIs (and <code>RobotClient.set_estop</code>) holds the followers until released; re-applied automatically on reconnect.</li>
+        <li><strong>Link-loss watchdog</strong> — if no fresh command arrives within <code>command_timeout</code> (≈0.5&nbsp;s), the follower holds instead of replaying a stale target (covers a workstation crash or network drop).</li>
+        <li><strong>Limits</strong> — every commanded target is clamped to optional per-joint <code>FOLLOWER_JOINT_LIMITS</code>; an optional <code>FOLLOWER_EFFORT_LIMIT</code> trips an automatic e-stop on a collision/overload.</li>
+        <li><strong>Always-on gravity comp + smoothing</strong> — added inside <code>MotorChainRobot</code> every tick; transitions are rate-limited (<code>TargetSmoother</code>), and a missing/invalid reading holds position. The motor 400&nbsp;ms watchdog is the hardware backstop.</li>
       </ul>
       <div class="callout tip">
         <div class="callout-title">✅ Verified in simulation</div>
-        <p>All three components were exercised with <code>--sim</code>: state publishing, joint commands, the full policy→intervention→release cycle, the 6-DOF-leader → 7-DOF-follower mapping, and the rate limiter. Bilateral force-feel and teaching-handle buttons require real hardware (in sim they degrade gracefully).</p>
+        <p>Controllers, the portal round-trip, e-stop, the staleness watchdog, the end-to-end policy bridge, EEF FK/IK, and the recorder/replay loops are covered by sim/mock unit tests. Bilateral force-feel + teaching-handle buttons need real hardware (they degrade gracefully in sim).</p>
       </div>
-      <p>Full details and the workstation-side recipe are in <code>i2rt/ros2/README.md</code>.</p>
+      <p>Details + the snapshot contract: <code>i2rt/serving/README.md</code>.</p>
 
-      <h3 id="ros2-lerobot">Data collection &amp; replay (LeRobot)</h3>
-      <p>A separate workstation app (<code>workstation/lerobot_recorder/</code>, its own env) records <strong>LeRobot v3.0</strong> datasets from this same teleop graph. It subscribes remotely to <code>/&lt;arm&gt;/follower/joint_states</code>, <code>/&lt;arm&gt;/applied_action</code>, and <code>/teleop/state</code>, reads three RealSense cameras (2× D405 wrist + 1× D455 agentview) locally, and is <strong>gated by the teleop signal</strong>: an episode auto-records the moment teleop is ENGAGED and auto-ends when homing returns to IDLE (the return is included). Each episode is held for a <strong>review → Keep / Delete</strong> decision before it is committed. A companion <strong>replay</strong> GUI plays a recorded episode back onto the robot by publishing <code>/&lt;arm&gt;/command</code> to the wrapper (ramping to the first frame to avoid a jump).</p>
+      <h3 id="ros2-lerobot">Data tools &amp; config (LeRobot)</h3>
+      <p>The workstation app (<code>workstation/lerobot_recorder/</code>) records <strong>LeRobot v3.0</strong> datasets from the robot snapshot over portal + three RealSense cameras (2× D405 wrist + 1× D455 agentview). Episodes auto-start/stop from the teleop gate; a finished episode is queued to a <strong>background writer</strong> so encoding never blocks the next collection. The GUI shows a color status banner, a health strip (robot / cameras / disk / queue), live success-rate stats, audio cues, and labeling by mouse / keyboard / leader buttons. <code>--source dagger</code> records HG-DAgger interventions; <code>--source eval</code> records policy rollouts. The <strong>replay</strong> GUI plays an episode back onto the wrapper (with a live-camera overlay to match the scene first).</p>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Record</th><th>Value</th></tr></thead>
+        <thead><tr><th>Recorded (fixed schema)</th><th>Value</th></tr></thead>
         <tbody>
           <tr><td><code>observation.state</code></td><td>(42,) — both arms × [pos, vel, eff]</td></tr>
-          <tr><td><code>action</code></td><td>(14,) — both arms × <code>applied_action</code> (reproducible)</td></tr>
+          <tr><td><code>observation.leader</code></td><td>(12,) — both arms × leader joints</td></tr>
+          <tr><td><code>observation.eef</code></td><td>(14,) — both arms × EE pose (FK; zeros if unavailable)</td></tr>
+          <tr><td><code>observation.control_mode</code></td><td>(1,) — teleop / policy / intervention</td></tr>
+          <tr><td><code>action</code></td><td>(14,) — both arms × executed command</td></tr>
           <tr><td>images</td><td><code>wrist_left</code>, <code>wrist_right</code>, <code>agentview</code> @ 60 fps</td></tr>
         </tbody>
       </table>
       </div>
-      <p>Launchers: <code>workstation/yam-data record</code> / <code>replay</code> / <code>cams</code>. Full cross-machine runbook in <code>workstation/lerobot_recorder/README.md</code>.</p>
+      <p>Launchers: <code>workstation/yam-data record</code> / <code>replay</code> / <code>bridge</code> / <code>cams</code> / <code>doctor</code> (dataset stats + success rate). Full runbook: <code>workstation/lerobot_recorder/README.md</code>.</p>
     </section>
 
     <!-- ===================== EXAMPLES ===================== -->
