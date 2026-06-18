@@ -158,11 +158,11 @@ takeovers ramp smoothly.
 
 Quick CLIs (workstation): `workstation/yam-data {record\|replay\|bridge\|cams\|doctor}`.
 
-**One config for everything**: put a single `config.yaml` at the **repo root** (copy
-[`config.example.yaml`](config.example.yaml)) — robot host/port, control gains/limits,
-camera serials, recorder defaults, tasks, and the policy endpoint. Every tool
-auto-discovers `<repo>/config.yaml` (no env var, no matter the directory); no
-`--config` needed. Precedence: **CLI flag > `config.yaml` > default**.
+**One config for everything**: edit the tracked [`config.yaml`](config.yaml) at the
+**repo root** — robot host/port, control gains/limits, camera serials, recorder
+defaults, tasks, and the policy endpoint. Every tool auto-discovers `<repo>/config.yaml`
+(no env var, no matter the directory); no `--config` needed. Precedence:
+**CLI flag > `config.yaml` > default**.
 
 **Envs**: the **robot** is uv-managed — `scripts/yam …` uses `uv run`, nothing to
 activate. The **workstation** is a **conda** env (`scripts/setup_workstation_env.sh`)

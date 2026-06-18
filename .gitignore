@@ -69,7 +69,7 @@ mjmodel.xml
 
 # Ignore user-specific configs
 config.json
-config.yaml
+# config.yaml is the tracked, in-repo rig config (edit it in place)
 
 # Ignore large data files (if applicable)
 data/

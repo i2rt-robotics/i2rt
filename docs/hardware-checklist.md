@@ -21,8 +21,8 @@ sh policy_serving/setup_policy_env.sh && source policy_serving/.venv/bin/activat
 ```
 - [ ] Workstation env imports cleanly (`python -c "import i2rt, yam_policy, lerobot, pyrealsense2"`).
 - [ ] Robot: `scripts/yam teleop --sim` boots (uv resolves the env on first run).
-- [ ] Put one `config.yaml` at the **repo root** (copy `config.example.yaml`); every tool
-      auto-finds it — no `--config`, no env var, regardless of directory.
+- [ ] Edit the tracked `config.yaml` at the **repo root** (serials + robot.host); every
+      tool auto-finds it — no `--config`, no env var, regardless of directory.
 
 ## 1. CAN + cameras
 
