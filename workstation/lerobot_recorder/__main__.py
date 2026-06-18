@@ -18,7 +18,7 @@ from workstation.lerobot_recorder.config import RecorderConfig, default_cameras
 
 def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset recorder")
-    p.add_argument("--config", default=None, help="rig.yaml (robot/cameras/tasks/recorder defaults)")
+    p.add_argument("--config", default=None, help="config.yaml (robot/cameras/tasks/recorder defaults)")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--task", default="do the task", help="active language instruction")
@@ -47,7 +47,7 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     )
     args = p.parse_args(argv)
 
-    # Unified rig config: explicit CLI flag > rig.yaml section > built-in default.
+    # Unified rig config: explicit CLI flag > config.yaml section > built-in default.
     rig = load_rig(args.config)
     rec = Resolver(args, p, rig.get("recorder", {}))
     rob = Resolver(args, p, rig.get("robot", {}))

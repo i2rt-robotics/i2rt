@@ -22,7 +22,7 @@ from workstation.policy_bridge.bridge import BridgeConfig, PolicyBridge
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     p = argparse.ArgumentParser(description="YAM policy bridge (portal robot <-> websocket policy)")
-    p.add_argument("--config", default=None, help="rig.yaml (robot/policy/cameras)")
+    p.add_argument("--config", default=None, help="config.yaml (robot/policy/cameras)")
     p.add_argument("--robot-host", default="127.0.0.1")
     p.add_argument("--robot-port", type=int, default=11331)
     p.add_argument("--policy-host", default="127.0.0.1")

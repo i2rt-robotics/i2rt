@@ -19,7 +19,7 @@ from workstation.lerobot_recorder.config import RecorderConfig
 
 def main(argv: Optional[List[str]] = None) -> None:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset replay")
-    p.add_argument("--config", default=None, help="rig.yaml (robot host/port, repo/root)")
+    p.add_argument("--config", default=None, help="config.yaml (robot host/port, repo/root)")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server wrapper)")

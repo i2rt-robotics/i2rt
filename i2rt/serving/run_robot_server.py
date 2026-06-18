@@ -44,7 +44,7 @@ def main() -> None:
     sub = p.add_subparsers(dest="mode", required=True)
 
     pt = sub.add_parser("teleop", help="auto home/engage bimanual teleop")
-    pt.add_argument("--config", default=None, help="rig.yaml (control overrides + port)")
+    pt.add_argument("--config", default=None, help="config.yaml (control overrides + port)")
     pt.add_argument("--port", type=int, default=default_port)
     pt.add_argument("--sim", action="store_true")
     pt.add_argument("--home", default="")
@@ -59,7 +59,7 @@ def main() -> None:
     pt.add_argument("--gate-joints", default=",".join(str(j) for j in cc.GATE_JOINTS))
 
     pd = sub.add_parser("dagger", help="HG-DAgger policy + button takeover")
-    pd.add_argument("--config", default=None, help="rig.yaml (control overrides + port)")
+    pd.add_argument("--config", default=None, help="config.yaml (control overrides + port)")
     pd.add_argument("--port", type=int, default=default_port)
     pd.add_argument("--sim", action="store_true")
     pd.add_argument("--mirror-kp", type=float, default=cc.DAGGER_MIRROR_KP)
@@ -68,7 +68,7 @@ def main() -> None:
     pd.add_argument("--max-joint-speed", type=float, default=1.5)
 
     pw = sub.add_parser("wrapper", help="followers track an external command (replay)")
-    pw.add_argument("--config", default=None, help="rig.yaml (control overrides + port/channels)")
+    pw.add_argument("--config", default=None, help="config.yaml (control overrides + port/channels)")
     pw.add_argument("--port", type=int, default=default_port)
     pw.add_argument("--sim", action="store_true")
     pw.add_argument("--arm-type", default="yam")

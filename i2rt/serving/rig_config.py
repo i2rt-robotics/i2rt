@@ -1,10 +1,11 @@
-"""Unified rig config: one YAML, shared by the robot server and the workstation tools.
+"""Unified config: one YAML, shared by the robot server and the workstation tools.
 
-A single ``rig.yaml`` is the source of truth for the whole setup — robot host/port,
-control gains/limits, camera serials, recorder defaults, tasks, and the policy
-endpoint. Every CLI accepts ``--config rig.yaml``; precedence is
+A single ``<repo>/config.yaml`` is the source of truth for the whole setup — robot
+host/port, control gains/limits, camera serials, recorder defaults, tasks, and the
+policy endpoint. It is auto-discovered (no env var, no cwd dependence); ``--config``
+can point elsewhere for a one-off. Precedence is
 
-    explicit CLI flag  >  rig.yaml  >  built-in default
+    explicit CLI flag  >  <repo>/config.yaml  >  built-in default
 
 Example:
 
@@ -49,30 +50,25 @@ def _repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def repo_config_path() -> str:
+    """The single in-repo config location: ``<repo>/config.yaml``."""
+    return os.path.join(_repo_root(), "config.yaml")
+
+
 def find_rig(explicit: Optional[str] = None) -> Optional[str]:
-    """Resolve the rig file by FIXED paths — no need to ``--config`` or care about cwd.
-
-    Order (first that exists wins):
-      1. explicit ``--config``
-      2. ``$YAM_RIG``
-      3. ``<repo>/rig.yaml``  (the repo never moves, so this is the global config)
-      4. ``~/.config/yam/rig.yaml``
-
-    Put one ``rig.yaml`` at the repo root and every tool finds it from anywhere.
+    """Resolve the config file. It lives IN the repo at ``<repo>/config.yaml`` — no
+    environment variables, no cwd dependence. ``--config`` may point elsewhere for a
+    one-off. Returns the path, or None if neither exists.
     """
-    for cand in (
-        explicit,
-        os.environ.get("YAM_RIG"),
-        os.path.join(_repo_root(), "rig.yaml"),
-        os.path.expanduser("~/.config/yam/rig.yaml"),
-    ):
+    for cand in (explicit, repo_config_path()):
         if cand and os.path.exists(os.path.expanduser(cand)):
             return os.path.abspath(os.path.expanduser(cand))
     return None
 
 
 def load_rig(path: Optional[str]) -> Dict[str, Any]:
-    """Load a rig YAML into a dict, auto-discovering one if ``path`` is None ({} if none)."""
+    """Load the config YAML into a dict, auto-discovering ``<repo>/config.yaml`` if
+    ``path`` is None ({} if none)."""
     path = find_rig(path)
     if not path:
         return {}
@@ -80,7 +76,7 @@ def load_rig(path: Optional[str]) -> Dict[str, Any]:
 
     with open(path) as f:
         rig = yaml.safe_load(f) or {}
-    logging.getLogger(__name__).info("loaded rig config: %s", path)
+    logging.getLogger(__name__).info("loaded config: %s", path)
     return rig
 
 

@@ -158,11 +158,11 @@ takeovers ramp smoothly.
 
 Quick CLIs (workstation): `workstation/yam-data {record\|replay\|bridge\|cams\|doctor}`.
 
-**One config for everything**: put a single `rig.yaml` at the **repo root** (copy
-[`rig.example.yaml`](rig.example.yaml)) — robot host/port, control gains/limits,
+**One config for everything**: put a single `config.yaml` at the **repo root** (copy
+[`config.example.yaml`](config.example.yaml)) — robot host/port, control gains/limits,
 camera serials, recorder defaults, tasks, and the policy endpoint. Every tool
-auto-discovers it (repo root → `$YAM_RIG` → `~/.config/yam/rig.yaml`); no `--config`
-needed. Precedence: **CLI flag > `rig.yaml` > default**.
+auto-discovers `<repo>/config.yaml` (no env var, no matter the directory); no
+`--config` needed. Precedence: **CLI flag > `config.yaml` > default**.
 
 **Envs**: the **robot** is uv-managed — `scripts/yam …` uses `uv run`, nothing to
 activate. The **workstation** is a **conda** env (`scripts/setup_workstation_env.sh`)

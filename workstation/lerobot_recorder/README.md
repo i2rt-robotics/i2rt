@@ -86,7 +86,7 @@ uv pip install -r workstation/lerobot_recorder/requirements.txt
 </details>
 
 The `yam-data` launcher activates the **conda** env for you (default `yam_ws`,
-override with `YAM_WS_ENV=...`). The robot host/port come from `rig.yaml` (or
+override with `YAM_WS_ENV=...`). The robot host/port come from `config.yaml` (or
 `--robot-host`/`--robot-port`, default
 `127.0.0.1:11331`) — both machines just need to be on the same network (plain TCP,
 no `ROS_DOMAIN_ID`, no DDS).

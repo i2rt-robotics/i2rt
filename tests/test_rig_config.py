@@ -10,40 +10,34 @@ from i2rt.serving.rig_config import Resolver, apply_camera_serials, apply_contro
 from workstation.lerobot_recorder.config import default_cameras
 
 
-def _isolate(monkeypatch, tmp_path):
-    """No env rig, empty repo root, empty HOME -> nothing auto-discovered."""
-    monkeypatch.delenv("YAM_RIG", raising=False)
+def _no_repo_rig(monkeypatch, tmp_path):
+    """Point the repo root at an empty dir so no in-repo config.yaml is found."""
     monkeypatch.setattr(rc, "_repo_root", lambda: str(tmp_path / "norepo"))
-    monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
 
 
 def test_load_rig(tmp_path, monkeypatch):
-    p = tmp_path / "rig.yaml"
+    p = tmp_path / "config.yaml"
     p.write_text("robot:\n  host: 1.2.3.4\n  port: 9\ntasks:\n  - a\n  - b\n")
     rig = load_rig(str(p))
     assert rig["robot"] == {"host": "1.2.3.4", "port": 9}
     assert rig["tasks"] == ["a", "b"]
-    _isolate(monkeypatch, tmp_path)
-    assert load_rig(None) == {}
+    _no_repo_rig(monkeypatch, tmp_path)
+    assert load_rig(None) == {}  # no in-repo rig, no env -> empty
 
 
-def test_find_rig_discovery(tmp_path, monkeypatch):
-    _isolate(monkeypatch, tmp_path)
-    explicit = tmp_path / "explicit.yaml"
-    explicit.write_text("x: 1\n")
-    env = tmp_path / "env.yaml"
-    env.write_text("y: 1\n")
-    monkeypatch.setenv("YAM_RIG", str(env))
-    assert find_rig() == str(env)  # env when no explicit
-    assert find_rig(str(explicit)) == str(explicit)  # explicit beats env
-
-    # repo-root is the fixed global location
-    monkeypatch.delenv("YAM_RIG", raising=False)
+def test_find_rig_in_repo(tmp_path, monkeypatch):
     rr = tmp_path / "repo"
     rr.mkdir()
-    (rr / "rig.yaml").write_text("z: 1\n")
+    (rr / "config.yaml").write_text("z: 1\n")
     monkeypatch.setattr(rc, "_repo_root", lambda: str(rr))
-    assert find_rig() == str(rr / "rig.yaml")
+    assert find_rig() == str(rr / "config.yaml")  # the in-repo config
+
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text("x: 1\n")
+    assert find_rig(str(explicit)) == str(explicit)  # --config override
+
+    _no_repo_rig(monkeypatch, tmp_path)
+    assert find_rig() is None
 
 
 def test_apply_control_overrides(monkeypatch):

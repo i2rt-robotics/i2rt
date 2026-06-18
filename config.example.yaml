@@ -1,11 +1,11 @@
-# Unified rig config — one source of truth for the whole YAM setup.
-# Pass to any tool with `--config rig.yaml`. Precedence:
-#   explicit CLI flag  >  this file  >  built-in default
+# Unified config — one source of truth for the whole YAM setup.
+# Copy this to `config.yaml` at the repo root; every tool auto-finds it (no flag,
+# no env var, regardless of directory). `--config <path>` overrides for a one-off.
+# Precedence: explicit CLI flag  >  <repo>/config.yaml  >  built-in default
 #
-#   scripts/yam teleop --config rig.yaml
-#   workstation/yam-data record  --config rig.yaml
-#   workstation/yam-data replay  --config rig.yaml
-#   workstation/yam-data bridge  --config rig.yaml
+#   cp config.example.yaml config.yaml     # then fill serials + robot.host
+#   scripts/yam teleop                     # auto-reads <repo>/config.yaml
+#   workstation/yam-data record            # same
 
 robot:
   host: 127.0.0.1            # robot server (portal) address, used by the workstation tools
