@@ -25,9 +25,9 @@ control:                     # overrides i2rt/serving/control_config (robot serv
   # gate_joints: [1]                      # leader joints that drive the engage/release gate
 
 cameras:                     # RealSense serials by role (run `yam-data cams` to list)
-  agentview: ""              # D455
-  wrist_left: ""             # D405
-  wrist_right: ""            # D405
+  agentview: "246322303794"              # D455
+  wrist_left: "409122274199"             # D405
+  wrist_right: "352122271652"            # D405
 
 recorder:
   repo_id: jellyho/yam_pick
