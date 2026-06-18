@@ -579,6 +579,7 @@ class LinearRailVehicle(Vehicle):
         enable_linear_rail: bool = True,
         control_freq: float = CONTROL_FREQ,
         total_stroke_m: float = 1.0,
+        usb_gpio_device: Optional[str] = None,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -600,6 +601,9 @@ class LinearRailVehicle(Vehicle):
             total_stroke_m: Physical stroke between the rail's upper and lower limit switches,
                 in meters. Used by the startup top-then-bottom calibration to derive
                 meters_per_rad from the motor encoder.
+            usb_gpio_device: Serial device path for the USB-GPIO converter on x86 (e.g.
+                "/dev/ttyUSB0"). Ignored on a Raspberry Pi (native GPIO). When None, the
+                backend keeps its default (/dev/ttyUSB0 or the I2RT_USB_GPIO_PORT env var).
         """
         # Create base motor list (8 motors: 4 casters * 2 motors each)
         motor_list = []
@@ -640,8 +644,10 @@ class LinearRailVehicle(Vehicle):
 
         # Initialize brake GPIO only if linear rail is enabled
         if enable_linear_rail:
-            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio
+            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio, set_usb_gpio_device
 
+            if usb_gpio_device is not None:
+                set_usb_gpio_device(usb_gpio_device)  # no-op on Raspberry Pi
             initialize_brake_gpio()
 
         # Initialize vehicle base with the unified motor chain using super().__init__()
@@ -775,34 +781,35 @@ class LinearRailVehicle(Vehicle):
 
 
 if __name__ == "__main__":
-    import argparse
     import os
     import sys
     import time
+    from dataclasses import dataclass
 
     import pygame
+    import tyro
 
     from i2rt.utils.gamepad_utils import Gamepad
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", type=str, default="can0")
-    parser.add_argument(
-        "--linear-rail",
-        action="store_true",
-        help="Enable linear rail (9th motor). Disabled by default.",
-    )
-    parser.add_argument(
-        "--gamepad",
-        action="store_true",
-        help="Enable gamepad/joystick teleop. Disabled by default (remote commands only).",
-    )
-    parser.add_argument(
-        "--control-freq",
-        type=float,
-        default=CONTROL_FREQ,
-        help=f"Control loop frequency in Hz (default: {CONTROL_FREQ})",
-    )
-    args = parser.parse_args()
+    @dataclass
+    class Args:
+        channel: str = "can0"
+        """CAN channel for the base motors."""
+        linear_rail: bool = False
+        """Enable linear rail (9th motor). Disabled by default."""
+        gamepad: bool = False
+        """Enable gamepad/joystick teleop. Disabled by default (remote commands only)."""
+        control_freq: float = CONTROL_FREQ
+        """Control loop frequency in Hz."""
+        device: Optional[str] = None
+        """Serial device for the USB-GPIO converter; REQUIRED with --linear-rail on x86. Ignored on a Raspberry Pi (native GPIO)."""
+
+    args = tyro.cli(Args)
+
+    from i2rt.utils.usb_gpio_driver import is_raspberry_pi
+
+    if args.linear_rail and args.device is None and not is_raspberry_pi():
+        sys.exit("--device is required when --linear-rail is set on x86 (non-Raspberry Pi)")
 
     CALIBRATION_RETRY_DELAY = 1
     DEADZONE = 0.05  # Deadzone for base control (x, y, theta)
@@ -833,6 +840,7 @@ if __name__ == "__main__":
         auto_home=True,
         enable_linear_rail=args.linear_rail,  # Disabled by default, enable with --linear-rail
         control_freq=args.control_freq,
+        usb_gpio_device=args.device,  # serial port for the USB-GPIO converter (x86)
     )
 
     # Register cleanup function to ensure brake is engaged on exit
