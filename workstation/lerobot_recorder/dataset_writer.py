@@ -43,6 +43,42 @@ def _import_lerobot_dataset() -> type:
     return LeRobotDataset
 
 
+def dataset_dir(root: str, repo_id: str) -> str:
+    """The actual dataset folder: ``<root>/<name>`` where ``name`` is the last segment
+    of ``repo_id`` (e.g. root=~/lerobot_data, repo_id=hello/pick_and_place ->
+    ~/lerobot_data/pick_and_place). ``root`` is a PARENT dir holding one folder per
+    dataset, so several datasets can live side by side."""
+    name = repo_id.strip("/").split("/")[-1] or "dataset"
+    return os.path.join(os.path.expanduser(root), name)
+
+
+def dataset_info(root: str) -> Dict:
+    """Inspect the dataset dir at ``root`` for the setup page — no lerobot import.
+
+    ``{"exists": bool, "episodes": int|None}``. Episode count is a best-effort read
+    of the ``outcomes.jsonl`` sidecar (None if absent/unreadable)."""
+    path = os.path.expanduser(root)
+    if not os.path.isdir(path) or not os.listdir(path):
+        return {"exists": False, "episodes": None}
+    episodes: Optional[int] = None
+    sidecar = os.path.join(path, "outcomes.jsonl")
+    if os.path.exists(sidecar):
+        try:
+            with open(sidecar) as fh:
+                episodes = sum(1 for line in fh if line.strip())
+        except Exception:
+            episodes = None
+    return {"exists": True, "episodes": episodes}
+
+
+def remove_dataset_root(root: str) -> None:
+    """Delete the dataset dir at ``root`` (used by the GUI's confirmed overwrite)."""
+    path = os.path.expanduser(root)
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+        logger.info("removed existing dataset dir %s", path)
+
+
 class AsyncDatasetWriter:
     """Queued episode writer. ``submit()`` returns immediately; a worker saves."""
 
@@ -53,7 +89,8 @@ class AsyncDatasetWriter:
         self._mock = cfg.mock
         self._ds = None
         self._features: Optional[dict] = None
-        self._root = os.path.expanduser(cfg.root)
+        # The dataset lives in <root>/<name>; root is just the parent directory.
+        self._root = dataset_dir(cfg.root, cfg.repo_id)
         self._outcomes_path = os.path.join(self._root, "outcomes.jsonl")
 
         self._queue: "queue.Queue" = queue.Queue()

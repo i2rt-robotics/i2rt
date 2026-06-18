@@ -35,13 +35,6 @@ from workstation.lerobot_recorder.portal_bridge import PortalBridge
 
 logger = logging.getLogger(__name__)
 
-# Leader handle buttons that end + label an episode (and trigger homing on the
-# robot). Index into the per-side buttons list reported in the snapshot.
-# "discard" ends the episode without saving it.
-DISCARD_BUTTON = 0
-SUCCESS_BUTTON = 1
-FAIL_BUTTON = 2
-
 
 class Recorder:
     def __init__(self, cfg: RecorderConfig, on_status: Optional[Callable[[dict], None]] = None) -> None:
@@ -77,6 +70,8 @@ class Recorder:
         self._preview: List[np.ndarray] = []  # downsampled review frames
         self._btn_prev: Dict[str, list] = {}
         self._btn_outcome: Optional[str] = None  # outcome chosen via a leader button this episode
+        # "<side>.<index>" -> outcome (success/fail/discard); see RecorderConfig.button_map
+        self._button_outcome: Dict[str, str] = {str(k).lower(): str(v).lower() for k, v in (cfg.button_map or {}).items()}
         # "eval": record a continuous rollout (policy / intervention) from arm to disarm,
         # instead of gating on the teleop engage signal.
         self._eval = cfg.record_source == "eval"
@@ -203,6 +198,10 @@ class Recorder:
 
     # ------------------------------------------------------------------ loop
     def _loop(self) -> None:
+        # cameras.read() is now non-blocking (the CameraManager grabs on its own thread),
+        # so we pace the loop ourselves at cfg.fps. Each tick samples the latest cached
+        # frame + the latest robot snapshot; the robot updates faster than fps, so
+        # state/action are fresh every tick (images repeat if the camera is slower).
         period = 1.0 / max(self.cfg.fps, 1.0)
         next_t = time.perf_counter()
         warned = False
@@ -219,9 +218,8 @@ class Recorder:
                     warned = self._warn_state(snap, warned)
             except Exception as e:  # keep the loop alive
                 logger.error("step error: %s", e)
-            if self.cfg.mock:
-                next_t += period
-                time.sleep(max(0.0, next_t - time.perf_counter()))
+            next_t += period
+            time.sleep(max(0.0, next_t - time.perf_counter()))
 
     def _frame(self, images: dict, snap: dict) -> dict:
         return {
@@ -265,7 +263,9 @@ class Recorder:
 
         if event == eg.EV_STOP:
             if not self._episode:
-                pass  # nothing recorded
+                logger.warning(
+                    "episode ended with 0 frames — nothing saved (cameras healthy? robot state/action present?)"
+                )
             elif self._btn_outcome == "discard":
                 self._discard_episode(counted=True)  # leader discard button: end without saving
             elif self._btn_outcome is not None:
@@ -289,16 +289,21 @@ class Recorder:
         )
 
     def _scan_buttons(self, snap: dict) -> None:
-        """Latch a success/fail/discard outcome on a rising edge of the leader label buttons."""
+        """Latch a success/fail/discard outcome on a rising edge of a leader label button,
+        using the per-(side, index) ``button_map`` so each arm's buttons can differ."""
         if not (self.gate.recording or (self._eval and self.gate.armed)):
             return
         for side, btns in (snap.get("buttons") or {}).items():
             prev = self._btn_prev.get(side, [])
-            for idx, outcome in ((SUCCESS_BUTTON, "success"), (FAIL_BUTTON, "fail"), (DISCARD_BUTTON, "discard")):
-                pressed = idx < len(btns) and bool(btns[idx])
+            for idx in range(len(btns)):
+                outcome = self._button_outcome.get(f"{side}.{idx}")
+                if outcome is None:
+                    continue
+                pressed = bool(btns[idx])
                 was = idx < len(prev) and bool(prev[idx])
                 if pressed and not was:
                     self._btn_outcome = outcome
+                    logger.info("leader button %s.%d -> %s", side, idx, outcome)
             self._btn_prev[side] = list(btns)
 
     def _warn_state(self, snap: dict, warned: bool) -> bool:

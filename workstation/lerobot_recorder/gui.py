@@ -1,31 +1,60 @@
 """Modern PyQt control panel for the LeRobot recorder.
 
-Designed for an operator who watches the **robot**, not the screen:
+Two stages in one window:
 
-* a big **color status banner** (IDLE / ARMED / REC / REVIEW / fault) for peripheral
-  feedback, plus **audio cues** on episode start and keep/fail/delete,
-* a **health strip** (robot link / cameras / save queue),
-* **live stats** (kept ✓/✗, discarded, success rate),
-* the **agentview composited with the wrist insets** as the primary view,
-* a **task template** combo for quick language-instruction switching (the active
-  task persists until you change it),
-* labeling by mouse, **keyboard** (S=success, F=fail, D=delete), or leader buttons,
-  with a review scrubber.
+* a **Setup page** (landing): dataset name/dir/task, record **source** (teleop /
+  dagger / eval), a **Continue collecting** (resume) toggle, and a status line
+  (cameras detected, whether the dataset already exists). No robot connection yet.
+* a **Collect page**: the live agentview (with wrist insets), a color status banner,
+  a health strip (robot / cameras / disk / queue), live stats, and a review panel.
+
+Pressing **START** resolves the dataset (create / resume / confirmed-overwrite),
+opens the cameras + robot + dataset, switches to the Collect page, and (when
+``auto_arm``) arms immediately so the next teleop engage records.
+
+A **log panel** at the bottom is shared by both pages and shows the recorder's
+important messages (link up/down, camera fallback, dataset saved, faults).
 """
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
+import tempfile
 from collections import deque
 
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from workstation.lerobot_recorder import theme
+from workstation.lerobot_recorder.cameras import detect_cameras
 from workstation.lerobot_recorder.config import RecorderConfig
+from workstation.lerobot_recorder.dataset_writer import dataset_dir, dataset_info, remove_dataset_root
 from workstation.lerobot_recorder.recorder import Recorder
 from workstation.lerobot_recorder.sound import Cues
 from workstation.lerobot_recorder.views import compose_agentview
+
+logger = logging.getLogger(__name__)
+
+
+_LOCK_PATH = os.path.join(tempfile.gettempdir(), "yam_recorder.lock")
+
+
+def _acquire_singleton_lock():
+    """Hold an exclusive lock so a second recorder can't fight over the cameras.
+
+    Returns the open file (keep a reference to hold the lock for the process), or
+    None if another live recorder already holds it."""
+    f = open(_LOCK_PATH, "w")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
 
 
 def _np_to_pixmap(img: np.ndarray) -> QtGui.QPixmap:
@@ -57,10 +86,10 @@ class RecorderGUI(QtWidgets.QWidget):
     def __init__(self, cfg: RecorderConfig) -> None:
         super().__init__()
         self.cfg = cfg
-        self.recorder = Recorder(cfg)
+        self.recorder: "Recorder | None" = None  # created on START (so the source picker applies)
         self.cues = Cues(enabled=True)
         self._review_idx = 0
-        self._prev = self.recorder.get_status()
+        self._prev: dict = {}
 
         # Surface the recorder's important log messages in-window. Attach to the
         # package logger so cameras / robot link / dataset writer all flow in.
@@ -68,6 +97,7 @@ class RecorderGUI(QtWidgets.QWidget):
         self._logbuf.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
         pkg_logger = logging.getLogger("workstation.lerobot_recorder")
         pkg_logger.setLevel(logging.INFO)
+        pkg_logger.propagate = False  # don't also emit via the root logger (double lines)
         if not any(isinstance(h, logging.StreamHandler) for h in pkg_logger.handlers):
             pkg_logger.addHandler(logging.StreamHandler())  # keep console output too
         pkg_logger.addHandler(self._logbuf)
@@ -75,6 +105,7 @@ class RecorderGUI(QtWidgets.QWidget):
         self.setWindowTitle("YAM · LeRobot Recorder")
         self.setStyleSheet(theme.QSS)
         self._build()
+        self._update_setup_status(rescan=True)
 
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._refresh)
@@ -85,16 +116,100 @@ class RecorderGUI(QtWidgets.QWidget):
 
     # ------------------------------------------------------------------ layout
     def _build(self) -> None:
-        self.banner = QtWidgets.QLabel("IDLE")
+        self.banner = QtWidgets.QLabel("SETUP")
         self.banner.setAlignment(QtCore.Qt.AlignCenter)
         self.banner.setStyleSheet(theme.banner_style(theme.IDLE))
+
+        self.stack = QtWidgets.QStackedWidget()
+        self.setup_page = self._build_setup_page()
+        self.collect_page = self._build_collect_page()
+        self.stack.addWidget(self.setup_page)
+        self.stack.addWidget(self.collect_page)
+
+        # log panel (shared by both pages): recorder's important messages
+        self.log_view = QtWidgets.QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(500)  # cap memory; old lines scroll off
+        self.log_view.setFixedHeight(130)
+        self.log_view.setStyleSheet(
+            f"background:#0d1117;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
+            "font-family:monospace;font-size:12px;"
+        )
+
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+        root.addWidget(self.banner)
+        root.addWidget(self.stack, 1)
+        root.addWidget(self.log_view)
+
+    def _build_setup_page(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        box = QtWidgets.QGroupBox("Session setup")
+        form = QtWidgets.QFormLayout(box)
+        form.setSpacing(10)
+
+        self.repo_edit = QtWidgets.QLineEdit(self.cfg.repo_id)
+        self.root_edit = QtWidgets.QLineEdit(self.cfg.root)
+        self.repo_edit.textChanged.connect(lambda *_: self._update_setup_status())
+        self.root_edit.textChanged.connect(lambda *_: self._update_setup_status())
+
+        self.task_combo = QtWidgets.QComboBox()
+        self.task_combo.setEditable(True)
+        seen = []
+        for t in [self.cfg.task, *self.cfg.tasks]:
+            if t and t not in seen:
+                seen.append(t)
+        self.task_combo.addItems(seen)
+        self.task_combo.setCurrentText(self.cfg.task)
+
+        self.source_combo = QtWidgets.QComboBox()
+        self.source_combo.addItems(["teleop", "dagger", "eval"])
+        idx = self.source_combo.findText(self.cfg.record_source)
+        self.source_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+        self.resume_check = QtWidgets.QCheckBox("Continue collecting (append to the existing dataset)")
+        self.resume_check.setChecked(self.cfg.resume)
+        self.resume_check.toggled.connect(lambda *_: self._update_setup_status())
+
+        form.addRow("repo_id", self.repo_edit)
+        form.addRow("root", self.root_edit)
+        form.addRow("task", self.task_combo)
+        form.addRow("source", self.source_combo)
+        form.addRow("", self.resume_check)
+
+        self.setup_status = QtWidgets.QLabel()
+        self.setup_status.setTextFormat(QtCore.Qt.RichText)
+        self.setup_status.setWordWrap(True)
+
+        self.rescan_btn = QtWidgets.QPushButton("Re-scan cameras")
+        self.rescan_btn.clicked.connect(lambda: self._update_setup_status(rescan=True))
+        self.start_btn = QtWidgets.QPushButton("START")
+        self.start_btn.setObjectName("start")
+        self.start_btn.clicked.connect(self._on_start)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(self.rescan_btn)
+        row.addStretch(1)
+        row.addWidget(self.start_btn)
+
+        lay = QtWidgets.QVBoxLayout(page)
+        lay.setSpacing(12)
+        lay.addWidget(box)
+        lay.addWidget(self.setup_status)
+        lay.addStretch(1)
+        lay.addLayout(row)
+        return page
+
+    def _build_collect_page(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
 
         self.health = QtWidgets.QLabel()
         self.health.setTextFormat(QtCore.Qt.RichText)
         self.stats = QtWidgets.QLabel("episodes 0")
         self.stats.setStyleSheet(f"color:{theme.MUTED};")
         self.estop_btn = QtWidgets.QPushButton("■ E-STOP")
-        self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:600;")
+        self.estop_btn.setObjectName("estop")
+        self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:700;")
         self.estop_btn.setCheckable(True)
         self.estop_btn.toggled.connect(self._on_estop)
         strip = QtWidgets.QHBoxLayout()
@@ -104,36 +219,14 @@ class RecorderGUI(QtWidgets.QWidget):
         strip.addStretch(1)
         strip.addWidget(self.estop_btn)
 
-        # session config + task templates
-        form = QtWidgets.QFormLayout()
-        self.repo_edit = QtWidgets.QLineEdit(self.cfg.repo_id)
-        self.root_edit = QtWidgets.QLineEdit(self.cfg.root)
-        self.task_combo = QtWidgets.QComboBox()
-        self.task_combo.setEditable(True)
-        seen = []
-        for t in [self.cfg.task, *self.cfg.tasks]:
-            if t and t not in seen:
-                seen.append(t)
-        self.task_combo.addItems(seen)
-        self.task_combo.setCurrentText(self.cfg.task)
-        self.task_combo.currentTextChanged.connect(self._on_task)
-        form.addRow("repo_id", self.repo_edit)
-        form.addRow("root", self.root_edit)
-        form.addRow("task", self.task_combo)
-
-        self.start_btn = QtWidgets.QPushButton("Start")
-        self.start_btn.clicked.connect(self._on_start)
         self.collect_btn = QtWidgets.QPushButton("Start collection")
         self.collect_btn.setCheckable(True)
         self.collect_btn.setEnabled(False)
         self.collect_btn.clicked.connect(self._on_collect)
-        btns = QtWidgets.QHBoxLayout()
-        btns.addWidget(self.start_btn)
-        btns.addWidget(self.collect_btn)
 
         # primary operator view: agentview + wrist insets composited into one frame
         self.live_lbl = QtWidgets.QLabel("camera view")
-        self.live_lbl.setMinimumHeight(320)
+        self.live_lbl.setMinimumHeight(360)
         self.live_lbl.setAlignment(QtCore.Qt.AlignCenter)
         # Ignored size policy so the scaled pixmap never feeds back into the layout
         # (otherwise the label keeps growing each frame).
@@ -170,51 +263,120 @@ class RecorderGUI(QtWidgets.QWidget):
         self.hint = QtWidgets.QLabel("space toggles collection · S/F keep · D delete")
         self.hint.setStyleSheet(f"color:{theme.MUTED};")
 
-        # log panel: the recorder's important messages (link/cameras/dataset/faults)
-        self.log_view = QtWidgets.QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(500)  # cap memory; old lines scroll off
-        self.log_view.setFixedHeight(120)
-        self.log_view.setStyleSheet(
-            f"background:#0d1117;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
-            "font-family:monospace;font-size:11px;"
-        )
+        lay = QtWidgets.QVBoxLayout(page)
+        lay.setSpacing(12)
+        lay.addLayout(strip)
+        lay.addWidget(self.collect_btn)
+        lay.addWidget(self.live_lbl, 1)
+        lay.addWidget(self.review_box)
+        lay.addWidget(self.hint)
+        return page
 
-        root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(10)
-        root.addWidget(self.banner)
-        root.addLayout(strip)
-        root.addLayout(form)
-        root.addLayout(btns)
-        root.addWidget(self.live_lbl, 1)
-        root.addWidget(self.review_box)
-        root.addWidget(self.hint)
-        root.addWidget(self.log_view)
+    # ------------------------------------------------------------------ setup status
+    def _update_setup_status(self, rescan: bool = False) -> None:
+        """Refresh the camera-detected + dataset-exists line on the setup page."""
+        if rescan or not hasattr(self, "_cam_detect"):
+            self._cam_detect = detect_cameras(self.cfg)
+        cam = self._cam_detect
+        cam_ok = cam["found"] == cam["total"]
+        cam_col = theme.OK if cam_ok else theme.BAD
+        cam_txt = f'<span style="color:{cam_col};">●</span> cameras {cam["found"]}/{cam["total"]}'
+        if cam.get("missing"):
+            cam_txt += f' (missing: {", ".join(cam["missing"])})'
+
+        root = self.root_edit.text().strip() if hasattr(self, "root_edit") else self.cfg.root
+        repo = self.repo_edit.text().strip() if hasattr(self, "repo_edit") else self.cfg.repo_id
+        ds_dir = dataset_dir(root, repo)
+        info = dataset_info(ds_dir)
+        where = f' <span style="color:{theme.MUTED};">→ {ds_dir}</span>'
+        if not info["exists"]:
+            ds_txt = f'<span style="color:{theme.OK};">●</span> dataset: new (will be created){where}'
+        else:
+            n = info["episodes"]
+            ntxt = f"{n} episode(s)" if n is not None else "existing data"
+            if self.resume_check.isChecked():
+                ds_txt = f'<span style="color:{theme.ACCENT};">●</span> dataset: exists ({ntxt}) — will append{where}'
+            else:
+                ds_txt = f'<span style="color:{theme.WARN};">●</span> dataset: exists ({ntxt}) — START will offer to overwrite{where}'
+        self.setup_status.setText(cam_txt + "<br>" + ds_txt)
 
     # ------------------------------------------------------------------ actions
-    def _on_task(self, text: str) -> None:
-        self.cfg.task = text.strip()  # active instruction persists until changed again
-
     def _on_start(self) -> None:
-        self.cfg.repo_id = self.repo_edit.text().strip()
-        self.cfg.root = self.root_edit.text().strip()
-        self.cfg.task = self.task_combo.currentText().strip()
-        for w in (self.repo_edit, self.root_edit, self.start_btn):
-            w.setEnabled(False)
+        cfg = self.cfg
+        cfg.repo_id = self.repo_edit.text().strip()
+        cfg.root = self.root_edit.text().strip()
+        cfg.task = self.task_combo.currentText().strip()
+        cfg.record_source = self.source_combo.currentText().strip()
+        cfg.resume = self.resume_check.isChecked()
+
+        # Single-instance guard: two recorders fighting over the cameras causes the
+        # flapping/freeze, so refuse to start a second one with a clear message.
+        if not cfg.mock and getattr(self, "_lock", None) is None:
+            self._lock = _acquire_singleton_lock()
+            if self._lock is None:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Recorder already running",
+                    "Another YAM recorder appears to be running and holds the cameras.\n"
+                    "Close it first, then press START again.",
+                )
+                return
+
+        ds_dir = dataset_dir(cfg.root, cfg.repo_id)
+        info = dataset_info(ds_dir)
+        if info["exists"] and not cfg.resume:
+            if not self._confirm_overwrite(ds_dir, info["episodes"]):
+                return
+            try:
+                remove_dataset_root(ds_dir)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Delete failed", str(e))
+                return
+        elif not info["exists"]:
+            cfg.resume = False  # nothing to resume
+
+        self.recorder = Recorder(cfg)
+        self.start_btn.setEnabled(False)
         try:
             self.recorder.start()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Start failed", str(e))
-            for w in (self.repo_edit, self.root_edit, self.start_btn):
-                w.setEnabled(True)
+            self.recorder = None
+            self.start_btn.setEnabled(True)
             return
+
+        self._prev = self.recorder.get_status()
+        self.stack.setCurrentWidget(self.collect_page)
         self.collect_btn.setEnabled(True)
-        if self.cfg.auto_arm:  # arm immediately so the next teleop engage records
+        if cfg.auto_arm:  # arm immediately so the next teleop engage records
             self.collect_btn.setChecked(True)
             self._on_collect()
 
+    def _confirm_overwrite(self, root: str, episodes) -> bool:
+        """Two sequential confirms before deleting an existing dataset."""
+        ntxt = f"{episodes} episode(s)" if episodes is not None else "existing data"
+        first = QtWidgets.QMessageBox.warning(
+            self,
+            "Folder already exists",
+            f"{os.path.expanduser(root)}\nalready contains {ntxt}.\n\n"
+            "Overwrite it and start a fresh dataset?\n(Check 'Continue collecting' instead to append.)",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+            QtWidgets.QMessageBox.Cancel,
+        )
+        if first != QtWidgets.QMessageBox.Yes:
+            return False
+        second = QtWidgets.QMessageBox.critical(
+            self,
+            "Confirm overwrite",
+            "This permanently DELETES the existing dataset. This cannot be undone.\n\nAre you sure?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+            QtWidgets.QMessageBox.Cancel,
+        )
+        return second == QtWidgets.QMessageBox.Yes
+
     def _on_collect(self) -> None:
+        if self.recorder is None:
+            return
         if self.collect_btn.isChecked():
             self.cfg.task = self.task_combo.currentText().strip()
             self.recorder.arm()
@@ -224,31 +386,38 @@ class RecorderGUI(QtWidgets.QWidget):
             self.collect_btn.setText("Start collection")
 
     def _on_keep(self, outcome: str) -> None:
-        self.recorder.keep_episode(outcome=outcome)
+        if self.recorder is not None:
+            self.recorder.keep_episode(outcome=outcome)
 
     def _on_delete(self) -> None:
-        self.recorder.delete_episode()
+        if self.recorder is not None:
+            self.recorder.delete_episode()
 
     def _on_estop(self, engaged: bool) -> None:
-        self.recorder.set_estop(engaged)
+        if self.recorder is not None:
+            self.recorder.set_estop(engaged)
         self.estop_btn.setText("■ E-STOP (engaged)" if engaged else "■ E-STOP")
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
-        if key == QtCore.Qt.Key_Space and self.collect_btn.isEnabled():
-            self.collect_btn.toggle()
-            self._on_collect()
-        elif self.recorder.get_status()["pending"]:
-            if key == QtCore.Qt.Key_S:
-                self._on_keep("success")
-            elif key == QtCore.Qt.Key_F:
-                self._on_keep("fail")
-            elif key == QtCore.Qt.Key_D:
-                self._on_delete()
+        if self.recorder is not None and self.stack.currentWidget() is self.collect_page:
+            if key == QtCore.Qt.Key_Space and self.collect_btn.isEnabled():
+                self.collect_btn.toggle()
+                self._on_collect()
+            elif self.recorder.get_status()["pending"]:
+                if key == QtCore.Qt.Key_S:
+                    self._on_keep("success")
+                elif key == QtCore.Qt.Key_F:
+                    self._on_keep("fail")
+                elif key == QtCore.Qt.Key_D:
+                    self._on_delete()
         super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ refresh
     def _refresh(self) -> None:
+        self._drain_log()
+        if self.recorder is None:
+            return  # setup page: status updated on field-change / re-scan
         st = self.recorder.get_status()
         self._update_banner(st)
         self._update_health(st)
@@ -266,7 +435,6 @@ class RecorderGUI(QtWidgets.QWidget):
         if isinstance(composite, np.ndarray) and composite.ndim == 3:
             self.live_lbl.setPixmap(_np_to_pixmap(composite).scaled(self.live_lbl.size(), QtCore.Qt.KeepAspectRatio))
 
-        self._drain_log()
         self._prev = st
 
     def _drain_log(self) -> None:
@@ -334,13 +502,15 @@ class RecorderGUI(QtWidgets.QWidget):
             self.cues.play("error")
 
     def _scrub(self, value: int) -> None:
+        if self.recorder is None:
+            return
         frames = self.recorder.get_review_frames()
         if frames:
             self._review_idx = max(0, min(value, len(frames) - 1))
             self._show_review(frames[self._review_idx])
 
     def _advance_review(self) -> None:
-        if not self.recorder.get_status()["pending"]:
+        if self.recorder is None or not self.recorder.get_status()["pending"]:
             self._review_idx = 0
             return
         frames = self.recorder.get_review_frames()
@@ -358,5 +528,12 @@ class RecorderGUI(QtWidgets.QWidget):
             self.review_lbl.setPixmap(_np_to_pixmap(img).scaled(self.review_lbl.size(), QtCore.Qt.KeepAspectRatio))
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        self.recorder.shutdown()
+        if self.recorder is not None:
+            self.recorder.shutdown()
+        lock = getattr(self, "_lock", None)
+        if lock is not None:
+            try:
+                lock.close()  # releases the flock
+            except Exception:
+                pass
         super().closeEvent(event)

@@ -74,7 +74,7 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     review_before_save = bool(rec_section.get("review_before_save", True)) and not args.no_review
     auto_arm = bool(rec_section.get("auto_arm", False)) or args.auto_arm
 
-    return RecorderConfig(
+    cfg = RecorderConfig(
         repo_id=rec.get("repo_id"),
         root=rec.get("root"),
         task=rec.get("task"),
@@ -90,6 +90,10 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
         review_before_save=review_before_save,
         auto_arm=auto_arm,
     )
+    buttons = rec_section.get("buttons")  # leader button -> outcome (keeps the built-in default if unset)
+    if buttons:
+        cfg.button_map = {str(k): str(v) for k, v in buttons.items()}
+    return cfg
 
 
 def main(argv: Optional[List[str]] = None) -> None:

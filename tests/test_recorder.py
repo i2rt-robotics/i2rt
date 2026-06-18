@@ -8,6 +8,7 @@ import time
 import numpy as np
 
 from workstation.lerobot_recorder.config import RecorderConfig
+from workstation.lerobot_recorder.dataset_writer import dataset_dir
 from workstation.lerobot_recorder.portal_bridge import PortalBridge
 from workstation.lerobot_recorder.recorder import Recorder
 
@@ -37,8 +38,10 @@ def test_recorder_records_episode_and_outcome(tmp_path):
     assert final["kept"] >= 1 and final["success"] >= 1  # live stats counted the keep
     assert final["robot_ok"] is True  # mock bridge reports connected
 
-    sidecar = tmp_path / "outcomes.jsonl"
+    # the dataset (and its outcomes sidecar) lives at <root>/<name>
+    sidecar = tmp_path / "yam" / "outcomes.jsonl"
     assert sidecar.exists()
+    assert dataset_dir(str(tmp_path), "test/yam") == str(tmp_path / "yam")
     entry = json.loads(sidecar.read_text().splitlines()[0])
     assert entry["outcome"] == "success"
     assert entry["episode"] == 0
@@ -57,7 +60,7 @@ def test_eval_rollout_records_from_arm_to_disarm(tmp_path):
     rec.shutdown()
     assert frames > 0
     assert rec.writer.num_episodes >= 1
-    assert (tmp_path / "outcomes.jsonl").exists()
+    assert (tmp_path / "eval" / "outcomes.jsonl").exists()
 
 
 def test_control_mode_in_frame():

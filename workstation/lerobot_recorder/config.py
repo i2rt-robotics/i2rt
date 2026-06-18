@@ -99,4 +99,15 @@ class RecorderConfig:
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
     auto_arm: bool = False  # arm collection automatically on Start (record on the next teleop engage)
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback
+    # Leader-handle button -> episode outcome, keyed "<side>.<button_index>" (upper=0,
+    # lower=1). Default: left lower=success, right lower=fail, both uppers=discard — so
+    # all three outcomes are reachable with two buttons per arm.
+    button_map: dict = field(
+        default_factory=lambda: {
+            "left.0": "discard",
+            "left.1": "success",
+            "right.0": "discard",
+            "right.1": "fail",
+        }
+    )
     review_downscale: int = 4  # spatial stride for the review preview (640x480 -> 160x120)

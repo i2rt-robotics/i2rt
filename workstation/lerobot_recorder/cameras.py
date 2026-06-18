@@ -13,6 +13,8 @@ RealSense serials so you can fill them into the config.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import Dict, List
 
 import numpy as np
@@ -28,10 +30,17 @@ class CameraManager:
         self.specs: List[CameraSpec] = cfg.cameras
         self._pipelines: Dict[str, object] = {}
         self._serials: Dict[str, str] = {}  # resolved serial per key (for reconnect)
-        self._last: Dict[str, np.ndarray] = {}  # last good frame per key
+        self._last: Dict[str, np.ndarray] = {}  # latest frame per key (written by the capture thread)
         self._healthy: Dict[str, bool] = {}
         self._next_retry: Dict[str, float] = {}
+        self._fps: Dict[str, int] = {}  # resolved color fps per key (decided once, reused on reconnect)
         self._frame_t = 0
+        # Camera grabbing (and the blocking reconnect) runs on its own thread so a slow
+        # frame or a pipe re-open never stalls the record loop or freezes the GUI; both
+        # just read the latest cached frame via read().
+        self._cap_lock = threading.Lock()
+        self._cap_stop = threading.Event()
+        self._cap_thread: "threading.Thread | None" = None
 
     # ------------------------------------------------------------------ public
     def start(self) -> None:
@@ -56,6 +65,34 @@ class CameraManager:
                 self._healthy[spec.key] = False
                 logger.warning("camera '%s' (%s) could not open: %s", spec.key, serial, e)
 
+        self._cap_stop.clear()
+        self._cap_thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._cap_thread.start()
+
+    def _capture_loop(self) -> None:
+        """Continuously grab the latest frame per camera and cache it. Owns the camera
+        API and the (blocking) reconnect, so consumers never block on hardware."""
+        while not self._cap_stop.is_set():
+            for spec in self.specs:
+                if self._cap_stop.is_set():
+                    break
+                try:
+                    pipe = self._pipelines.get(spec.key)
+                    if pipe is None:
+                        raise RuntimeError("pipeline not open")
+                    frames = pipe.wait_for_frames(timeout_ms=1000)
+                    img = np.asanyarray(frames.get_color_frame().get_data())  # HxWx3 uint8 (rgb8)
+                    with self._cap_lock:
+                        self._last[spec.key] = img
+                    if not self._healthy.get(spec.key, True):  # was down -> recovered
+                        logger.info("camera '%s' recovered", spec.key)
+                    self._healthy[spec.key] = True
+                except Exception:
+                    if self._healthy.get(spec.key, True):  # log the drop once, on the transition
+                        logger.warning("camera '%s' stopped delivering frames (link unstable?)", spec.key)
+                    self._healthy[spec.key] = False
+                    self._try_reconnect(spec)  # blocking pipe re-open, but off the record/GUI threads
+
     def _supported_color_fps(self, serial: str, spec: CameraSpec) -> list:
         """Color fps values the device actually offers at (width, height) in rgb8."""
         import pyrealsense2 as rs
@@ -79,9 +116,13 @@ class CameraManager:
                         pass
         return sorted(fps)
 
-    def _open_pipe(self, spec: CameraSpec, serial: str) -> None:
-        import pyrealsense2 as rs
-
+    def _resolve_fps(self, spec: CameraSpec, serial: str) -> int:
+        """Decide the color fps for this camera ONCE (querying device profiles), cache
+        it, and log any fallback a single time. Reconnects reuse the cached value, so
+        we never re-query the RealSense context mid-stream (which can disrupt the other
+        cameras and trigger a reconnect cascade)."""
+        if spec.key in self._fps:
+            return self._fps[spec.key]
         # Many RealSense models (D405/D455) cap 640x480 color at 30 fps, so a 60 fps
         # request fails with "Couldn't resolve requests". Fall back to the highest
         # supported fps <= the requested one instead of blanking the camera.
@@ -91,7 +132,13 @@ class CameraManager:
             usable = [f for f in supported if f <= spec.fps] or supported
             fps = max(usable)
             logger.info("camera '%s': %d fps unsupported; using %d fps (available: %s)", spec.key, spec.fps, fps, supported)
+        self._fps[spec.key] = fps
+        return fps
 
+    def _open_pipe(self, spec: CameraSpec, serial: str) -> None:
+        import pyrealsense2 as rs
+
+        fps = self._resolve_fps(spec, serial)
         pipe = rs.pipeline()
         rs_cfg = rs.config()
         rs_cfg.enable_device(serial)
@@ -101,32 +148,21 @@ class CameraManager:
         self._healthy[spec.key] = True
 
     def read(self) -> Dict[str, np.ndarray]:
-        """Return {key: HxWx3 uint8 RGB}. On a camera fault, returns the last good
-        frame (or black), marks the camera unhealthy, and retries reconnection."""
+        """Return {key: HxWx3 uint8 RGB} — the latest cached frame per camera, copied.
+        Non-blocking: never touches the camera API (the capture thread owns that), so
+        the record loop and GUI stay responsive even while a camera is reconnecting."""
         if self.cfg.mock:
             return self._mock_frames()
-
         out: Dict[str, np.ndarray] = {}
-        for spec in self.specs:
-            try:
-                pipe = self._pipelines.get(spec.key)
-                if pipe is None:
-                    raise RuntimeError("pipeline not open")
-                frames = pipe.wait_for_frames(timeout_ms=1000)
-                img = np.asanyarray(frames.get_color_frame().get_data())  # HxWx3 uint8 (rgb8)
-                self._last[spec.key] = img
-                self._healthy[spec.key] = True
-                out[spec.key] = img
-            except Exception:
-                self._healthy[spec.key] = False
-                self._try_reconnect(spec)
-                out[spec.key] = self._last.get(spec.key, np.zeros((spec.height, spec.width, 3), np.uint8))
+        with self._cap_lock:
+            for spec in self.specs:
+                img = self._last.get(spec.key)
+                out[spec.key] = img.copy() if img is not None else np.zeros((spec.height, spec.width, 3), np.uint8)
         return out
 
     def _try_reconnect(self, spec: CameraSpec) -> None:
-        """Throttled best-effort reconnection for a faulted camera."""
-        import time
-
+        """Throttled best-effort reconnection for a faulted camera (silent — the capture
+        loop logs the down/recovered transitions; reuses the cached fps, no device re-query)."""
         now = time.monotonic()
         if now < self._next_retry.get(spec.key, 0.0):
             return
@@ -139,7 +175,6 @@ class CameraManager:
                 except Exception:
                     pass
             self._open_pipe(spec, self._serials.get(spec.key, spec.serial))
-            logger.info("camera '%s' reconnected", spec.key)
         except Exception:
             pass  # stay unhealthy; will retry on the next interval
 
@@ -149,6 +184,10 @@ class CameraManager:
         return all(self._healthy.values()) if self._healthy else True
 
     def stop(self) -> None:
+        self._cap_stop.set()
+        if self._cap_thread is not None:
+            self._cap_thread.join(timeout=2.0)
+            self._cap_thread = None
         for pipe in self._pipelines.values():
             try:
                 pipe.stop()
@@ -178,6 +217,38 @@ class CameraManager:
             img[:, max(0, x - 8) : x + 8, :] = 200  # a moving bar so frames differ
             out[spec.key] = img
         return out
+
+
+def detect_cameras(cfg: RecorderConfig) -> Dict:
+    """Lightweight presence check for the configured cameras — no streaming.
+
+    Returns ``{"found", "total", "missing"}`` so the setup page can show camera
+    status before anything is opened. In mock mode all cameras report present.
+    """
+    total = len(cfg.cameras)
+    if cfg.mock:
+        return {"found": total, "total": total, "missing": []}
+    try:
+        import pyrealsense2 as rs
+
+        available = {d.get_info(rs.camera_info.serial_number) for d in rs.context().query_devices()}
+    except Exception as e:
+        return {"found": 0, "total": total, "missing": [c.key for c in cfg.cameras], "error": str(e)}
+
+    pool = set(available)
+    found, missing = 0, []
+    for spec in cfg.cameras:
+        if spec.serial:
+            if spec.serial in available:
+                found += 1
+            else:
+                missing.append(spec.key)
+        elif pool:  # unpinned camera: any remaining device satisfies it
+            pool.pop()
+            found += 1
+        else:
+            missing.append(spec.key)
+    return {"found": found, "total": total, "missing": missing}
 
 
 def _list_devices() -> None:

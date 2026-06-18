@@ -19,10 +19,15 @@ policy:
 
 control:                     # overrides i2rt/serving/control_config (robot server)
   bilateral_kp: 0.0
+  ramp_speed: 0.8            # one-time engage approach speed (rad/s)
   home_speed: 0.4            # gentle homing return (rad/s)
+  # --- engage / release gate (drives teleop_state IDLE↔ENGAGED↔HOMING, i.e. episode start/stop) ---
+  engage_thr: 0.4           # gate-joint displacement (rad) to ENGAGE (lift to start)
+  release_thr: 0.3          # gate-joint displacement (rad) to RELEASE → HOMING → IDLE (lower to end)
+  dwell: 0.5                # seconds the threshold must hold before the state flips (debounce)
+  gate_joints: [1]          # leader joint(s) that drive the gate ([] = L2 over all arm joints)
   # follower_effort_limit: 30.0          # Nm; collision/overload soft-stop (omit = off)
   # follower_joint_limits: [[-3.0, 3.0], [-2.0, 2.0]]   # per-joint clamp [lo, hi]
-  # gate_joints: [1]                      # leader joints that drive the engage/release gate
 
 cameras:                     # RealSense serials by role (run `yam-data cams` to list)
   agentview: "246322303794"              # D455
@@ -37,6 +42,11 @@ recorder:
   source: teleop             # teleop | dagger | eval
   review_before_save: false  # auto-save every engage→idle episode (no Keep/Delete hold)
   auto_arm: true             # arm collection on Start; records on the next teleop engage
+  buttons:                   # leader handle button -> episode outcome ("<side>.<index>", upper=0, lower=1)
+    left.1: success          # left lower button  -> success
+    right.1: fail            # right lower button -> fail
+    left.0: discard          # left upper button  -> discard (force-home without saving)
+    right.0: discard         # right upper button -> discard
 
 tasks:                       # quick-switch language instructions in the recorder GUI
   - "pick up the cube"

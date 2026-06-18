@@ -38,7 +38,10 @@ class DatasetReader:
             from lerobot.datasets import LeRobotDataset
         except ImportError:
             from lerobot.datasets.lerobot_dataset import LeRobotDataset
-        self._ds = LeRobotDataset(self.repo_id, root=os.path.expanduser(self.root))
+        from workstation.lerobot_recorder.dataset_writer import dataset_dir
+
+        # The dataset lives in <root>/<name> (same rule the recorder writes with).
+        self._ds = LeRobotDataset(self.repo_id, root=dataset_dir(self.root, self.repo_id))
         self._fps = int(getattr(self._ds, "fps", getattr(getattr(self._ds, "meta", None), "fps", 60)))
         # group global frame indices by episode (cheap column read; no video decode)
         col = self._ds.hf_dataset["episode_index"]
