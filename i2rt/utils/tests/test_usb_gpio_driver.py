@@ -140,9 +140,10 @@ def test_output_resends_then_warns_on_wrong_echo(
     assert any("not confirmed by echo" in record.message for record in caplog.records)
 
 
-def test_cleanup_releases_output_channels(fake_serial: dict[str, Any]) -> None:
-    # Mirror RPi.GPIO.cleanup(): configured OUTPUT channels are driven to their
-    # released level (HIGH) on cleanup so the brake ends up released, not held.
+def test_cleanup_keeps_brake_latched_low_not_released(fake_serial: dict[str, Any]) -> None:
+    # The converter latches its last-driven level across a port close, so cleanup()
+    # must NOT drive outputs HIGH (released): a brake engaged LOW stays engaged after
+    # shutdown, holding the rail. Regression guard for brake-released-on-shutdown.
     fake_serial["levels"][3] = False
     backend = UsbGpioBackend("/dev/ttyFAKE", pin_map=PIN_MAP)
     backend.setmode(backend.BCM)
@@ -151,8 +152,22 @@ def test_cleanup_releases_output_channels(fake_serial: dict[str, Any]) -> None:
     serial_obj = backend._dev._serial
     backend.cleanup()
     sets = _set_writes(fake_serial)
-    assert sets[-1] == bytes.fromhex("3a 03 01")  # last write released ch3 (HIGH)
+    assert sets[-1] == bytes.fromhex("3a 03 00")  # last brake write stayed LOW (engaged)
+    assert bytes.fromhex("3a 03 01") not in sets  # cleanup never released ch3 (HIGH)
     assert serial_obj.is_open is False
+
+
+def test_cleanup_accepts_pin_tuple_and_tears_down(fake_serial: dict[str, Any]) -> None:
+    # LinearRailController.cleanup() calls GPIO.cleanup((UPPER, LOWER)); on x86 the backend
+    # must accept and ignore the tuple arg and still fully tear down the shared port.
+    backend = UsbGpioBackend("/dev/ttyFAKE", pin_map=PIN_MAP)
+    backend.setmode(backend.BCM)
+    backend.setup(BRAKE, backend.OUT)
+    backend.output(BRAKE, backend.LOW)
+    serial_obj = backend._dev._serial
+    backend.cleanup((UPPER, LOWER))  # tuple arg, as the controller passes
+    assert serial_obj.is_open is False
+    assert backend._dev is None
 
 
 # -- UsbGpioBackend.input ------------------------------------------------------

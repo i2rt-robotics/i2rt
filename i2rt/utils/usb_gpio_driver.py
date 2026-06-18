@@ -376,23 +376,20 @@ class UsbGpioBackend:
             self._stop_poll_thread()
 
     def cleanup(self, pin: Optional[int] = None) -> None:
-        # Stop polling, release outputs, then close the serial port. Native
-        # RPi.GPIO.cleanup() resets pins to floating inputs, so the brake ends up
-        # released on the Pi. The converter instead latches its last-driven level,
-        # so to match the Pi we explicitly drive every configured OUTPUT channel to
-        # its released level (HIGH) before closing (brake released on shutdown).
+        # Stop polling and close the serial port. The converter LATCHES its last-driven
+        # level across a port close, so we deliberately do NOT touch the output channels
+        # here: the brake stays at its last commanded level (LOW == engaged; see
+        # set_brake_gpio) and the rail stays held after a single shutdown. (Native
+        # RPi.GPIO.cleanup() floats pins instead, releasing the brake on a Pi -- the
+        # controller avoids that by cleaning up only the limit-switch input pins.) ``pin``
+        # is accepted for RPi.GPIO API compatibility but ignored: cleanup() is only ever
+        # called at process shutdown, where full teardown of the single shared port is the
+        # only correct action.
         self._stop_poll_thread()  # join FIRST (outside locks) before clearing watch state
         with self._watch_lock:
             self._watch.clear()
             self._last_stable.clear()
             self._last_change_ts.clear()
-        if self._dev is not None:
-            for out_pin, direction in self._directions.items():
-                if direction == self.OUT:
-                    try:
-                        self.output(out_pin, self.HIGH)  # HIGH == released (see set_brake_gpio)
-                    except Exception as e:
-                        logger.warning(f"USB-GPIO cleanup: failed to release output pin {out_pin}: {e}")
         self._directions.clear()
         self._pulls.clear()
         with self._serial_lock:
