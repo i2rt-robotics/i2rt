@@ -25,8 +25,25 @@ from i2rt.serving.rig_config import apply_control_overrides, load_rig
 from i2rt.serving.robot_server import DEFAULT_PORT, RobotServer
 
 
+class _DropChatter(logging.Filter):
+    """Drop the per-motor-chain status lines the driver prints on a timer.
+
+    The motor driver logs its gravity-comp loop frequency every ~10 s for each
+    of the four chains, which floods the console. We hide the routine line but
+    keep the "loop is slow" warning that uses a different message.
+    """
+
+    _NOISE = ("Grav Comp Control Frequency",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(s in msg for s in self._NOISE)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+    for _h in logging.getLogger().handlers:
+        _h.addFilter(_DropChatter())
 
     # Phase 1: find --config anywhere and apply control overrides, so the argparse
     # defaults below (and the live control_config used by the controllers) reflect it.
