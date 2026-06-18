@@ -19,6 +19,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -43,14 +44,30 @@ _CONTROL_MAP = {
 }
 
 
+def find_rig(explicit: Optional[str] = None) -> Optional[str]:
+    """Resolve which rig file to use without forcing ``--config`` every time.
+
+    Order: explicit ``--config`` > ``$YAM_RIG`` > ``./rig.yaml`` (the launchers cd to
+    the repo root, so a repo-root ``rig.yaml`` is picked up automatically). None if
+    nothing is found.
+    """
+    for cand in (explicit, os.environ.get("YAM_RIG"), "rig.yaml"):
+        if cand and os.path.exists(os.path.expanduser(cand)):
+            return os.path.abspath(os.path.expanduser(cand))
+    return None
+
+
 def load_rig(path: Optional[str]) -> Dict[str, Any]:
-    """Load a rig YAML into a dict ({} if no path)."""
+    """Load a rig YAML into a dict, auto-discovering one if ``path`` is None ({} if none)."""
+    path = find_rig(path)
     if not path:
         return {}
     import yaml
 
-    with open(os.path.expanduser(path)) as f:
-        return yaml.safe_load(f) or {}
+    with open(path) as f:
+        rig = yaml.safe_load(f) or {}
+    logging.getLogger(__name__).info("loaded rig config: %s", path)
+    return rig
 
 
 def apply_control_overrides(rig: Dict[str, Any]) -> Dict[str, Any]:

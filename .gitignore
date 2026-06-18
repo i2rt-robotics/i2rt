@@ -58,6 +58,9 @@ htmlcov/
 # keep the policy-env lockfile for reproducibility
 !policy_serving/uv.lock
 
+# the actual machine rig config (commit rig.example.yaml instead)
+rig.yaml
+
 # Ignore Mujoco-related compiled binaries if applicable
 mjkey.txt
 mjmodel.xml
