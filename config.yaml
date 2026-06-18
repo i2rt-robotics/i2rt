@@ -9,7 +9,7 @@
 # Fill in at least: cameras.* serials and robot.host (workstation -> robot IP).
 
 robot:
-  host: 127.0.0.1            # robot server (portal) address, used by the workstation tools
+  host: 192.168.0.42           # robot server (portal) address, used by the workstation tools
   port: 11331
   channels: { left: can_follower_l, right: can_follower_r }   # wrapper followers
 
@@ -18,7 +18,7 @@ policy:
   port: 8000
 
 control:                     # overrides i2rt/serving/control_config (robot server)
-  bilateral_kp: 0.15
+  bilateral_kp: 0.0
   home_speed: 0.4            # gentle homing return (rad/s)
   # follower_effort_limit: 30.0          # Nm; collision/overload soft-stop (omit = off)
   # follower_joint_limits: [[-3.0, 3.0], [-2.0, 2.0]]   # per-joint clamp [lo, hi]
@@ -30,10 +30,10 @@ cameras:                     # RealSense serials by role (run `yam-data cams` to
   wrist_right: ""            # D405
 
 recorder:
-  repo_id: user/yam_pick
+  repo_id: jellyho/yam_pick
   root: ~/lerobot_data
   fps: 60
-  min_free_gb: 2.0
+  min_free_gb: 1.0
   source: teleop             # teleop | dagger | eval
 
 tasks:                       # quick-switch language instructions in the recorder GUI
