@@ -97,5 +97,6 @@ class RecorderConfig:
     min_free_gb: float = 1.0  # refuse to save an episode when free disk drops below this
     mock: bool = False  # synthetic cameras + teleop stream (no hardware / robot)
     review_before_save: bool = True  # hold each episode for Keep/Delete instead of auto-saving
+    auto_arm: bool = False  # arm collection automatically on Start (record on the next teleop engage)
     review_cam: str = "agentview"  # which camera to buffer (downsampled) for review playback
     review_downscale: int = 4  # spatial stride for the review preview (640x480 -> 160x120)

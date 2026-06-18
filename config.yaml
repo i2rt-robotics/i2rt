@@ -35,6 +35,8 @@ recorder:
   fps: 60
   min_free_gb: 1.0
   source: teleop             # teleop | dagger | eval
+  review_before_save: false  # auto-save every engage→idle episode (no Keep/Delete hold)
+  auto_arm: true             # arm collection on Start; records on the next teleop engage
 
 tasks:                       # quick-switch language instructions in the recorder GUI
   - "pick up the cube"

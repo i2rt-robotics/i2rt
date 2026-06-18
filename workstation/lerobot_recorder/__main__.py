@@ -38,6 +38,16 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
         "(action=human); eval = record a policy rollout from Start to Stop (action=executed)",
     )
     p.add_argument("--min-free-gb", type=float, default=1.0, help="refuse to save below this free disk")
+    p.add_argument(
+        "--no-review",
+        action="store_true",
+        help="auto-save every episode (skip the Keep/Delete review hold)",
+    )
+    p.add_argument(
+        "--auto-arm",
+        action="store_true",
+        help="arm collection automatically on Start (record on the next teleop engage)",
+    )
     p.add_argument("--resume", action="store_true", help="append to an existing dataset at --root")
     p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/robot/lerobot)")
     p.add_argument(
@@ -59,6 +69,11 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
 
     tasks = [t.strip() for t in args.tasks.split(";") if t.strip()] or list(rig.get("tasks", []) or [])
 
+    # Booleans: config.yaml recorder.* sets the baseline; the CLI flag forces it on.
+    rec_section = rig.get("recorder", {}) or {}
+    review_before_save = bool(rec_section.get("review_before_save", True)) and not args.no_review
+    auto_arm = bool(rec_section.get("auto_arm", False)) or args.auto_arm
+
     return RecorderConfig(
         repo_id=rec.get("repo_id"),
         root=rec.get("root"),
@@ -72,6 +87,8 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
         resume=args.resume,
         min_free_gb=float(rec.get("min_free_gb")),
         mock=args.mock,
+        review_before_save=review_before_save,
+        auto_arm=auto_arm,
     )
 
 

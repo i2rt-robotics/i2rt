@@ -19,6 +19,7 @@ label+save automatically (see ``record_source`` / ``HOME_BUTTONS``).
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Callable, Dict, List, Optional
@@ -31,6 +32,8 @@ from workstation.lerobot_recorder.config import ACTION_DIM, EEF_DIM, LEADER_DIM,
 from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
 from workstation.lerobot_recorder.episode_gate import EpisodeGate
 from workstation.lerobot_recorder.portal_bridge import PortalBridge
+
+logger = logging.getLogger(__name__)
 
 # Leader handle buttons that end + label an episode (and trigger homing on the
 # robot). Index into the per-side buttons list reported in the snapshot.
@@ -119,6 +122,9 @@ class Recorder:
         self.gate.arm()
         if self._eval:  # eval: arm starts one continuous rollout
             self._episode, self._preview, self._btn_outcome = [], [], None
+            logger.info("collection armed (eval) — recording rollout until you stop")
+        else:
+            logger.info("collection armed — each teleop engage→idle is recorded as an episode")
         self._set(armed=True, recording=self._eval)
 
     def disarm(self) -> None:
@@ -212,7 +218,7 @@ class Recorder:
                     self._step(images, snap)
                     warned = self._warn_state(snap, warned)
             except Exception as e:  # keep the loop alive
-                print(f"[recorder] step error: {e}")
+                logger.error("step error: %s", e)
             if self.cfg.mock:
                 next_t += period
                 time.sleep(max(0.0, next_t - time.perf_counter()))
@@ -252,6 +258,7 @@ class Recorder:
         if event in (eg.EV_START, eg.EV_RECORD, eg.EV_STOP):
             if event == eg.EV_START:
                 self._episode, self._preview, self._btn_outcome = [], [], None
+                logger.info("● recording episode (teleop engaged)")
             if snap["state"] is not None and snap["action"] is not None and self.cameras.healthy:
                 self._episode.append(self._frame(images, snap))
                 self._buffer_preview(images)
@@ -265,6 +272,7 @@ class Recorder:
                 self._submit(self._btn_outcome)  # button auto-label+save
             elif self.cfg.review_before_save:
                 self._pending = True  # hold for Keep/Delete
+                logger.info("episode ready for review (%d frames) — keep [S/F] or delete [D]", len(self._episode))
             else:
                 self._submit(None)
 
@@ -296,7 +304,7 @@ class Recorder:
     def _warn_state(self, snap: dict, warned: bool) -> bool:
         if self.gate.recording and (snap["state"] is None or snap["action"] is None):
             if not warned:
-                print("[recorder] waiting for robot state/action from the robot server…")
+                logger.warning("recording but no robot state/action yet — check the robot link")
             return True
         return False
 

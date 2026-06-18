@@ -14,6 +14,7 @@ robot.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Dict, Optional
@@ -21,6 +22,8 @@ from typing import Dict, Optional
 import numpy as np
 
 from workstation.lerobot_recorder.config import ARM_DOF, ARMS, CONTROL_MODE, RecorderConfig
+
+logger = logging.getLogger(__name__)
 
 _EMPTY = {
     "teleop_state": "IDLE",
@@ -46,6 +49,7 @@ class PortalBridge:
         self._connected = False
         self._estop_req = False
         self._estop_sent: Optional[bool] = None
+        self._last_err: Optional[str] = None
 
     @property
     def connected(self) -> bool:
@@ -71,6 +75,18 @@ class PortalBridge:
         with self._lock:
             return dict(self._snap)
 
+    def _server_reachable(self) -> bool:
+        """Fast TCP preflight. portal's ``send`` blocks forever waiting to connect, so
+        we never construct the client until something is actually listening — this is
+        what stops the recorder from hanging silently against a down/unreachable server."""
+        import socket
+
+        try:
+            with socket.create_connection((self.cfg.robot_host, self.cfg.robot_port), timeout=1.0):
+                return True
+        except OSError:
+            return False
+
     # ------------------------------------------------------------------ poll
     def _poll_loop(self) -> None:
         # Connect inside the thread so start() never blocks the GUI if the robot
@@ -81,18 +97,34 @@ class PortalBridge:
         while not self._stop.is_set():
             try:
                 if self._client is None:
-                    self._client = RobotClient(host=self.cfg.robot_host, port=self.cfg.robot_port)
+                    if not self._server_reachable():
+                        raise ConnectionError(
+                            f"no server listening on {self.cfg.robot_host}:{self.cfg.robot_port}"
+                        )
+                    # TCP is open; finite timeout guards the (now non-blocking) handshake/reads.
+                    self._client = RobotClient(
+                        host=self.cfg.robot_host, port=self.cfg.robot_port, timeout=2.0
+                    )
                 obs = self._client.get_observation()
                 with self._lock:
                     self._snap = self._assemble(obs)
+                if not self._connected:
+                    logger.info("robot connected (%s:%d)", self.cfg.robot_host, self.cfg.robot_port)
                 self._connected = True
+                self._last_err = None
                 if self._estop_sent != self._estop_req:  # apply e-stop (and re-apply on reconnect)
                     self._client.set_estop(self._estop_req)
                     self._estop_sent = self._estop_req
-            except Exception:
+            except Exception as e:
                 self._client = None  # drop and retry next tick
                 self._connected = False
                 self._estop_sent = None  # force re-apply after reconnect
+                # Surface *why* the link is down instead of failing silently — but only
+                # when the reason changes, so a persistently-down server doesn't spam.
+                msg = f"{type(e).__name__}: {e}"
+                if msg != self._last_err:
+                    self._last_err = msg
+                    logger.warning("robot link down (%s:%d) — %s", self.cfg.robot_host, self.cfg.robot_port, msg)
             time.sleep(period)
 
     @staticmethod

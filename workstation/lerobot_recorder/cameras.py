@@ -12,11 +12,14 @@ RealSense serials so you can fill them into the config.
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List
 
 import numpy as np
 
 from workstation.lerobot_recorder.config import CameraSpec, RecorderConfig
+
+logger = logging.getLogger(__name__)
 
 
 class CameraManager:
@@ -40,18 +43,59 @@ class CameraManager:
         for spec in self.specs:
             serial = spec.serial or self._pick_unused(available)
             if not serial:
-                raise RuntimeError(f"no RealSense serial for camera '{spec.key}' (available: {sorted(available)})")
+                # Don't abort the whole recorder for one missing camera: leave it
+                # unhealthy (read() yields black) so the others still display/record.
+                logger.warning("camera '%s': no RealSense serial (available: %s)", spec.key, sorted(available))
+                self._healthy[spec.key] = False
+                continue
             available.discard(serial)
             self._serials[spec.key] = serial
-            self._open_pipe(spec, serial)
+            try:
+                self._open_pipe(spec, serial)
+            except Exception as e:  # a bad profile / busy device shouldn't blank every camera
+                self._healthy[spec.key] = False
+                logger.warning("camera '%s' (%s) could not open: %s", spec.key, serial, e)
+
+    def _supported_color_fps(self, serial: str, spec: CameraSpec) -> list:
+        """Color fps values the device actually offers at (width, height) in rgb8."""
+        import pyrealsense2 as rs
+
+        fps = set()
+        for dev in rs.context().query_devices():
+            if dev.get_info(rs.camera_info.serial_number) != serial:
+                continue
+            for sensor in dev.query_sensors():
+                for p in sensor.get_stream_profiles():
+                    try:
+                        vp = p.as_video_stream_profile()
+                        if (
+                            p.stream_type() == rs.stream.color
+                            and p.format() == rs.format.rgb8
+                            and vp.width() == spec.width
+                            and vp.height() == spec.height
+                        ):
+                            fps.add(p.fps())
+                    except Exception:
+                        pass
+        return sorted(fps)
 
     def _open_pipe(self, spec: CameraSpec, serial: str) -> None:
         import pyrealsense2 as rs
 
+        # Many RealSense models (D405/D455) cap 640x480 color at 30 fps, so a 60 fps
+        # request fails with "Couldn't resolve requests". Fall back to the highest
+        # supported fps <= the requested one instead of blanking the camera.
+        fps = spec.fps
+        supported = self._supported_color_fps(serial, spec)
+        if supported and spec.fps not in supported:
+            usable = [f for f in supported if f <= spec.fps] or supported
+            fps = max(usable)
+            logger.info("camera '%s': %d fps unsupported; using %d fps (available: %s)", spec.key, spec.fps, fps, supported)
+
         pipe = rs.pipeline()
         rs_cfg = rs.config()
         rs_cfg.enable_device(serial)
-        rs_cfg.enable_stream(rs.stream.color, spec.width, spec.height, rs.format.rgb8, spec.fps)
+        rs_cfg.enable_stream(rs.stream.color, spec.width, spec.height, rs.format.rgb8, fps)
         pipe.start(rs_cfg)
         self._pipelines[spec.key] = pipe
         self._healthy[spec.key] = True
@@ -95,7 +139,7 @@ class CameraManager:
                 except Exception:
                     pass
             self._open_pipe(spec, self._serials.get(spec.key, spec.serial))
-            print(f"[cameras] reconnected '{spec.key}'")
+            logger.info("camera '%s' reconnected", spec.key)
         except Exception:
             pass  # stay unhealthy; will retry on the next interval
 

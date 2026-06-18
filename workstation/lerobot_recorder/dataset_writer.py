@@ -20,6 +20,7 @@ schema edits here. ``mock=True`` skips ``lerobot`` and just counts.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import shutil
@@ -30,6 +31,8 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from workstation.lerobot_recorder.config import RecorderConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _import_lerobot_dataset() -> type:
@@ -110,7 +113,7 @@ class AsyncDatasetWriter:
                 self._n_episodes = int(
                     getattr(self._ds, "num_episodes", getattr(getattr(self._ds, "meta", None), "total_episodes", 0))
                 )
-                print(f"[dataset] resuming at {self._root} ({self._n_episodes} existing episodes)")
+                logger.info("dataset resuming at %s (%d existing episodes)", self._root, self._n_episodes)
             else:
                 self._ds = LeRobotDataset.create(
                     repo_id=self.cfg.repo_id,
@@ -120,9 +123,9 @@ class AsyncDatasetWriter:
                     robot_type=self.cfg.robot_type,
                     use_videos=self.cfg.use_videos,
                 )
-                print(f"[dataset] created v3.0 dataset at {self._root}")
+                logger.info("dataset created at %s (repo_id=%s)", self._root, self.cfg.repo_id)
         else:
-            print(f"[dataset] MOCK writer (repo_id={self.cfg.repo_id}); features={sorted(self._features)}")
+            logger.info("MOCK writer (repo_id=%s); features=%s", self.cfg.repo_id, sorted(self._features))
 
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._worker.start()
@@ -155,7 +158,7 @@ class AsyncDatasetWriter:
             try:
                 self._save_episode(frames, outcome, task)
             except Exception as e:
-                print(f"[dataset] episode save failed: {e}")
+                logger.error("episode save failed: %s", e)
             finally:
                 self._queue.task_done()
 
@@ -163,7 +166,7 @@ class AsyncDatasetWriter:
         free = self._free_gb()
         if free < self.cfg.min_free_gb:
             self.low_disk = True
-            print(f"[dataset] LOW DISK: {free:.1f} GB free (< {self.cfg.min_free_gb} GB) — episode NOT saved")
+            logger.warning("LOW DISK: %.1f GB free (< %s GB) — episode NOT saved", free, self.cfg.min_free_gb)
             return
         self.low_disk = False
         if not self._mock:
@@ -180,7 +183,7 @@ class AsyncDatasetWriter:
             episode_index = self._n_episodes
             self._n_episodes += 1
         self._record_outcome(episode_index, outcome, task, len(frames))
-        print(f"[dataset] saved episode #{episode_index} ({len(frames)} frames, outcome={outcome})")
+        logger.info("saved episode #%d (%d frames, outcome=%s)", episode_index, len(frames), outcome)
 
     def _record_outcome(self, episode_index: int, outcome: Optional[str], task: str, n_frames: int) -> None:
         entry = {
@@ -196,7 +199,7 @@ class AsyncDatasetWriter:
             with open(self._outcomes_path, "a") as fh:
                 fh.write(json.dumps(entry) + "\n")
         except Exception as e:
-            print(f"[dataset] could not write outcome sidecar: {e}")
+            logger.error("could not write outcome sidecar: %s", e)
 
     # ------------------------------------------------------------------ shutdown
     def finalize(self) -> None:
@@ -207,6 +210,6 @@ class AsyncDatasetWriter:
         if not self._mock and self._ds is not None and self._n_episodes > 0:
             try:
                 self._ds.finalize()
-                print("[dataset] finalized (parquet/metadata closed)")
+                logger.info("dataset finalized (parquet/metadata closed)")
             except Exception as e:
-                print(f"[dataset] finalize failed: {e}")
+                logger.error("dataset finalize failed: %s", e)

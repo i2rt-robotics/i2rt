@@ -15,6 +15,9 @@ Designed for an operator who watches the **robot**, not the screen:
 
 from __future__ import annotations
 
+import logging
+from collections import deque
+
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -31,15 +34,44 @@ def _np_to_pixmap(img: np.ndarray) -> QtGui.QPixmap:
     return QtGui.QPixmap.fromImage(QtGui.QImage(img.tobytes(), w, h, 3 * w, QtGui.QImage.Format_RGB888))
 
 
+class _LogBuffer(logging.Handler):
+    """Collect recorder log records (from any thread) for the GUI to drain.
+
+    The recorder's components log from background threads, so we only buffer here
+    (a deque is safe to append/popleft across threads) and let the GUI thread render
+    them on its timer — never touching Qt widgets off the GUI thread.
+    """
+
+    def __init__(self, maxlen: int = 1000) -> None:
+        super().__init__()
+        self.records: "deque" = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.records.append((record.levelno, self.format(record)))
+        except Exception:
+            pass
+
+
 class RecorderGUI(QtWidgets.QWidget):
     def __init__(self, cfg: RecorderConfig) -> None:
         super().__init__()
         self.cfg = cfg
         self.recorder = Recorder(cfg)
         self.cues = Cues(enabled=True)
-        self._previews: dict = {}
         self._review_idx = 0
         self._prev = self.recorder.get_status()
+
+        # Surface the recorder's important log messages in-window. Attach to the
+        # package logger so cameras / robot link / dataset writer all flow in.
+        self._logbuf = _LogBuffer()
+        self._logbuf.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+        pkg_logger = logging.getLogger("workstation.lerobot_recorder")
+        pkg_logger.setLevel(logging.INFO)
+        if not any(isinstance(h, logging.StreamHandler) for h in pkg_logger.handlers):
+            pkg_logger.addHandler(logging.StreamHandler())  # keep console output too
+        pkg_logger.addHandler(self._logbuf)
+
         self.setWindowTitle("YAM · LeRobot Recorder")
         self.setStyleSheet(theme.QSS)
         self._build()
@@ -99,32 +131,21 @@ class RecorderGUI(QtWidgets.QWidget):
         btns.addWidget(self.start_btn)
         btns.addWidget(self.collect_btn)
 
-        # primary operator view: agentview + wrist insets
+        # primary operator view: agentview + wrist insets composited into one frame
         self.live_lbl = QtWidgets.QLabel("camera view")
         self.live_lbl.setMinimumHeight(320)
         self.live_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        # Ignored size policy so the scaled pixmap never feeds back into the layout
+        # (otherwise the label keeps growing each frame).
+        self.live_lbl.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
         self.live_lbl.setStyleSheet(f"background:#000;border:1px solid #30363d;border-radius:8px;color:{theme.MUTED};")
-
-        previews = QtWidgets.QHBoxLayout()
-        for cam in self.cfg.cameras:
-            box = QtWidgets.QVBoxLayout()
-            cap = QtWidgets.QLabel(cam.key)
-            cap.setStyleSheet(f"color:{theme.MUTED};")
-            lbl = QtWidgets.QLabel()
-            lbl.setFixedSize(176, 132)
-            lbl.setStyleSheet("background:#000;border:1px solid #30363d;border-radius:6px;")
-            lbl.setAlignment(QtCore.Qt.AlignCenter)
-            box.addWidget(cap)
-            box.addWidget(lbl)
-            previews.addLayout(box)
-            self._previews[cam.key] = lbl
-        previews.addStretch(1)
 
         # review panel
         self.review_box = QtWidgets.QGroupBox("Episode review")
         rv = QtWidgets.QVBoxLayout(self.review_box)
         self.review_lbl = QtWidgets.QLabel("(no episode pending)")
         self.review_lbl.setMinimumHeight(180)
+        self.review_lbl.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
         self.review_lbl.setAlignment(QtCore.Qt.AlignCenter)
         self.review_lbl.setStyleSheet(
             f"background:#000;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
@@ -149,6 +170,16 @@ class RecorderGUI(QtWidgets.QWidget):
         self.hint = QtWidgets.QLabel("space toggles collection · S/F keep · D delete")
         self.hint.setStyleSheet(f"color:{theme.MUTED};")
 
+        # log panel: the recorder's important messages (link/cameras/dataset/faults)
+        self.log_view = QtWidgets.QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(500)  # cap memory; old lines scroll off
+        self.log_view.setFixedHeight(120)
+        self.log_view.setStyleSheet(
+            f"background:#0d1117;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
+            "font-family:monospace;font-size:11px;"
+        )
+
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
@@ -156,10 +187,10 @@ class RecorderGUI(QtWidgets.QWidget):
         root.addLayout(strip)
         root.addLayout(form)
         root.addLayout(btns)
-        root.addWidget(self.live_lbl)
-        root.addLayout(previews)
+        root.addWidget(self.live_lbl, 1)
         root.addWidget(self.review_box)
         root.addWidget(self.hint)
+        root.addWidget(self.log_view)
 
     # ------------------------------------------------------------------ actions
     def _on_task(self, text: str) -> None:
@@ -179,6 +210,9 @@ class RecorderGUI(QtWidgets.QWidget):
                 w.setEnabled(True)
             return
         self.collect_btn.setEnabled(True)
+        if self.cfg.auto_arm:  # arm immediately so the next teleop engage records
+            self.collect_btn.setChecked(True)
+            self._on_collect()
 
     def _on_collect(self) -> None:
         if self.collect_btn.isChecked():
@@ -228,15 +262,27 @@ class RecorderGUI(QtWidgets.QWidget):
             self.review_slider.setEnabled(False)
 
         images = self.recorder.get_last_images()
-        for key, img in images.items():
-            lbl = self._previews.get(key)
-            if lbl is not None and isinstance(img, np.ndarray) and img.ndim == 3:
-                lbl.setPixmap(_np_to_pixmap(img).scaled(lbl.size(), QtCore.Qt.KeepAspectRatio))
         composite = compose_agentview(images, agent_key=self.cfg.review_cam)
         if isinstance(composite, np.ndarray) and composite.ndim == 3:
             self.live_lbl.setPixmap(_np_to_pixmap(composite).scaled(self.live_lbl.size(), QtCore.Qt.KeepAspectRatio))
 
+        self._drain_log()
         self._prev = st
+
+    def _drain_log(self) -> None:
+        """Render any buffered log records (called on the GUI thread)."""
+        colors = {logging.ERROR: theme.BAD, logging.WARNING: theme.WARN}
+        appended = False
+        while self._logbuf.records:
+            try:
+                level, msg = self._logbuf.records.popleft()
+            except IndexError:
+                break
+            color = colors.get(level, theme.MUTED)
+            self.log_view.appendHtml(f'<span style="color:{color};">{msg}</span>')
+            appended = True
+        if appended:
+            self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
 
     def _update_banner(self, st: dict) -> None:
         if not st.get("disk_ok", True):
