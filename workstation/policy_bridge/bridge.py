@@ -17,7 +17,7 @@ Each tick the bridge:
 
 The robot must run in **dagger** mode (policy drives the followers; a human can take
 over with a handle button), or **wrapper** mode. The policy env is unconstrained —
-it never imports ROS or i2rt.
+it never imports i2rt.
 """
 
 from __future__ import annotations

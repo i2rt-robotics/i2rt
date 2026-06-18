@@ -31,7 +31,7 @@ action_chunk = client.infer(obs)["actions"]       # (action_horizon, action_dim)
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
 cd policy_serving
-uv venv                      # any Python >= 3.10; no ROS, no rclpy ABI constraint
+uv venv                      # any Python >= 3.10
 source .venv/bin/activate
 uv pip install -e .          # + your model deps, e.g. uv pip install -e /path/to/openpi
 ```

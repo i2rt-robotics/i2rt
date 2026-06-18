@@ -129,11 +129,11 @@ client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 | Single motor PD control | `examples/single_motor_position_pd_control/` |
 | MuJoCo control interface | `examples/control_with_mujoco/` |
 
-## Networking & deployment (no ROS)
+## Networking & deployment
 
-The YAM rig is exposed to a workstation over **`portal`** (plain TCP) — no ROS,
-no DDS, no Python-3.10 constraint. Policy inference is a separate
-**websocket** link (openpi-compatible). Bimanual by default (2 leaders + 2 followers).
+The YAM rig is exposed to a workstation over **`portal`** (plain TCP); policy
+inference is a separate **websocket** link (openpi-compatible). Bimanual by default
+(2 leaders + 2 followers).
 
 ```bash
 source .venv/bin/activate                       # robot env (uv; scripts/setup_robot_env.sh)

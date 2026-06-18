@@ -5,7 +5,7 @@ pass in CI). Go top-to-bottom; each item has how-to-run and what to look for.
 Tags: **[robot]** = YAM machine, **[ws]** = workstation, **[policy]** = policy host.
 
 Transports: robot↔workstation = **portal** (TCP, default `:11331`); workstation↔policy
-= **websocket** (default `:8000`). No ROS anywhere.
+= **websocket** (default `:8000`).
 
 ---
 
@@ -56,12 +56,12 @@ python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host
 - [ ] Lift both leaders → state goes **ENGAGED**, followers track.
 - [ ] Return leaders home → **HOMING → IDLE**, robot eases home.
 
-## 4. ⚠ Bilateral engage — NO leader yank (the bug fix)
+## 4. Bilateral engage — leader stays put
 
 ```bash
 # [robot]  scripts/yam teleop --bilateral-kp 0.15
 ```
-- [ ] With followers at home and **leaders lifted**, press engage: the **leader is NOT yanked toward home**. Leader stays free until the follower catches up, then you feel bilateral force. (This was the bug.)
+- [ ] With followers at home and **leaders lifted**, press engage: the **leader is NOT yanked toward home**. Leader stays free until the follower catches up, then you feel bilateral force.
 
 ## 5. Gentle homing speed
 

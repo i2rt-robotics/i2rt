@@ -11,7 +11,7 @@ rate, and serves these portal methods to the workstation:
 * ``set_sim_engage(flag)``   -> force ENGAGED in sim (teleop)
 
 This is the same ``portal`` pattern used by ``ServerRobot`` (minimum_gello) and the
-flow-base controller — no ROS.
+flow-base controller.
 """
 
 from __future__ import annotations

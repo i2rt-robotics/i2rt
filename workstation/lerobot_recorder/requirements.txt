@@ -1,6 +1,6 @@
 # LeRobot recorder/replay — workstation env (SEPARATE from the YAM/robot env).
 #
-# No ROS. The robot link is portal (plain TCP) via i2rt's RobotClient, so this
+# The robot link is portal (plain TCP) via i2rt's RobotClient, so this
 # env just needs i2rt installed (for i2rt.serving.robot_client) plus the deps
 # below. The policy bridge additionally uses yam-policy (websocket client).
 #
@@ -8,7 +8,7 @@
 #   sudo apt install -y ffmpeg
 #
 # Setup (conda env + uv installs; full guide in README.md):
-#   conda create -y -n yam_ws python=3.11   # any Python >= 3.10; no ROS constraint
+#   conda create -y -n yam_ws python=3.11   # any Python >= 3.10
 #   conda activate yam_ws
 #   uv pip install -e .                      # i2rt (robot client, portal) — targets the conda env
 #   uv pip install -e policy_serving         # yam-policy (websocket client, for the bridge)

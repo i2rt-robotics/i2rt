@@ -1,8 +1,7 @@
-"""Robot state helpers (transport-agnostic; no ROS).
+"""Robot state helpers.
 
 Extract full pos/vel/eff vectors (length ``num_dofs``, trailing gripper element
 when present) and turn an external position command into a full-length target.
-Replaces the pos/vel/eff packing that used to live in ``ros_conversions``.
 """
 
 from __future__ import annotations

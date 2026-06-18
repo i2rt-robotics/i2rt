@@ -3,7 +3,7 @@
 Record and replay [LeRobot](https://github.com/huggingface/lerobot) **v3.0**
 datasets for the bimanual YAM teleop rig. Runs on the **workstation** (a
 different machine / env than the robot): it connects to the YAM **robot server
-over portal** (plain TCP, **no ROS**), reads three RealSense cameras **locally**,
+over portal** (plain TCP), reads three RealSense cameras **locally**,
 and **auto-starts/stops each episode from the teleop gate** — no manual record
 button per episode.
 
@@ -51,7 +51,7 @@ Recorded at **60 fps** (matched to the cameras). Uses the official v3.0 API
 
 # One-time setup
 
-### [robot machine] — YAM robot server (uv, no ROS, nothing to activate)
+### [robot machine] — YAM robot server (uv; nothing to activate)
 
 ```bash
 sh scripts/setup_robot_env.sh            # optional: pre-create .venv + install i2rt
@@ -62,7 +62,7 @@ You don't need to activate anything — `scripts/yam` uses **`uv run`**, which r
 (and on first run creates) the env automatically. Already inside a conda/venv? set
 `YAM_NO_UV=1` and it uses plain `python`.
 
-### [workstation] — conda env + uv (no ROS)
+### [workstation] — conda env + uv
 
 conda owns the env (so you can also `pip install` other policy repos into it); uv
 does the fast installs for this repo:
@@ -75,7 +75,7 @@ conda activate yam_ws
 <details><summary>What it does (manual equivalent)</summary>
 
 ```bash
-conda create -y -n yam_ws python=3.11      # any Python >= 3.10; no ROS
+conda create -y -n yam_ws python=3.11      # any Python >= 3.10
 conda activate yam_ws
 sudo apt install -y ffmpeg                  # LeRobot v3.0 video encoding
 uv pip install -e .                         # i2rt (portal RobotClient) — uv targets the conda env
@@ -88,8 +88,7 @@ uv pip install -r workstation/lerobot_recorder/requirements.txt
 The `yam-data` launcher activates the **conda** env for you (default `yam_ws`,
 override with `YAM_WS_ENV=...`). The robot host/port come from `config.yaml` (or
 `--robot-host`/`--robot-port`, default
-`127.0.0.1:11331`) — both machines just need to be on the same network (plain TCP,
-no `ROS_DOMAIN_ID`, no DDS).
+`127.0.0.1:11331`) — both machines just need to be on the same network.
 
 ### [workstation] — RealSense cameras
 

@@ -7,7 +7,7 @@ One episode spans **ENGAGED → HOMING → IDLE** (inclusive of the homing retur
 * it **stops** when the state first returns to ``IDLE`` — i.e. homing finished.
 
 The gate is only live while *armed* (the GUI "Start collection" button). Pure
-logic, no ROS/cameras — unit-tested directly.
+logic, no I/O — unit-tested directly.
 """
 
 from __future__ import annotations

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 #
-# Reproducible setup of the ROBOT environment (no ROS).
+# Reproducible setup of the ROBOT environment.
 #
 # Creates a uv venv (default: <repo>/.venv) and installs i2rt. The robot machine
-# runs the portal robot server (i2rt.serving.run_robot_server); it does NOT need
-# ROS, rclpy, or Python 3.10 anymore.
+# runs the portal robot server (i2rt.serving.run_robot_server).
 #
 #   sh scripts/setup_robot_env.sh
 #

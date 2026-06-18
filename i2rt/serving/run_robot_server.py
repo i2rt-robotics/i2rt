@@ -1,4 +1,4 @@
-"""Run the YAM robot server on the robot machine (no ROS).
+"""Run the YAM robot server on the robot machine.
 
     python -m i2rt.serving.run_robot_server teleop  [--sim] [--bilateral-kp 0.15]
     python -m i2rt.serving.run_robot_server dagger  [--sim] [--mirror-kp 0.2]
@@ -40,7 +40,7 @@ def main() -> None:
     robot_sec = rig.get("robot", {}) or {}
     default_port = int(robot_sec.get("port", DEFAULT_PORT))
 
-    p = argparse.ArgumentParser(description="YAM robot server (portal, no ROS)")
+    p = argparse.ArgumentParser(description="YAM robot server (portal)")
     sub = p.add_subparsers(dest="mode", required=True)
 
     pt = sub.add_parser("teleop", help="auto home/engage bimanual teleop")

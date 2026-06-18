@@ -1,17 +1,16 @@
-"""Transport-agnostic bimanual controllers (no ROS).
+"""Bimanual controllers.
 
 Each controller owns the robot pairs and runs the real-time control law in
-``step()`` (call it from a fixed-rate loop on the robot). Instead of publishing
-ROS messages it keeps a thread-safe ``snapshot()`` dict, and it reads external
-inputs (policy action, gate override, replay command) through setters. A portal
-:class:`~i2rt.serving.robot_server.RobotServer` wraps any of these and exposes
-the snapshot + setters over the network.
+``step()`` (call it from a fixed-rate loop on the robot). It keeps a thread-safe
+``snapshot()`` dict and reads external inputs (policy action, gate override, replay
+command) through setters. A :class:`~i2rt.serving.robot_server.RobotServer` wraps any
+of these and exposes the snapshot + setters over the network.
 
-Three modes, ported 1:1 from the old ROS nodes:
+Three modes:
 
-* :class:`TeleopController`  — auto home/engage gate, bilateral teleop (was run_teleop)
-* :class:`DaggerController`  — HG-DAgger policy + button takeover (was run_dagger)
-* :class:`WrapperController` — followers track an external command (was run_wrapper; replay)
+* :class:`TeleopController`  — auto home/engage gate, bilateral leader→follower teleop
+* :class:`DaggerController`  — HG-DAgger: policy drives, a button hands control to the human
+* :class:`WrapperController` — followers track an external command (replay / direct control)
 """
 
 from __future__ import annotations
@@ -127,7 +126,7 @@ class BaseController:
 
 
 # ---------------------------------------------------------------------------
-# Teleop (was run_teleop.TeleopNode)
+# Teleop
 # ---------------------------------------------------------------------------
 @dataclass
 class TeleopConfig:
@@ -299,7 +298,7 @@ class TeleopController(BaseController):
             }
         self._prev_state = state
 
-    # ---- leader modes (ported) ---------------------------------------------
+    # ---- leader modes ------------------------------------------------------
     def _home_leader(self, pair: ArmPair, target_arm: np.ndarray) -> None:
         leader = pair.leader
         if not hasattr(leader, "update_kp_kd") or pair.base_kp is None:
@@ -341,7 +340,7 @@ class TeleopController(BaseController):
 
 
 # ---------------------------------------------------------------------------
-# DAgger (was run_dagger.DaggerNode)
+# DAgger
 # ---------------------------------------------------------------------------
 @dataclass
 class DaggerConfig:
@@ -483,7 +482,7 @@ class DaggerController(BaseController):
 
 
 # ---------------------------------------------------------------------------
-# Wrapper / replay (was run_wrapper) — followers track an external command
+# Wrapper / replay — followers track an external command
 # ---------------------------------------------------------------------------
 @dataclass
 class WrapperConfig:

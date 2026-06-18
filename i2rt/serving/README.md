@@ -1,12 +1,9 @@
-# i2rt.serving — ROS-free robot networking
+# i2rt.serving — robot networking
 
-The YAM rig is driven over **plain TCP**, not ROS. The robot machine runs a
+The YAM rig is driven over **plain TCP** with `portal`. The robot machine runs a
 `portal` server that owns the real-time control loop; the workstation connects as
 a `portal` client. Policy inference is a separate **websocket** link
 (openpi-compatible, see [`policy_serving/`](../../policy_serving)).
-
-No `rclpy`, no DDS, no Python-3.10 ABI constraint — every machine is a clean `uv`
-env.
 
 ## Two topologies
 
@@ -92,9 +89,8 @@ robot.set_estop(True)                    # network e-stop: hold, ignore all comm
 | `<side>.applied` | the rate-limited command actually sent (the action) |
 | `<side>.human` | leader target while intervening (dagger) |
 
-## Why portal (and not ROS)
+## Transport
 
-The control logic never needed ROS — ROS was only the network bus. `portal` is
-already an i2rt dependency (used by `ServerRobot`/`ClientRobot` and the flow base),
-it's plain TCP (works across VPN/tailscale, no DDS multicast), and it frees both
-machines from the rclpy/Python-3.10 constraint.
+`portal` is a lightweight RPC over plain TCP (also used by `ServerRobot`/`ClientRobot`
+and the flow base). It works across a LAN or VPN/tailscale with no extra setup, and
+keeps both machines as ordinary Python environments.

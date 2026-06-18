@@ -1,4 +1,4 @@
-"""Safety helpers for the ROS 2 control nodes.
+"""Safety helpers for the control loop.
 
 The single most important safety net is :class:`TargetSmoother`, a per-joint
 rate limiter. Whenever the *desired* follower target changes discontinuously —

@@ -2,7 +2,7 @@
 #
 # Convenience launcher for the workstation-side tools (recorder / replay / bridge).
 #
-# Activates the workstation **conda** env (default: yam_ws) and runs a tool. No ROS.
+# Activates the workstation **conda** env (default: yam_ws) and runs a tool.
 # Inside that conda env this repo is installed with uv; you can pip/uv-install other
 # policy repos into the same env.
 #

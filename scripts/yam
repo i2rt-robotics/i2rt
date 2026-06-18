@@ -3,7 +3,7 @@
 # Convenience launcher for the i2rt robot server (runs on the ROBOT machine).
 #
 # Uses `uv run` from the repo, so there is NOTHING to source/activate — uv resolves
-# (and on first run creates) the project environment automatically. No ROS.
+# (and on first run creates) the project environment automatically.
 #
 #   scripts/yam teleop  [args]   # auto home/engage bimanual teleop
 #   scripts/yam dagger  [args]   # HG-DAgger: policy drives, button takeover

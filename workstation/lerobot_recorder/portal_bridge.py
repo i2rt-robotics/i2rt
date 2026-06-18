@@ -1,6 +1,6 @@
 """Portal bridge: poll the YAM robot server, expose the latest fused snapshot.
 
-Connects (plain TCP, no ROS) to the robot machine running
+Connects (plain TCP) to the robot machine running
 ``i2rt.serving.run_robot_server`` and polls ``get_observation()``. ``get_snapshot()``
 returns the latest fused frame the recorder records:
 

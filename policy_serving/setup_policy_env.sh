@@ -3,7 +3,7 @@
 # Reproducible setup of the POLICY SERVER environment (unrestricted).
 #
 # Creates a uv venv (default: policy_serving/.venv) and installs yam-policy. This
-# env is NOT constrained by ROS or Python 3.10 — add your model's deps here
+# env is fully independent — add your model's deps here
 # (torch / JAX / CUDA, lerobot, or openpi from its repo).
 #
 #   sh policy_serving/setup_policy_env.sh

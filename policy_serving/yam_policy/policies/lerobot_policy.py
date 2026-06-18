@@ -5,7 +5,7 @@ Copy this file and adapt the two clearly-marked sections to your policy:
   (2) how the policy's output maps to ``{"actions": (horizon, action_dim)}``.
 
 Install your policy's deps (torch, lerobot, ...) into THIS env only — it never
-needs ROS or the robot's Python.
+needs the robot's Python.
 
     python -m yam_policy.serve \
         --policy yam_policy.policies.lerobot_policy:LeRobotPolicy \

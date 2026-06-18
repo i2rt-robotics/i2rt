@@ -78,11 +78,11 @@
       </div>
       <div class="nav-group">
         <div class="nav-title">Networking &amp; Serving</div>
-        <a href="#ros2">Overview (portal)</a>
-        <a href="#ros2-teleop">Robot server modes</a>
-        <a href="#ros2-policy">Policy serving</a>
-        <a href="#ros2-safety">Safety model</a>
-        <a href="#ros2-lerobot">Data tools &amp; config</a>
+        <a href="#serving">Overview (portal)</a>
+        <a href="#serving-teleop">Robot server modes</a>
+        <a href="#serving-policy">Policy serving</a>
+        <a href="#serving-safety">Safety model</a>
+        <a href="#serving-lerobot">Data tools &amp; config</a>
       </div>
       <div class="nav-group">
         <div class="nav-title">Reference</div>
@@ -102,11 +102,11 @@
     <section id="scenarios">
       <span class="eyebrow">Start here</span>
       <h1 style="font-size:2.1rem;margin-bottom:6px;">Scenarios — what to run</h1>
-      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the <strong>portal robot server</strong>) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects over <strong>portal / plain TCP</strong>). <strong>No ROS.</strong> Two launchers run the right env for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. A single <code>config.yaml</code> at the repo root holds shared settings (robot host, camera serials, gains…), auto-discovered by every tool. Run each scenario top to bottom.</p>
+      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the <strong>portal robot server</strong>) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects over <strong>portal / plain TCP</strong>). Two launchers run the right env for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. A single <code>config.yaml</code> at the repo root holds shared settings (robot host, camera serials, gains…), auto-discovered by every tool. Run each scenario top to bottom.</p>
 
       <div class="callout tip">
         <div class="callout-title">Legend</div>
-        <p><span class="pill real">robot</span> = run on the YAM machine (uv-managed; <code>scripts/yam</code> uses <code>uv run</code>, nothing to activate) · <span class="pill sim">workstation</span> = run on the data machine (conda env <code>yam_ws</code>). Just same LAN — the robot address is <code>robot.host</code> in <code>config.yaml</code> (no <code>ROS_DOMAIN_ID</code>, no DDS).</p>
+        <p><span class="pill real">robot</span> = run on the YAM machine (uv-managed; <code>scripts/yam</code> uses <code>uv run</code>, nothing to activate) · <span class="pill sim">workstation</span> = run on the data machine (conda env <code>yam_ws</code>). Both on the same LAN — the robot address is <code>robot.host</code> in <code>config.yaml</code>.</p>
       </div>
 
       <h3 id="sc-setup">One-time setup</h3>
@@ -913,10 +913,10 @@ client.reset_odometry()</code></pre>
       </div>
     </section>
 
-    <!-- ===================== ROS 2 ===================== -->
-    <section id="ros2">
-      <h2 id="ros2-h">Networking &amp; Serving <span style="color:var(--text-faint);font-weight:400;">(no ROS)</span></h2>
-      <p>The YAM rig is exposed to the workstation over <strong><code>portal</code> (plain TCP)</strong> — not ROS. The robot machine runs a <code>portal</code> server (<code>i2rt/serving/</code>) that owns the real-time control loop; the workstation connects with <code>RobotClient</code>. Policy inference is a separate <strong>websocket + msgpack</strong> link (openpi-compatible). No <code>rclpy</code>, no DDS, no Python-3.10 ABI constraint — every machine is a clean env. Bimanual by default (2 leaders + 2 followers).</p>
+    <!-- ===================== Networking & Serving ===================== -->
+    <section id="serving">
+      <h2 id="serving-h">Networking &amp; Serving</h2>
+      <p>The YAM rig is exposed to the workstation over <strong><code>portal</code> (plain TCP)</strong>. The robot machine runs a <code>portal</code> server (<code>i2rt/serving/</code>) that owns the real-time control loop; the workstation connects with <code>RobotClient</code>. Policy inference is a separate <strong>websocket + msgpack</strong> link (openpi-compatible). Bimanual by default (2 leaders + 2 followers).</p>
 
       <div class="card-grid cols-3">
         <div class="card">
@@ -936,7 +936,7 @@ client.reset_odometry()</code></pre>
         </div>
       </div>
 
-      <h3 id="ros2-teleop">Robot server modes — <code>i2rt.serving.run_robot_server</code></h3>
+      <h3 id="serving-teleop">Robot server modes — <code>i2rt.serving.run_robot_server</code></h3>
       <p>The robot runs one of three modes (launch with <code>scripts/yam &lt;mode&gt;</code>, which uses <code>uv run</code> — nothing to activate; add <code>--sim</code> for no hardware). The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; each mode reads the rig and serves a snapshot over portal.</p>
       <div class="table-wrap">
       <table>
@@ -955,11 +955,11 @@ scripts/yam wrapper                          # replay target</code></pre>
       <p><strong>Teleop auto-gate (both arms together, no button):</strong> <code>HOMING</code> → robot &amp; gellos ramp home; <code>IDLE</code> → at home, gellos free; <strong>lift both</strong> past <code>--engage-thr</code> → <code>ENGAGED</code> (followers track directly via their own PD gains, no lag); bring both home for <code>--dwell</code>s → back to <code>HOMING</code>. The exact rate-limited command sent is the recorded <code>action</code>, so episodes reproduce precisely. Only the one-time engage approach + the (gentler) homing return are ramped (<code>--ramp-speed</code> / <code>--home-speed</code>).</p>
       <div class="callout tip">
         <div class="callout-title">Bilateral engage — no leader yank</div>
-        <p>With <code>--bilateral-kp&gt;0</code>, the leader is back-driven only <strong>after the follower has caught up</strong> to it — so engaging from home with the gellos lifted no longer snaps the leader toward home. Leader buttons can also end an episode: button 1 = success, 2 = fail, 0 = discard (each also starts the gentle homing return).</p>
+        <p>With <code>--bilateral-kp&gt;0</code>, the leader is back-driven only <strong>after the follower has caught up</strong> to it — so engaging from home with the gellos lifted does not snap the leader toward home. Leader buttons can also end an episode: button 1 = success, 2 = fail, 0 = discard (each also starts the gentle homing return).</p>
       </div>
       <p>The snapshot (<code>get_observation()</code>) carries, per side, follower <code>pos/vel/eff</code>, <code>leader_pos</code>, <code>applied</code> (the action), <code>human</code> (while intervening), <code>buttons</code>, plus the gate state and <code>estop</code>. Follower gains live in one place — <code>i2rt/serving/control_config.py</code> — and apply to teleop, dagger, and the replay wrapper, so collection and replay match.</p>
 
-      <h3 id="ros2-policy">Policy serving &amp; the bridge</h3>
+      <h3 id="serving-policy">Policy serving &amp; the bridge</h3>
       <p>Policies run in their <strong>own unconstrained env</strong> (any Python / CUDA, even a remote GPU box) behind an <strong>openpi-compatible websocket server</strong>; the workstation <strong>bridge</strong> joins the two links — it reads the robot snapshot + cameras, builds an openpi obs dict, queries the policy (prefetching the next action chunk to hide latency), and sends the result to the robot.</p>
       <span class="code-label">bash</span>
 <pre><code>python -m yam_policy.serve --policy &lt;module&gt;:&lt;Class&gt; --config k=v   # policy host (:8000)
@@ -967,7 +967,7 @@ scripts/yam dagger                                                # robot
 workstation/yam-data bridge --prompt "pick up the cube"          # workstation</code></pre>
       <p>The bridge auto-configures the action horizon and image keys from the server's metadata, so a real openpi checkpoint drops in unchanged. Add your own policy by subclassing <code>BasePolicy.infer(obs)→{"actions": (H, D)}</code> (see <code>policy_serving/</code> with dummy / openpi / lerobot templates).</p>
 
-      <h3 id="ros2-safety">Safety model</h3>
+      <h3 id="serving-safety">Safety model</h3>
       <ul>
         <li><strong>Network E-STOP</strong> — a button in both GUIs (and <code>RobotClient.set_estop</code>) holds the followers until released; re-applied automatically on reconnect.</li>
         <li><strong>Link-loss watchdog</strong> — if no fresh command arrives within <code>command_timeout</code> (≈0.5&nbsp;s), the follower holds instead of replaying a stale target (covers a workstation crash or network drop).</li>
@@ -980,7 +980,7 @@ workstation/yam-data bridge --prompt "pick up the cube"          # workstation</
       </div>
       <p>Details + the snapshot contract: <code>i2rt/serving/README.md</code>.</p>
 
-      <h3 id="ros2-lerobot">Data tools &amp; config (LeRobot)</h3>
+      <h3 id="serving-lerobot">Data tools &amp; config (LeRobot)</h3>
       <p>The workstation app (<code>workstation/lerobot_recorder/</code>) records <strong>LeRobot v3.0</strong> datasets from the robot snapshot over portal + three RealSense cameras (2× D405 wrist + 1× D455 agentview). Episodes auto-start/stop from the teleop gate; a finished episode is queued to a <strong>background writer</strong> so encoding never blocks the next collection. The GUI shows a color status banner, a health strip (robot / cameras / disk / queue), live success-rate stats, audio cues, and labeling by mouse / keyboard / leader buttons. <code>--source dagger</code> records HG-DAgger interventions; <code>--source eval</code> records policy rollouts. The <strong>replay</strong> GUI plays an episode back onto the wrapper (with a live-camera overlay to match the scene first).</p>
       <div class="table-wrap">
       <table>

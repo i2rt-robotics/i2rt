@@ -1,4 +1,4 @@
-"""Replay a recorded episode onto the robot over portal (no ROS).
+"""Replay a recorded episode onto the robot over portal.
 
 Sends each frame's ``action`` (14-d = both arms x 7) to the robot server via
 ``RobotClient.command({"left": ..., "right": ...})``, so the robot follows the

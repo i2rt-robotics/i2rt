@@ -1,4 +1,4 @@
-"""Global control config shared by the ROS 2 teleop / DAgger / replay pipeline.
+"""Global control config shared by the teleop / DAgger / replay pipeline.
 
 The **follower's control gains** must be identical wherever the follower is driven
 — teleop, DAgger, and replay (via the wrapper) — so a replayed episode behaves

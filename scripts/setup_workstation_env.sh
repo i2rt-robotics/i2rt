@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Reproducible setup of the WORKSTATION environment — conda + uv (no ROS).
+# Reproducible setup of the WORKSTATION environment — conda + uv.
 #
 # conda owns the environment (so you can also `pip install` other policy repos into
 # it), and uv does the fast installs for THIS repo. Installs i2rt (portal client),
