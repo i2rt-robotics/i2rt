@@ -26,14 +26,18 @@ from i2rt.serving.robot_server import DEFAULT_PORT, RobotServer
 
 
 class _DropChatter(logging.Filter):
-    """Drop the per-motor-chain status lines the driver prints on a timer.
+    """Drop the periodic per-motor-chain status lines the driver prints on a timer.
 
-    The motor driver logs its gravity-comp loop frequency every ~10 s for each
-    of the four chains, which floods the console. We hide the routine line but
-    keep the "loop is slow" warning that uses a different message.
+    The motor/CAN driver logs routine throughput stats for each of the four
+    chains every ~10-30 s, which floods the console. We hide those lines but
+    keep real warnings (e.g. "control loop is slow"), which use other messages.
     """
 
-    _NOISE = ("Grav Comp Control Frequency",)
+    _NOISE = (
+        "Grav Comp Control Frequency",  # motor_chain_robot grav-comp loop
+        "Total rate:",  # DMChainCanInterface throughput report
+        "s Report] step_time",  # DMChainCanInterface step-time report
+    )
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
