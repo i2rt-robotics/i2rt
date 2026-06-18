@@ -12,11 +12,13 @@ import argparse
 import sys
 from typing import List, Optional
 
+from i2rt.serving.rig_config import Resolver, apply_camera_serials, load_rig
 from workstation.lerobot_recorder.config import RecorderConfig, default_cameras
 
 
 def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset recorder")
+    p.add_argument("--config", default=None, help="rig.yaml (robot/cameras/tasks/recorder defaults)")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--task", default="do the task", help="active language instruction")
@@ -35,6 +37,7 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
         help="teleop = gate on teleop_state (action=applied); dagger = HG-DAgger interventions "
         "(action=human); eval = record a policy rollout from Start to Stop (action=executed)",
     )
+    p.add_argument("--min-free-gb", type=float, default=1.0, help="refuse to save below this free disk")
     p.add_argument("--resume", action="store_true", help="append to an existing dataset at --root")
     p.add_argument("--mock", action="store_true", help="synthetic cameras + teleop (no hardware/robot/lerobot)")
     p.add_argument(
@@ -44,25 +47,30 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     )
     args = p.parse_args(argv)
 
-    cams = default_cameras()
-    if args.serials:
-        serials = [s.strip() for s in args.serials.split(",")]
-        for cam, serial in zip(cams, serials, strict=False):
+    # Unified rig config: explicit CLI flag > rig.yaml section > built-in default.
+    rig = load_rig(args.config)
+    rec = Resolver(args, p, rig.get("recorder", {}))
+    rob = Resolver(args, p, rig.get("robot", {}))
+
+    cams = apply_camera_serials(default_cameras(), rig)  # rig 'cameras' by key
+    if args.serials:  # explicit CLI serials win
+        for cam, serial in zip(cams, [s.strip() for s in args.serials.split(",")], strict=False):
             cam.serial = serial
 
-    tasks = [t.strip() for t in args.tasks.split(";") if t.strip()]
+    tasks = [t.strip() for t in args.tasks.split(";") if t.strip()] or list(rig.get("tasks", []) or [])
 
     return RecorderConfig(
-        repo_id=args.repo_id,
-        root=args.root,
-        task=args.task,
+        repo_id=rec.get("repo_id"),
+        root=rec.get("root"),
+        task=rec.get("task"),
         tasks=tasks,
-        fps=args.fps,
+        fps=int(rec.get("fps")),
         cameras=cams,
-        robot_host=args.robot_host,
-        robot_port=args.robot_port,
-        record_source=args.source,
+        robot_host=rob.get("robot_host", key="host"),
+        robot_port=int(rob.get("robot_port", key="port")),
+        record_source=rec.get("source"),
         resume=args.resume,
+        min_free_gb=float(rec.get("min_free_gb")),
         mock=args.mock,
     )
 

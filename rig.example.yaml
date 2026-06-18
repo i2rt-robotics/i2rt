@@ -1,0 +1,40 @@
+# Unified rig config — one source of truth for the whole YAM setup.
+# Pass to any tool with `--config rig.yaml`. Precedence:
+#   explicit CLI flag  >  this file  >  built-in default
+#
+#   scripts/yam teleop --config rig.yaml
+#   workstation/yam-data record  --config rig.yaml
+#   workstation/yam-data replay  --config rig.yaml
+#   workstation/yam-data bridge  --config rig.yaml
+
+robot:
+  host: 127.0.0.1            # robot server (portal) address, used by the workstation tools
+  port: 11331
+  channels: { left: can_follower_l, right: can_follower_r }   # wrapper followers
+
+policy:
+  host: 127.0.0.1            # websocket policy server (for the bridge)
+  port: 8000
+
+control:                     # overrides i2rt/serving/control_config (robot server)
+  bilateral_kp: 0.15
+  home_speed: 0.4            # gentle homing return (rad/s)
+  # follower_effort_limit: 30.0          # Nm; collision/overload soft-stop (omit = off)
+  # follower_joint_limits: [[-3.0, 3.0], [-2.0, 2.0]]   # per-joint clamp [lo, hi]
+  # gate_joints: [1]                      # leader joints that drive the engage/release gate
+
+cameras:                     # RealSense serials by role (run `yam-data cams` to list)
+  agentview: ""              # D455
+  wrist_left: ""             # D405
+  wrist_right: ""            # D405
+
+recorder:
+  repo_id: user/yam_pick
+  root: ~/lerobot_data
+  fps: 60
+  min_free_gb: 2.0
+  source: teleop             # teleop | dagger | eval
+
+tasks:                       # quick-switch language instructions in the recorder GUI
+  - "pick up the cube"
+  - "stack the blocks"

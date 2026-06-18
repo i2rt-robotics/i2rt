@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 
+from i2rt.serving.rig_config import Resolver, apply_camera_serials, load_rig
 from workstation.lerobot_recorder.config import RecorderConfig, default_cameras
 from workstation.policy_bridge.bridge import BridgeConfig, PolicyBridge
 
@@ -21,6 +22,7 @@ from workstation.policy_bridge.bridge import BridgeConfig, PolicyBridge
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     p = argparse.ArgumentParser(description="YAM policy bridge (portal robot <-> websocket policy)")
+    p.add_argument("--config", default=None, help="rig.yaml (robot/policy/cameras)")
     p.add_argument("--robot-host", default="127.0.0.1")
     p.add_argument("--robot-port", type=int, default=11331)
     p.add_argument("--policy-host", default="127.0.0.1")
@@ -34,17 +36,21 @@ def main() -> None:
     p.add_argument("--mock", action="store_true", help="synthetic cameras (no RealSense)")
     args = p.parse_args()
 
-    cams = default_cameras()
+    rig = load_rig(args.config)
+    rob = Resolver(args, p, rig.get("robot", {}))
+    pol = Resolver(args, p, rig.get("policy", {}))
+
+    cams = apply_camera_serials(default_cameras(), rig)
     if args.serials:
         for cam, serial in zip(cams, [s.strip() for s in args.serials.split(",")], strict=False):
             cam.serial = serial
     recorder_cfg = RecorderConfig(cameras=cams, mock=args.mock)
 
     cfg = BridgeConfig(
-        robot_host=args.robot_host,
-        robot_port=args.robot_port,
-        policy_host=args.policy_host,
-        policy_port=args.policy_port,
+        robot_host=rob.get("robot_host", key="host"),
+        robot_port=int(rob.get("robot_port", key="port")),
+        policy_host=pol.get("policy_host", key="host"),
+        policy_port=int(pol.get("policy_port", key="port")),
         action_horizon=args.action_horizon,
         rate_hz=args.rate,
         image_size=args.image_size,

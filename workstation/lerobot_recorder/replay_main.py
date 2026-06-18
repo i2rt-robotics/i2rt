@@ -13,11 +13,13 @@ import argparse
 import sys
 from typing import List, Optional
 
+from i2rt.serving.rig_config import Resolver, load_rig
 from workstation.lerobot_recorder.config import RecorderConfig
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     p = argparse.ArgumentParser(description="YAM ↔ LeRobot dataset replay")
+    p.add_argument("--config", default=None, help="rig.yaml (robot host/port, repo/root)")
     p.add_argument("--repo-id", default="user/yam_bimanual")
     p.add_argument("--root", default="~/lerobot_data")
     p.add_argument("--robot-host", default="127.0.0.1", help="YAM robot server host (run_robot_server wrapper)")
@@ -25,8 +27,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--mock", action="store_true", help="synthetic dataset (no robot/lerobot)")
     args = p.parse_args(argv)
 
+    rig = load_rig(args.config)
+    rec = Resolver(args, p, rig.get("recorder", {}))
+    rob = Resolver(args, p, rig.get("robot", {}))
     cfg = RecorderConfig(
-        repo_id=args.repo_id, root=args.root, robot_host=args.robot_host, robot_port=args.robot_port, mock=args.mock
+        repo_id=rec.get("repo_id"),
+        root=rec.get("root"),
+        robot_host=rob.get("robot_host", key="host"),
+        robot_port=int(rob.get("robot_port", key="port")),
+        mock=args.mock,
     )
 
     from PyQt5 import QtWidgets

@@ -158,6 +158,11 @@ takeovers ramp smoothly.
 
 Quick CLIs (workstation): `workstation/yam-data {record\|replay\|bridge\|cams\|doctor}`.
 
+**One config for everything**: pass `--config rig.yaml` to any tool (robot server or
+workstation) — a single file for robot host/port, control gains/limits, camera
+serials, recorder defaults, tasks, and the policy endpoint. Precedence is
+**CLI flag > rig.yaml > default**. See [`rig.example.yaml`](rig.example.yaml).
+
 **Safety & ops highlights**: network E-STOP, per-joint position + optional effort
 (collision) limits, command-staleness watchdog (link loss → hold), async dataset
 writer (collect while saving), camera-disconnect auto-reconnect, disk-space guard,
