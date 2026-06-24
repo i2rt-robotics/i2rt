@@ -56,6 +56,7 @@ class Recorder:
             "episodes": 0,
             "frames": 0,
             "queue": 0,
+            "saving": False,
             "cam_ok": True,
             "robot_ok": False,
             "disk_ok": True,
@@ -186,6 +187,12 @@ class Recorder:
         with self._lock:
             d = dict(self._status)
         d["disk_ok"] = self.writer is None or not self.writer.low_disk
+        if self.writer is not None:  # detailed writer pipeline state
+            d["writer"] = self.writer.progress
+            d["saving"] = d["writer"]["saving"]
+            d["queue"] = d["writer"]["queued"]
+        else:
+            d["saving"] = False
         return d
 
     def get_last_images(self) -> dict:

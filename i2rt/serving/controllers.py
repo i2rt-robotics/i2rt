@@ -155,6 +155,8 @@ class TeleopController(BaseController):
         self._home_step = max_step_from_speed(cfg.home_speed, cfg.rate)
         self._gate_joints = [int(x) for x in cfg.gate_joints.split(",") if x.strip() != ""] if cfg.gate_joints else []
         self._caught_up = {s: False for s in self.pairs}
+        self._home_d0 = {s: 0.0 for s in self.pairs}  # start distance for the homing cosine profile
+        self._engage_d0 = {s: 0.0 for s in self.pairs}  # start distance for the engage cosine approach
         self._prev_state = TeleopStateMachine.HOMING
 
         first = next(iter(self.pairs.values())).follower
@@ -216,6 +218,14 @@ class TeleopController(BaseController):
                 return False
         return True
 
+    @staticmethod
+    def _ease_vel_scale(p: float) -> float:
+        """Raised-cosine speed multiplier as a function of progress ``p`` (0 at the
+        start, 1 at the target): ~0.5x at the ends, ~1.28x through the middle,
+        averaging ~1x -- a smooth ease-in/out that's quicker in the middle. Used for
+        both the homing return and the engage approach."""
+        return float(0.5 + 0.785 * np.sin(np.pi * min(max(p, 0.0), 1.0)))
+
     # ---- one control tick (port of TeleopNode._loop) ------------------------
     def step(self) -> None:
         now = time.monotonic()
@@ -255,7 +265,13 @@ class TeleopController(BaseController):
                         applied = desired
                         fsm.reset(applied)
                     else:
-                        fsm.max_step = self._ramp_step
+                        # Cosine ease for the catch-up from home to the (live) leader:
+                        # gentle off home, quicker through the middle, gentle on arrival.
+                        d = float(np.linalg.norm(fsm.cur - desired))
+                        if self._prev_state != TeleopStateMachine.ENGAGED:
+                            self._engage_d0[side] = max(d, 1e-6)  # capture the initial gap once
+                        p = 1.0 - d / max(self._engage_d0[side], 1e-6)
+                        fsm.max_step = self._ramp_step * self._ease_vel_scale(p)
                         applied = fsm.step(desired)
                         if float(np.max(np.abs(fsm.cur - desired))) < _HOME_TOL:
                             self._caught_up[side] = True
@@ -268,7 +284,14 @@ class TeleopController(BaseController):
                         self._free_leader(pair)
                     lsm.reset(np.asarray(pair.leader.get_joint_pos())[: self.home_arm.size])
                 elif state == TeleopStateMachine.HOMING:
-                    fsm.max_step = lsm.max_step = self._home_step  # gentle homing return
+                    # Cosine velocity profile: ease in/out at the ends, faster through
+                    # the middle (avg ≈ home_speed, so total time stays similar but the
+                    # return is smooth rather than a constant crawl).
+                    d = float(np.linalg.norm(fsm.cur - self.home_full))
+                    if self._prev_state != TeleopStateMachine.HOMING:
+                        self._home_d0[side] = max(d, 1e-6)  # capture the start distance once
+                    p = min(max(1.0 - d / max(self._home_d0[side], 1e-6), 0.0), 1.0)
+                    fsm.max_step = lsm.max_step = self._home_step * self._ease_vel_scale(p)
                     applied = fsm.step(self.home_full)
                     self._home_leader(pair, lsm.step(self.home_arm))
                 else:  # IDLE

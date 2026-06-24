@@ -85,6 +85,13 @@ class RecorderConfig:
     fps: int = 60  # dataset / record-loop rate (matched to the 60 fps cameras)
     robot_type: str = "yam_bimanual"
     use_videos: bool = True
+    # Video encoding speed (LeRobot). The default 'libsvtav1' (AV1) is SLOW to encode;
+    # 'h264' is much faster, 'auto' picks a hardware encoder (e.g. nvenc) if available.
+    vcodec: str = "libsvtav1"
+    encoder_threads: int = 0  # threads per video encode (0 = let LeRobot decide)
+    # >1 accumulates that many episodes and encodes their videos in PARALLEL (LeRobot's
+    # ProcessPoolExecutor) — the supported way to use more than one encoder "worker".
+    batch_encoding_size: int = 1
     cameras: List[CameraSpec] = field(default_factory=default_cameras)
     # Robot link: the YAM robot machine running i2rt.serving.run_robot_server (portal).
     robot_host: str = "127.0.0.1"

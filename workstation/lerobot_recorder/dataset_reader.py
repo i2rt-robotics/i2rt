@@ -10,7 +10,6 @@ few version-sensitive accessors are isolated here (like ``dataset_writer.py``).
 
 from __future__ import annotations
 
-import os
 from typing import Dict, List, Optional
 
 import numpy as np

@@ -23,6 +23,7 @@ import logging
 import os
 import tempfile
 from collections import deque
+from typing import IO, Optional
 
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 _LOCK_PATH = os.path.join(tempfile.gettempdir(), "yam_recorder.lock")
 
 
-def _acquire_singleton_lock():
+def _acquire_singleton_lock() -> Optional[IO]:
     """Hold an exclusive lock so a second recorder can't fight over the cameras.
 
     Returns the open file (keep a reference to hold the lock for the process), or
@@ -129,19 +130,19 @@ class RecorderGUI(QtWidgets.QWidget):
         # log panel (shared by both pages): recorder's important messages
         self.log_view = QtWidgets.QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(500)  # cap memory; old lines scroll off
-        self.log_view.setFixedHeight(130)
+        self.log_view.setMaximumBlockCount(2000)  # cap memory; old lines scroll off
+        self.log_view.setMinimumHeight(220)
         self.log_view.setStyleSheet(
             f"background:#0d1117;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
-            "font-family:monospace;font-size:12px;"
+            "font-family:monospace;font-size:18px;"
         )
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
         root.addWidget(self.banner)
-        root.addWidget(self.stack, 1)
-        root.addWidget(self.log_view)
+        root.addWidget(self.stack, 2)
+        root.addWidget(self.log_view, 1)
 
     def _build_setup_page(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget()
@@ -205,8 +206,9 @@ class RecorderGUI(QtWidgets.QWidget):
 
         self.health = QtWidgets.QLabel()
         self.health.setTextFormat(QtCore.Qt.RichText)
+        self.health.setStyleSheet("font-size:22px;")  # bigger health/queue strip
         self.stats = QtWidgets.QLabel("episodes 0")
-        self.stats.setStyleSheet(f"color:{theme.MUTED};")
+        self.stats.setStyleSheet(f"color:{theme.MUTED};font-size:21px;")
         self.estop_btn = QtWidgets.QPushButton("■ E-STOP")
         self.estop_btn.setObjectName("estop")
         self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:700;")
@@ -259,6 +261,9 @@ class RecorderGUI(QtWidgets.QWidget):
         rv.addWidget(self.review_lbl)
         rv.addWidget(self.review_slider)
         rv.addLayout(rb)
+        # Auto-save sessions (review_before_save: false) never use this panel — hide it
+        # and give the room to the log. It stays for review-mode sessions.
+        self.review_box.setVisible(self.cfg.review_before_save)
 
         self.hint = QtWidgets.QLabel("space toggles collection · S/F keep · D delete")
         self.hint.setStyleSheet(f"color:{theme.MUTED};")
@@ -352,7 +357,7 @@ class RecorderGUI(QtWidgets.QWidget):
             self.collect_btn.setChecked(True)
             self._on_collect()
 
-    def _confirm_overwrite(self, root: str, episodes) -> bool:
+    def _confirm_overwrite(self, root: str, episodes: Optional[int]) -> bool:
         """Two sequential confirms before deleting an existing dataset."""
         ntxt = f"{episodes} episode(s)" if episodes is not None else "existing data"
         first = QtWidgets.QMessageBox.warning(
@@ -471,12 +476,22 @@ class RecorderGUI(QtWidgets.QWidget):
     def _update_health(self, st: dict) -> None:
         cam = theme.dot(st["cam_ok"])
         rob = theme.dot(st.get("robot_ok", False))
-        q = st.get("queue", 0)
-        qcol = theme.OK if q <= 2 else theme.WARN
         disk = theme.dot(st.get("disk_ok", True))
+        w = st.get("writer") or {}
+        workers = w.get("workers", 1)
+        saved = w.get("saved", 0)
+        queued = w.get("queued", st.get("queue", 0))
+        # idle (green) vs encoding-one-now (amber ⟳, with episode + frame count) vs backlog.
+        if w.get("saving"):
+            idx, fr = w.get("saving_index"), w.get("saving_frames", 0)
+            save_txt = f'<span style="color:{theme.WARN};">⟳ encoding #{idx} ({fr} frames)</span> · queued {queued}'
+        elif queued:
+            save_txt = f'<span style="color:{theme.WARN};">● queued {queued}</span>'
+        else:
+            save_txt = f'<span style="color:{theme.OK};">● idle</span>'
         self.health.setText(
-            f"{rob} robot &nbsp;&nbsp; {cam} cameras &nbsp;&nbsp; {disk} disk &nbsp;&nbsp; "
-            f'<span style="color:{qcol};">●</span> save queue {q}'
+            f"{rob} robot &nbsp;&nbsp; {cam} cameras &nbsp;&nbsp; {disk} disk "
+            f"&nbsp;&nbsp;|&nbsp;&nbsp; writer: {workers} worker · saved {saved} · {save_txt}"
         )
 
     def _update_stats(self, st: dict) -> None:

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 
 from workstation.lerobot_recorder.config import RecorderConfig
-from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter
+from workstation.lerobot_recorder.dataset_writer import AsyncDatasetWriter, dataset_dir
 from workstation.lerobot_recorder.doctor import outcomes_by_episode, summarize_outcomes
 from workstation.lerobot_recorder.episode_gate import EV_IDLE, EV_RECORD, EV_START, EV_STOP, EpisodeGate
 
@@ -73,7 +74,9 @@ def test_async_writer_saves_each_queued_episode(tmp_path):
         w.submit([_frame() for _ in range(5)], "success", "pick")
     w.finalize()  # drains the queue
     assert w.num_episodes == 3
-    assert len((tmp_path / "outcomes.jsonl").read_text().splitlines()) == 3
+    # the dataset (and its outcomes sidecar) lives at <root>/<name>
+    sidecar = Path(dataset_dir(str(tmp_path), cfg.repo_id)) / "outcomes.jsonl"
+    assert len(sidecar.read_text().splitlines()) == 3
 
 
 def test_disk_guard_refuses_save(tmp_path):

@@ -20,7 +20,7 @@ policy:
 control:                     # overrides i2rt/serving/control_config (robot server)
   bilateral_kp: 0.0
   ramp_speed: 0.8            # one-time engage approach speed (rad/s)
-  home_speed: 0.4            # gentle homing return (rad/s)
+  home_speed: 0.8            # gentle homing return (rad/s)
   # --- engage / release gate (drives teleop_state IDLE↔ENGAGED↔HOMING, i.e. episode start/stop) ---
   engage_thr: 0.4           # gate-joint displacement (rad) to ENGAGE (lift to start)
   release_thr: 0.3          # gate-joint displacement (rad) to RELEASE → HOMING → IDLE (lower to end)
@@ -42,6 +42,12 @@ recorder:
   source: teleop             # teleop | dagger | eval
   review_before_save: false  # auto-save every engage→idle episode (no Keep/Delete hold)
   auto_arm: true             # arm collection on Start; records on the next teleop engage
+  # --- saving speed (video encoding) ---
+  # The writer is single-threaded per dataset, but the ENCODER can go faster/parallel:
+  vcodec: auto               # auto = GPU h264_nvenc here (fastest) | h264 (CPU, reliable) | libsvtav1 (slow AV1)
+  encoder_threads: 0         # threads per encode (0 = LeRobot default)
+  batch_encoding_size: 1     # >1 = encode that many episodes' videos in PARALLEL (more encoder workers)
+  # use_videos: true         # false = store raw frames (no encode; fastest save, larger on disk)
   buttons:                   # leader handle button -> episode outcome ("<side>.<index>", upper=0, lower=1)
     left.1: success          # left lower button  -> success
     right.1: fail            # right lower button -> fail

@@ -93,6 +93,11 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     buttons = rec_section.get("buttons")  # leader button -> outcome (keeps the built-in default if unset)
     if buttons:
         cfg.button_map = {str(k): str(v) for k, v in buttons.items()}
+    # video-encoding knobs (saving speed): config.yaml recorder.* overrides the defaults
+    cfg.use_videos = bool(rec_section.get("use_videos", cfg.use_videos))
+    cfg.vcodec = str(rec_section.get("vcodec", cfg.vcodec))
+    cfg.encoder_threads = int(rec_section.get("encoder_threads", cfg.encoder_threads))
+    cfg.batch_encoding_size = int(rec_section.get("batch_encoding_size", cfg.batch_encoding_size))
     return cfg
 
 

@@ -99,6 +99,9 @@ class AsyncDatasetWriter:
         self._lock = threading.Lock()
         self._n_episodes = 0  # saved episodes (incremented by the worker)
         self._n_submitted = 0
+        self._saving = False  # True while the worker is encoding/writing one episode
+        self._saving_index: Optional[int] = None  # episode index currently being saved
+        self._saving_frames = 0  # frame count of the episode currently being saved
         self.low_disk = False  # set when an episode was refused for lack of free space
 
     def _free_gb(self) -> float:
@@ -152,15 +155,36 @@ class AsyncDatasetWriter:
                 )
                 logger.info("dataset resuming at %s (%d existing episodes)", self._root, self._n_episodes)
             else:
-                self._ds = LeRobotDataset.create(
-                    repo_id=self.cfg.repo_id,
-                    fps=self.cfg.fps,
-                    features=self._features,
-                    root=self._root,
-                    robot_type=self.cfg.robot_type,
-                    use_videos=self.cfg.use_videos,
+                enc = {  # video-encoding knobs (faster codec / parallel batch encoding)
+                    "vcodec": self.cfg.vcodec,
+                    "batch_encoding_size": max(1, int(self.cfg.batch_encoding_size)),
+                }
+                if int(self.cfg.encoder_threads) > 0:
+                    enc["encoder_threads"] = int(self.cfg.encoder_threads)
+                try:
+                    self._ds = LeRobotDataset.create(
+                        repo_id=self.cfg.repo_id,
+                        fps=self.cfg.fps,
+                        features=self._features,
+                        root=self._root,
+                        robot_type=self.cfg.robot_type,
+                        use_videos=self.cfg.use_videos,
+                        **enc,
+                    )
+                except TypeError:  # older/newer LeRobot without these kwargs — fall back
+                    logger.warning("LeRobot.create() rejected encoding kwargs %s; using defaults", sorted(enc))
+                    self._ds = LeRobotDataset.create(
+                        repo_id=self.cfg.repo_id,
+                        fps=self.cfg.fps,
+                        features=self._features,
+                        root=self._root,
+                        robot_type=self.cfg.robot_type,
+                        use_videos=self.cfg.use_videos,
+                    )
+                logger.info(
+                    "dataset created at %s (repo_id=%s, vcodec=%s, batch=%s)",
+                    self._root, self.cfg.repo_id, self.cfg.vcodec, self.cfg.batch_encoding_size,
                 )
-                logger.info("dataset created at %s (repo_id=%s)", self._root, self.cfg.repo_id)
         else:
             logger.info("MOCK writer (repo_id=%s); features=%s", self.cfg.repo_id, sorted(self._features))
 
@@ -177,7 +201,35 @@ class AsyncDatasetWriter:
 
     @property
     def queue_depth(self) -> int:
+        """Episodes WAITING in the queue (not counting the one being saved)."""
         return self._queue.qsize()
+
+    @property
+    def saving(self) -> bool:
+        """True while the worker is encoding/writing an episode (qsize is 0 then)."""
+        with self._lock:
+            return self._saving
+
+    @property
+    def pending_total(self) -> int:
+        """Episodes not yet on disk: queued + the one currently being saved."""
+        with self._lock:
+            return self._queue.qsize() + (1 if self._saving else 0)
+
+    @property
+    def progress(self) -> dict:
+        """Detailed writer state for the GUI: how much is saved, what's encoding now,
+        and how much is waiting. One worker by design (a LeRobotDataset is single-writer)."""
+        with self._lock:
+            return {
+                "workers": 1,
+                "saved": self._n_episodes,
+                "submitted": self._n_submitted,
+                "saving": self._saving,
+                "saving_index": self._saving_index,
+                "saving_frames": self._saving_frames,
+                "queued": self._queue.qsize(),
+            }
 
     @property
     def num_episodes(self) -> int:
@@ -192,11 +244,19 @@ class AsyncDatasetWriter:
             except queue.Empty:
                 continue
             frames, outcome, task = item
+            with self._lock:
+                self._saving = True
+                self._saving_index = self._n_episodes
+                self._saving_frames = len(frames)
             try:
                 self._save_episode(frames, outcome, task)
             except Exception as e:
                 logger.error("episode save failed: %s", e)
             finally:
+                with self._lock:
+                    self._saving = False
+                    self._saving_index = None
+                    self._saving_frames = 0
                 self._queue.task_done()
 
     def _save_episode(self, frames: List[dict], outcome: Optional[str], task: str) -> None:
