@@ -174,6 +174,7 @@ class LinearRailController:
         self.lower_limit_triggered = False
         self._gpio_mode_set = False
         self._gpio_initialized = False  # Flag to prevent duplicate GPIO initialization
+        self._cleaned_up = False  # Idempotency guard: a 2nd cleanup() is a no-op (no port reopen)
         self._homing_event = threading.Event()
         self._homing_start_time = None
         self.homing_speed_ratio = HOMING_SPEED_RATIO
@@ -547,19 +548,38 @@ class LinearRailController:
                 raise
 
     def cleanup(self) -> None:
-        """Clean up resources"""
+        """Clean up resources, leaving the rail held (brake engaged LOW).
+
+        Idempotent: a second call returns immediately. The standalone runner closes the
+        vehicle twice (a ``finally:`` close plus an ``atexit`` close); without this guard
+        the second pass would reopen the serial port (a converter reset that briefly
+        disturbs the brake) before re-engaging. The motor stop is isolated from the brake
+        engage so a CAN error stopping the motor cannot skip the safety-critical engage.
+        """
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+
+        # Stop the rail motor (best effort). Isolated so a CAN failure here cannot
+        # prevent the brake engage below.
         try:
             self.single_motor_control_interface.set_velocity(0.0)
-            if self.initialized:
-                # Ensure GPIO mode is set before cleanup operations
-                try:
-                    self._ensure_gpio_mode()
-                    self.set_brake(engaged=True)
-                    GPIO.remove_event_detect(UPPER_LIMIT_GPIO)
-                    GPIO.remove_event_detect(LOWER_LIMIT_GPIO)
-                    GPIO.cleanup()
-                except Exception as gpio_error:
-                    logger.warning(f"GPIO cleanup error (may be expected if GPIO was not initialized): {gpio_error}")
-            logger.info("Linear rail controller cleaned up successfully")
         except Exception as e:
-            logger.error(f"Cleanup error: {e}")
+            logger.error(f"Failed to stop linear-rail motor during cleanup: {e}")
+
+        if self.initialized:
+            # Ensure GPIO mode is set before cleanup operations
+            try:
+                self._ensure_gpio_mode()
+                self.set_brake(engaged=True)  # drive brake LOW (engaged) and leave it latched
+                GPIO.remove_event_detect(UPPER_LIMIT_GPIO)
+                GPIO.remove_event_detect(LOWER_LIMIT_GPIO)
+                # Tear down ONLY the limit-switch INPUT pins. On the Pi this leaves the brake
+                # OUTPUT pin (12) driven LOW (engaged) instead of floating it; on x86 the
+                # backend ignores the pin arg, closes the port, and the converter latches the
+                # brake at its last-driven LOW level across the close.
+                GPIO.cleanup((UPPER_LIMIT_GPIO, LOWER_LIMIT_GPIO))
+            except Exception as gpio_error:
+                logger.warning(f"GPIO cleanup error (may be expected if GPIO was not initialized): {gpio_error}")
+
+        logger.info("Linear rail controller cleaned up successfully")
