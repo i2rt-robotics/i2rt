@@ -92,6 +92,11 @@ class RecorderConfig:
     # >1 accumulates that many episodes and encodes their videos in PARALLEL (LeRobot's
     # ProcessPoolExecutor) — the supported way to use more than one encoder "worker".
     batch_encoding_size: int = 1
+    # Async image writer: LeRobot writes every frame as a temp PNG BEFORE encoding the
+    # video; off by default = single-threaded and usually the slowest part of a save.
+    # ~4 threads per camera parallelizes it (0 = synchronous; processes>0 adds subprocesses).
+    image_writer_threads: int = 0
+    image_writer_processes: int = 0
     cameras: List[CameraSpec] = field(default_factory=default_cameras)
     # Robot link: the YAM robot machine running i2rt.serving.run_robot_server (portal).
     robot_host: str = "127.0.0.1"

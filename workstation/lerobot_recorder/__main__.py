@@ -98,6 +98,8 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     cfg.vcodec = str(rec_section.get("vcodec", cfg.vcodec))
     cfg.encoder_threads = int(rec_section.get("encoder_threads", cfg.encoder_threads))
     cfg.batch_encoding_size = int(rec_section.get("batch_encoding_size", cfg.batch_encoding_size))
+    cfg.image_writer_threads = int(rec_section.get("image_writer_threads", cfg.image_writer_threads))
+    cfg.image_writer_processes = int(rec_section.get("image_writer_processes", cfg.image_writer_processes))
     return cfg
 
 

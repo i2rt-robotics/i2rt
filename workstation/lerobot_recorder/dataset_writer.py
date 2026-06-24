@@ -161,6 +161,11 @@ class AsyncDatasetWriter:
                 }
                 if int(self.cfg.encoder_threads) > 0:
                     enc["encoder_threads"] = int(self.cfg.encoder_threads)
+                # Async PNG writer (parallelizes the slow pre-encode step). Only pass when
+                # enabled so older LeRobot versions without these kwargs keep working.
+                if int(self.cfg.image_writer_threads) > 0 or int(self.cfg.image_writer_processes) > 0:
+                    enc["image_writer_threads"] = int(self.cfg.image_writer_threads)
+                    enc["image_writer_processes"] = int(self.cfg.image_writer_processes)
                 try:
                     self._ds = LeRobotDataset.create(
                         repo_id=self.cfg.repo_id,
