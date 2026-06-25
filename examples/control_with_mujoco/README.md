@@ -38,12 +38,12 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam` |
-| `--gripper` | `linear_4310` | Gripper type: `linear_4310`, `linear_3507`, `crank_4310`, `yam_teaching_handle`, `no_gripper` |
+| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm` (gripper-only; cannot combine with `--gripper no_gripper`) |
+| `--gripper` | `linear_4310` | Gripper type: `linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
 | `--channel` | `can0` | CAN interface name (real hardware only) |
 | `--sim` | off | Use simulation instead of real hardware |
 | `--dt` | `0.02` | Control loop timestep in seconds |
-| `--site` | `grasp_site` | Name of the MuJoCo site used as end-effector |
+| `--site` | auto | MuJoCo site used as end-effector (auto-detected from gripper: `tcp_site` for `yam_teaching_handle`, else `grasp_site`) |
 | `--log` | off | Log joint state and torques to terminal each iteration |
 
 ## Viewer Controls (CONTROL mode)

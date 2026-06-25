@@ -23,8 +23,12 @@ sync
 
 ### 4. Eject SD card
 
-```bash eject /dev/sdX ```
+```bash
+eject /dev/sdX
+```
 
 ### 5. Reduce image size with PiShrink (optional)
 
-```bash sudo ./pishrink.sh pi_system.img pi_system_shrunk.img ```
+```bash
+sudo ./pishrink.sh pi_system.img pi_system_shrunk.img
+```

@@ -50,16 +50,17 @@ sh scripts/reset_all_can.sh
 ### Zero-gravity mode
 
 ```bash
-python i2rt/robots/motor_chain_robot.py --channel can0 --gripper_type linear_4310
+python i2rt/robots/motor_chain_robot.py --channel can0 --gripper linear_4310
 ```
 
 ### Python API
 
 ```python
-from i2rt.robots.motor_chain_robot import get_yam_robot
+from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import GripperType
 import numpy as np
 
-robot = get_yam_robot(channel="can0", gripper_type="linear_4310")
+robot = get_yam_robot(channel="can0", gripper_type=GripperType.LINEAR_4310)
 
 # Read joint positions (radians)
 q = robot.get_joint_pos()   # shape: (6,)
@@ -72,15 +73,15 @@ robot.command_joint_pos(np.zeros(6))
 
 ```bash
 # Follower arm
-python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0 --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0 --bilateral-kp 0.2
 
 # Leader arm (teaching handle)
-python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral_kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral-kp 0.2
 ```
 
 - **Top button (press once):** enable synchronisation — follower tracks leader
 - **Top button (press again):** disable synchronisation
-- `--bilateral_kp` controls resistance felt on the leader (0.1–0.2 recommended)
+- `--bilateral-kp` controls resistance felt on the leader (0.1–0.2 recommended)
 
 To inspect leader arm output:
 
