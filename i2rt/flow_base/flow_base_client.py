@@ -64,16 +64,19 @@ class FlowBaseClient:
     def get_odometry(self) -> Any:
         return self.client.get_odometry({}).result()
 
-    def get_wheel_speeds(self) -> Any:
-        """Return per-motor angular velocities (rad/s) for the 4 casters: {steer, drive}."""
-        return self.client.get_wheel_speeds({}).result()
+    def get_wheel_states(self) -> Any:
+        """Return full per-motor state for the 8 base motors, grouped {steer, drive}.
+
+        Each group has pos (rad), vel (rad/s), and eff (torque, Nm) arrays of length 4.
+        """
+        return self.client.get_wheel_states({}).result()
 
     def get_observation(self) -> Any:
-        """Return combined observation: odometry, wheel speeds, and linear rail state if enabled."""
+        """Return combined observation: odometry, wheel states, and linear rail state if enabled."""
         obs: dict[str, Any] = {"odometry": self.get_odometry()}
         if self.with_linear_rail:
             obs["linear_rail"] = self.get_linear_rail_state()
-        obs["wheel_speeds"] = self.get_wheel_speeds()
+        obs["wheel_states"] = self.get_wheel_states()
         return obs
 
     def reset_odometry(self) -> Any:
@@ -155,7 +158,7 @@ class Args:
     command: Literal[
         "get_odometry",
         "get_observation",
-        "get_wheel_speeds",
+        "get_wheel_states",
         "reset_odometry",
         "test_command",
         "test_linear_rail",
@@ -184,8 +187,8 @@ if __name__ == "__main__":
         pprint(client.get_observation(), sort_dicts=False, width=100)
         client.close()
         exit()
-    elif args.command == "get_wheel_speeds":
-        pprint(client.get_wheel_speeds(), sort_dicts=False, width=100)
+    elif args.command == "get_wheel_states":
+        pprint(client.get_wheel_states(), sort_dicts=False, width=100)
         client.close()
         exit()
     elif args.command == "reset_odometry":

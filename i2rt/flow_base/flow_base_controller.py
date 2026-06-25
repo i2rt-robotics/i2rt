@@ -518,12 +518,30 @@ class Vehicle(Robot):
             self.dx = np.zeros(self.num_dofs)
             self.dx_local = np.zeros(self.num_dofs)
 
-    def get_wheel_speeds(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        with self._lock:
-            return {
-                "steer": np.array(self.dq[0::2]),
-                "drive": np.array(self.dq[1::2]),
-            }
+    def get_wheel_states(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Full per-motor state (pos rad, vel rad/s, eff Nm) for the 8 base motors.
+
+        Reads the unified motor chain once and groups the 4 casters into steer/drive. The
+        linear rail (9th) motor, if present, is excluded here; its state is reported by
+        get_linear_rail_state.
+        """
+        motor_states = self.caster_module_controller.motor_interface.read_states()
+        num_casters = self.caster_module_controller.num_casters
+        steer = {"pos": [], "vel": [], "eff": []}
+        drive = {"pos": [], "vel": [], "eff": []}
+        for idx in range(num_casters):
+            s = motor_states[idx * 2]
+            d = motor_states[idx * 2 + 1]
+            steer["pos"].append(s.pos)
+            steer["vel"].append(s.vel)
+            steer["eff"].append(s.eff)
+            drive["pos"].append(d.pos)
+            drive["vel"].append(d.vel)
+            drive["eff"].append(d.eff)
+        return {
+            "steer": {k: np.array(v) for k, v in steer.items()},
+            "drive": {k: np.array(v) for k, v in drive.items()},
+        }
 
     def set_target_velocity(self, velocity: Any, frame: str = "local") -> None:
         self._enqueue_command(CommandType.VELOCITY, velocity, frame)
@@ -746,8 +764,9 @@ class LinearRailVehicle(Vehicle):
         if self.linear_rail is None:
             return {"error": "Linear rail not available"}
         state = self.linear_rail.get_state()
-        if "motor_state" in state:
-            state = {k: v for k, v in state.items() if k != "motor_state"}
+        motor_state = state.pop("motor_state", None)
+        if motor_state is not None:
+            state["eff"] = motor_state.eff  # rail motor torque (Nm)
         return state
 
     def set_linear_rail_velocity(self, velocity: float) -> None:
@@ -895,7 +914,7 @@ if __name__ == "__main__":
     server.bind("get_odometry", vehicle.get_odometry)
     server.bind("reset_odometry", vehicle.reset_odometry)
     server.bind("set_target_velocity", remote_command.remote_set_target_velocity)
-    server.bind("get_wheel_speeds", vehicle.get_wheel_speeds)
+    server.bind("get_wheel_states", vehicle.get_wheel_states)
 
     # Bind linear rail APIs if vehicle has linear rail
     if hasattr(vehicle, "linear_rail"):

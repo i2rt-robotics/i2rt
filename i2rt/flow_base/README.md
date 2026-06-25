@@ -136,23 +136,39 @@ python i2rt/flow_base/flow_base_client.py --command test_linear_rail --host 172.
 python i2rt/flow_base/flow_base_client.py --command get_linear_rail_state --host 172.6.2.20
 ```
 
-**Get Combined Observation** (odometry, plus linear rail when `--with-linear-rail` is set):
+**Get Combined Observation** (odometry + wheel states, plus linear rail when `--with-linear-rail` is set):
 ```bash
-# Odometry only
+# Odometry + wheel states
 python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20
 
-# Odometry + linear rail
+# Odometry + wheel states + linear rail
 python i2rt/flow_base/flow_base_client.py --command get_observation --host 172.6.2.20 --with-linear-rail
 ```
 
 **Output (with `--with-linear-rail`):**
 ```python
 {
-  'odometry':    { ... same shape as get_odometry ... },
-  'linear_rail': { ... same shape as get_linear_rail_state ... },
+  'odometry':     { ... same shape as get_odometry ... },
+  'wheel_states': { ... same shape as get_wheel_states ... },
+  'linear_rail':  { ... same shape as get_linear_rail_state ... },
 }
 ```
-Without the flag, only the `odometry` key is returned.
+Without the flag, the `linear_rail` key is omitted; `odometry` and `wheel_states` are always returned.
+
+**Get Wheel States** (per-motor pos/vel/torque for the 8 base motors):
+```bash
+python i2rt/flow_base/flow_base_client.py --command get_wheel_states --host 172.6.2.20
+```
+
+**`get_wheel_states()` output:**
+```python
+{
+  'steer': {'pos': array([..4]), 'vel': array([..4]), 'eff': array([..4])},  # rad, rad/s, Nm
+  'drive': {'pos': array([..4]), 'vel': array([..4]), 'eff': array([..4])},  # rad, rad/s, Nm
+}
+```
+`eff` is motor torque in Nm. The 4 entries per group are the casters in chain order; the linear
+rail (9th) motor is reported separately by `get_linear_rail_state()`.
 
 ### Linear Rail API (if equipped)
 
@@ -162,7 +178,7 @@ If your FlowBase has a linear rail lift module installed, you can control it via
 - `get_linear_rail_state()` - Get position, velocity, limit-switch and calibration state
 - `set_linear_rail_velocity(velocity)` - Set linear velocity in m/s (positive = up; converted to motor rad/s server-side using the calibrated `meters_per_rad`)
 - `set_target_velocity([x, y, theta, rail_vel], frame)` - Combined base + rail control (4D; `rail_vel` in m/s)
-- `get_observation()` - Returns `{odometry, linear_rail}` (the `linear_rail` key is included only when `with_linear_rail=True`)
+- `get_observation()` - Returns `{odometry, wheel_states, linear_rail}` (the `linear_rail` key is included only when `with_linear_rail=True`)
 
 Initialize with `FlowBaseClient(host="172.6.2.20", with_linear_rail=True)` to enable linear rail support.
 
@@ -176,6 +192,7 @@ hard caps `1.0 / 1.0 / π / 1.0` (values outside `(0, cap]` raise `ValueError`).
 {
   'position': {'motor': 0.314, 'linear': 0.050},   # rad, m
   'velocity': {'motor': -1.40, 'linear': -0.222},  # rad/s, m/s
+  'eff': 0.85,                                      # Nm, rail motor torque
   'upper_limit_triggered': False,
   'lower_limit_triggered': False,
   'brake_on': False,
