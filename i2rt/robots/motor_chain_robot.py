@@ -481,11 +481,9 @@ class MotorChainRobot(Robot):
             if np.max(np.abs(t)) > 25.0:
                 print([f"{s:.2f}" for s in t])
                 raise RuntimeError(f"{self}: too large torques")
-            if self._gripper_index is None:
-                return self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
-            else:
-                t = self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
-                return np.append(t, 0.0)
+            if self._gripper_index is not None:
+                t = np.append(t, 0.0)
+            return t
 
     # ----------------- Server Functions ----------------- #
 
