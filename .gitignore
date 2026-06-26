@@ -90,7 +90,7 @@ poetry.lock
 i2rt.egg-info/
 
 # Ignore temporary scripts or generated files
-scripts/temp_*/
+robot/temp_*/
 
 CLAUDE.md
 *.mjb

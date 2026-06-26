@@ -102,21 +102,21 @@
     <section id="scenarios">
       <span class="eyebrow">Start here</span>
       <h1 style="font-size:2.1rem;margin-bottom:6px;">Scenarios — what to run</h1>
-      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the <strong>portal robot server</strong>) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects over <strong>portal / plain TCP</strong>). Two launchers run the right env for you — <code>scripts/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. A single <code>config.yaml</code> at the repo root holds shared settings (robot host, camera serials, gains…), auto-discovered by every tool. Run each scenario top to bottom.</p>
+      <p class="lead">The system spans <strong>two machines</strong>: the <span class="pill real">robot</span> machine (YAM arms on CAN, runs the <strong>portal robot server</strong>) and the <span class="pill sim">workstation</span> (RealSense cameras + LeRobot, connects over <strong>portal / plain TCP</strong>). Two launchers run the right env for you — <code>robot/yam</code> on the robot, <code>workstation/yam-data</code> on the workstation. A single <code>config.yaml</code> at the repo root holds shared settings (robot host, camera serials, gains…), auto-discovered by every tool. Run each scenario top to bottom.</p>
 
       <div class="callout tip">
         <div class="callout-title">Legend</div>
-        <p><span class="pill real">robot</span> = run on the YAM machine (uv-managed; <code>scripts/yam</code> uses <code>uv run</code>, nothing to activate) · <span class="pill sim">workstation</span> = run on the data machine (conda env <code>yam_ws</code>). Both on the same LAN — the robot address is <code>robot.host</code> in <code>config.yaml</code>.</p>
+        <p><span class="pill real">robot</span> = run on the YAM machine (uv-managed; <code>robot/yam</code> uses <code>uv run</code>, nothing to activate) · <span class="pill sim">workstation</span> = run on the data machine (conda env <code>yam_ws</code>). Both on the same LAN — the robot address is <code>robot.host</code> in <code>config.yaml</code>.</p>
       </div>
 
       <h3 id="sc-setup">One-time setup</h3>
-      <p><span class="pill real">robot</span> — persistent CAN names (no env to activate; <code>scripts/yam</code> resolves it via <code>uv run</code>):</p>
+      <p><span class="pill real">robot</span> — persistent CAN names (no env to activate; <code>robot/yam</code> resolves it via <code>uv run</code>):</p>
       <span class="code-label">bash · robot</span>
-<pre><code>sh scripts/setup_robot_env.sh      # optional: pre-create the uv env + install
-sh scripts/setup_can_ids.sh        # plug 4 adapters one-by-one → fixed names</code></pre>
+<pre><code>sh robot/setup_robot_env.sh      # optional: pre-create the uv env + install
+sh robot/setup_can_ids.sh        # plug 4 adapters one-by-one → fixed names</code></pre>
       <p><span class="pill sim">workstation</span> — conda env + uv (so you can also <code>pip install</code> other policy repos into it):</p>
       <span class="code-label">bash · workstation</span>
-<pre><code>sh scripts/setup_workstation_env.sh   # conda create yam_ws + uv pip install + udev rules
+<pre><code>sh workstation/setup_workstation_env.sh   # conda create yam_ws + uv pip install + udev rules
 conda activate yam_ws
 workstation/yam-data cams             # list RealSense serials</code></pre>
       <p>Then edit <code>config.yaml</code> at the repo root — at least the camera serials and <code>robot.host</code>:</p>
@@ -126,15 +126,15 @@ cameras: {agentview: "&lt;D455&gt;", wrist_left: "&lt;D405&gt;", wrist_right: "&
 
       <h3 id="sc-teleop">A · Bimanual teleop only (no recording)</h3>
       <span class="code-label">bash · robot</span>
-<pre><code>scripts/yam canup                          # bring up the 4 CAN interfaces (after boot)
-scripts/yam teleop --bilateral-kp 0.15
+<pre><code>robot/yam canup                          # bring up the 4 CAN interfaces (after boot)
+robot/yam teleop --bilateral-kp 0.15
 # lift both gellos to engage; bring both home to stop &amp; auto-return.</code></pre>
 
       <h3 id="sc-collect">B · Data collection (teleop + LeRobot recorder) — main flow</h3>
       <p><strong>1.</strong> <span class="pill real">robot</span> — start the teleop server (serves state / action / gate over portal):</p>
       <span class="code-label">bash · robot</span>
-<pre><code>scripts/yam canup
-scripts/yam teleop --bilateral-kp 0.15</code></pre>
+<pre><code>robot/yam canup
+robot/yam teleop --bilateral-kp 0.15</code></pre>
       <p><strong>2.</strong> <span class="pill sim">workstation</span> — start the recorder GUI (host + serials come from <code>config.yaml</code>):</p>
       <span class="code-label">bash · workstation</span>
 <pre><code>workstation/yam-data record --repo-id user/yam_pick</code></pre>
@@ -158,7 +158,7 @@ scripts/yam teleop --bilateral-kp 0.15</code></pre>
       <h3 id="sc-dagger">C · Deployment / DAgger (policy + human takeover)</h3>
       <p><strong>1.</strong> <span class="pill real">robot</span> dagger server · <strong>2.</strong> <span class="pill sim">policy</span> a websocket policy server · <strong>3.</strong> <span class="pill sim">workstation</span> the bridge that joins them:</p>
       <span class="code-label">bash</span>
-<pre><code>scripts/yam dagger --mirror-kp 0.2 --feedback-kp 0.1     # robot
+<pre><code>robot/yam dagger --mirror-kp 0.2 --feedback-kp 0.1     # robot
 python -m yam_policy.serve                               # policy host (:8000)
 workstation/yam-data bridge --prompt "pick up the cube"  # workstation (reads config.yaml)
 # press a handle button (or RobotClient.set_intervention) to take over; release to hand back.</code></pre>
@@ -166,8 +166,8 @@ workstation/yam-data bridge --prompt "pick up the cube"  # workstation (reads co
       <h3 id="sc-replay">D · Replay a dataset onto the robot</h3>
       <p><strong>1.</strong> <span class="pill real">robot</span> — run the wrapper server so it tracks the streamed targets:</p>
       <span class="code-label">bash · robot</span>
-<pre><code>scripts/yam canup
-scripts/yam wrapper</code></pre>
+<pre><code>robot/yam canup
+robot/yam wrapper</code></pre>
       <p><strong>2.</strong> <span class="pill sim">workstation</span> — open the replay GUI, then <strong>Load → pick episode → (tick "Overlay live" to match the scene) → tick "Send to robot" → Play</strong> (it ramps to the first frame, then streams each frame's action over portal):</p>
       <span class="code-label">bash · workstation</span>
 <pre><code>workstation/yam-data replay --repo-id user/yam_pick</code></pre>
@@ -256,7 +256,7 @@ scripts/yam wrapper</code></pre>
 
       <div class="layer-stack">
         <div class="layer purple">
-          <div class="l-tag">User / Examples layer — examples/, scripts/</div>
+          <div class="l-tag">User / Examples layer — examples/, robot/</div>
           <h4>Teleoperation · trajectory record · visualization demos</h4>
           <p>minimum_gello, bimanual_lead_follower, record_replay_trajectory, control_with_mujoco/viser …</p>
         </div>
@@ -314,7 +314,7 @@ DMChainCanInterface  ── pack an MIT frame per motor → send over CAN (250 H
           <tr><td><code>i2rt/utils/</code></td><td>MuJoCo utils, MuJoCo/Viser control interfaces, encoders, gamepad</td></tr>
           <tr><td><code>i2rt/flow_base/</code></td><td>Mobile-base controller, network client, linear rail</td></tr>
           <tr><td><code>examples/</code></td><td>Runnable demo scripts, each with its own README</td></tr>
-          <tr><td><code>scripts/</code></td><td>Leader-arm runner, encoder reader, CAN reset, etc.</td></tr>
+          <tr><td><code>robot/</code></td><td>Leader-arm runner, encoder reader, CAN reset, etc.</td></tr>
           <tr><td><code>devices/</code></td><td>udev rules, boot auto-config, Raspberry Pi setup</td></tr>
           <tr><td><code>docs/guides/</code></td><td>Guides such as setting persistent CAN IDs</td></tr>
         </tbody>
@@ -378,9 +378,9 @@ sudo ip link set can0 up type can bitrate 1000000
 sudo sh devices/install_devices.sh
 
 # Reset an unresponsive adapter
-sh scripts/reset_all_can.sh</code></pre>
+sh robot/reset_all_can.sh</code></pre>
 
-      <p><code>scripts/reset_all_can.sh</code> brings every <code>can*</code> interface down and back up at 1&nbsp;Mbit/s. With multiple adapters, device names can shuffle depending on plug order; to pin stable names, follow the serial-based udev setup in <code>docs/guides/set-persistent-can-ids.md</code> (e.g. <code>can_follower_l</code>, <code>can_leader_r</code>). CAN interface names are <strong>at most 13 characters</strong> and must start with <code>can</code>.</p>
+      <p><code>robot/reset_all_can.sh</code> brings every <code>can*</code> interface down and back up at 1&nbsp;Mbit/s. With multiple adapters, device names can shuffle depending on plug order; to pin stable names, follow the serial-based udev setup in <code>docs/guides/set-persistent-can-ids.md</code> (e.g. <code>can_follower_l</code>, <code>can_leader_r</code>). CAN interface names are <strong>at most 13 characters</strong> and must start with <code>can</code>.</p>
     </section>
 
     <!-- ===================== MOTORS ===================== -->
@@ -860,7 +860,7 @@ python examples/minimum_gello/minimum_gello.py \
       </ul>
       <p>If you pass <code>get_same_bus_device_driver=get_encoder_chain</code> when creating the motor chain, the control thread reads encoder state alongside motor state and exposes it via <code>motor_chain.get_same_bus_device_states()</code>. The returned <code>PassiveEncoderInfo</code> holds position, velocity, and <code>io_inputs</code> (button) bits.</p>
 
-      <span class="code-label">python — quickly read just the encoder (scripts/read_encoder.py)</span>
+      <span class="code-label">python — quickly read just the encoder (robot/read_encoder.py)</span>
 <pre><code>can_interface = CanInterface(channel=args.channel)
 encoder_chain = get_encoder_chain(can_interface)
 while True:
@@ -941,7 +941,7 @@ client.reset_odometry()</code></pre>
       </div>
 
       <h3 id="serving-teleop">Robot server modes — <code>i2rt.serving.run_robot_server</code></h3>
-      <p>The robot runs one of three modes (launch with <code>scripts/yam &lt;mode&gt;</code>, which uses <code>uv run</code> — nothing to activate; add <code>--sim</code> for no hardware). The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; each mode reads the rig and serves a snapshot over portal.</p>
+      <p>The robot runs one of three modes (launch with <code>robot/yam &lt;mode&gt;</code>, which uses <code>uv run</code> — nothing to activate; add <code>--sim</code> for no hardware). The real-time 250&nbsp;Hz motor loop stays inside <code>MotorChainRobot</code>; each mode reads the rig and serves a snapshot over portal.</p>
       <div class="table-wrap">
       <table>
         <thead><tr><th>Mode</th><th>What it does</th></tr></thead>
@@ -953,9 +953,9 @@ client.reset_odometry()</code></pre>
       </table>
       </div>
       <span class="code-label">bash · robot</span>
-<pre><code>scripts/yam teleop --bilateral-kp 0.15      # auto-reads config.yaml
-scripts/yam dagger --mirror-kp 0.2
-scripts/yam wrapper                          # replay target</code></pre>
+<pre><code>robot/yam teleop --bilateral-kp 0.15      # auto-reads config.yaml
+robot/yam dagger --mirror-kp 0.2
+robot/yam wrapper                          # replay target</code></pre>
       <p><strong>Teleop auto-gate (both arms together, no button):</strong> <code>HOMING</code> → robot &amp; gellos ramp home; <code>IDLE</code> → at home, gellos free; <strong>lift both</strong> past <code>--engage-thr</code> → <code>ENGAGED</code> (followers track directly via their own PD gains, no lag); bring both home for <code>--dwell</code>s → back to <code>HOMING</code>. The exact rate-limited command sent is the recorded <code>action</code>, so episodes reproduce precisely. Only the one-time engage approach + the (gentler) homing return are ramped (<code>--ramp-speed</code> / <code>--home-speed</code>).</p>
       <div class="callout tip">
         <div class="callout-title">Bilateral engage — no leader yank</div>
@@ -967,7 +967,7 @@ scripts/yam wrapper                          # replay target</code></pre>
       <p>Policies run in their <strong>own unconstrained env</strong> (any Python / CUDA, even a remote GPU box) behind an <strong>openpi-compatible websocket server</strong>; the workstation <strong>bridge</strong> joins the two links — it reads the robot snapshot + cameras, builds an openpi obs dict, queries the policy (prefetching the next action chunk to hide latency), and sends the result to the robot.</p>
       <span class="code-label">bash</span>
 <pre><code>python -m yam_policy.serve --policy &lt;module&gt;:&lt;Class&gt; --config k=v   # policy host (:8000)
-scripts/yam dagger                                                # robot
+robot/yam dagger                                                # robot
 workstation/yam-data bridge --prompt "pick up the cube"          # workstation</code></pre>
       <p>The bridge auto-configures the action horizon and image keys from the server's metadata, so a real openpi checkpoint drops in unchanged. Add your own policy by subclassing <code>BasePolicy.infer(obs)→{"actions": (H, D)}</code> (see <code>policy_serving/</code> with dummy / openpi / lerobot templates).</p>
 
@@ -1018,7 +1018,7 @@ workstation/yam-data bridge --prompt "pick up the cube"          # workstation</
         </tbody>
       </table>
       </div>
-      <p>Each example folder has its own <code>README.md</code> with detailed CLI args and usage. In <code>scripts/</code> you'll find <code>run_yam_leader.py</code> (run the leader standalone), <code>run_gello_with_passive_encoder.py</code> (encoder integration demo), and <code>read_encoder.py</code>.</p>
+      <p>Each example folder has its own <code>README.md</code> with detailed CLI args and usage. In <code>robot/</code> you'll find <code>run_yam_leader.py</code> (run the leader standalone), <code>run_gello_with_passive_encoder.py</code> (encoder integration demo), and <code>read_encoder.py</code>.</p>
     </section>
 
     <!-- ===================== DEVICES ===================== -->

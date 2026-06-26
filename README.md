@@ -13,7 +13,107 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 - Bimanual teleoperation and trajectory record & replay
 - Policy-deployment ready — works with standard robot learning pipelines
 
-## Installation
+## 🚀 Quick Start — what to run
+
+The YAM setup spans **two machines** on the same LAN:
+
+- 🤖 **robot** — the YAM arms on CAN; runs the **portal robot server**. uv-managed, so `robot/yam` uses `uv run` and there is **nothing to activate**.
+- 💻 **workstation** — RealSense cameras + LeRobot; connects to the robot over **portal / plain TCP**. Lives in a conda env (`yam_ws`).
+
+Two launchers run the right env for you — **`robot/yam`** on the robot, **`workstation/yam-data`** on the workstation. One **`config.yaml`** at the repo root holds the shared settings (robot host, camera serials, control gains, recorder defaults) and is auto-discovered by every tool — no `--config`, no env var, regardless of directory.
+
+### 0 · One-time setup
+
+```bash
+# 🤖 robot — create the uv env (optional; robot/yam auto-resolves it) + fix CAN names
+sh robot/setup_robot_env.sh        # optional: pre-create .venv + install i2rt
+sh robot/setup_can_ids.sh          # plug the 4 CAN adapters one-by-one -> persistent names (once)
+```
+
+```bash
+# 💻 workstation — conda env yam_ws + uv installs (you can pip-install other policy repos into it)
+sh workstation/setup_workstation_env.sh   # conda create yam_ws + uv pip install + RealSense udev
+conda activate yam_ws
+workstation/yam-data cams                 # list connected RealSense serials
+```
+
+Then edit [`config.yaml`](config.yaml) at the repo root — at minimum the robot address and camera serials:
+
+```yaml
+robot:   { host: 192.168.0.42, port: 11331 }
+cameras: { agentview: "<D455>", wrist_left: "<D405>", wrist_right: "<D405>" }
+```
+
+### A · Bimanual teleop only (no recording)
+
+```bash
+# 🤖 robot
+robot/yam canup                       # bring up the 4 CAN interfaces (after each boot)
+robot/yam teleop --bilateral-kp 0.15
+# lift both gellos to engage; bring both home to stop & auto-return.
+```
+
+### B · Data collection (teleop + LeRobot recorder) — the main flow
+
+```bash
+# 🤖 robot — teleop server (serves state / action / engage-gate over portal)
+robot/yam canup
+robot/yam teleop --bilateral-kp 0.15
+```
+
+```bash
+# 💻 workstation — recorder GUI (host + serials come from config.yaml)
+workstation/yam-data record --repo-id user/yam_pick
+```
+
+The recorder opens on a **Setup page**:
+
+1. Confirm `repo_id` / `root` / `task` and the **source** (teleop / dagger / eval). The dataset is written to `<root>/<name>`, where *name* is the last segment of `repo_id` (e.g. `~/lerobot_data` + `hello/pick_and_place` → `~/lerobot_data/pick_and_place`). The status line shows the cameras detected and whether that dataset already exists.
+2. To add to an existing dataset, tick **Continue collecting** (resume/append). Otherwise **START** creates it fresh — and if the folder exists it asks twice before overwriting.
+3. **START** connects the robot, opens cameras + dataset, and (with `auto_arm: true`) arms collection immediately.
+
+Then teleoperate — **lift both gellos** to start recording, **bring both home** to end the episode:
+
+- With `review_before_save: true` the episode is held for **Keep** / **Delete**. With `false` it **auto-saves** on each engage→idle.
+- **Leader handle buttons** end and label in one press (set in `config.yaml` under `recorder.buttons`, keyed `<side>.<index>`). Default: left lower → **success**, right lower → **fail**, either upper → **discard** (force-home, no save).
+- Close the window when done (calls `finalize()` so the dataset is complete). Cameras run on their own capture thread, so the live view and saving never stall on a slow frame.
+
+> **Dry run (no hardware):** `workstation/yam-data record --mock` exercises the whole pipeline with synthetic teleop + fake frames — no robot, cameras, or lerobot needed.
+
+### C · Deployment / DAgger (policy + human takeover)
+
+```bash
+robot/yam dagger --mirror-kp 0.2 --feedback-kp 0.1      # 🤖 robot
+python -m yam_policy.serve                               # 🧠 policy host (:8000)
+workstation/yam-data bridge --prompt "pick up the cube"  # 💻 workstation (reads config.yaml)
+# press a handle button (or RobotClient.set_intervention) to take over; release to hand back.
+```
+
+### D · Replay a dataset onto the robot
+
+```bash
+# 🤖 robot — wrapper server tracks the streamed targets
+robot/yam canup
+robot/yam wrapper
+```
+
+```bash
+# 💻 workstation — open the replay GUI, then:
+#   Load -> pick episode -> (tick "Overlay live") -> tick "Send to robot" -> Play
+workstation/yam-data replay --repo-id user/yam_pick
+```
+
+> Full hardware bring-up checklist: [`docs/hardware-checklist.md`](docs/hardware-checklist.md).
+
+---
+
+# 📚 Library & API Reference
+
+Everything below documents using **i2rt as a Python library** — driving motors over CAN, grippers, kinematics, the Flow Base, and the serving stack.
+
+> **Running the YAM teleop / recording rig?** The [Quick Start](#-quick-start--what-to-run) above is all you need — its setup scripts (`robot/setup_robot_env.sh`, `workstation/setup_workstation_env.sh`) already create the envs and install everything. The manual install below is only for using i2rt standalone as a library.
+
+## Installation (manual / standalone library)
 
 ```bash
 git clone https://github.com/i2rt-robotics/i2rt.git && cd i2rt
@@ -42,7 +142,7 @@ sudo ip link set can0 up type can bitrate 1000000
 sudo sh devices/install_devices.sh
 
 # Reset unresponsive adapter
-sh scripts/reset_all_can.sh
+sh robot/reset_all_can.sh
 ```
 
 ## YAM Arm
@@ -86,7 +186,7 @@ python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --m
 To inspect leader arm output:
 
 ```bash
-python scripts/run_yam_leader.py --channel $CAN_CHANNEL
+python robot/run_yam_leader.py --channel $CAN_CHANNEL
 ```
 
 ### MuJoCo visualiser
@@ -136,13 +236,13 @@ inference is a separate **websocket** link (openpi-compatible). Bimanual by defa
 (2 leaders + 2 followers).
 
 ```bash
-source .venv/bin/activate                       # robot env (uv; scripts/setup_robot_env.sh)
+source .venv/bin/activate                       # robot env (uv; robot/setup_robot_env.sh)
 python -m i2rt.serving.run_robot_server teleop  --sim   # auto home/engage teleop
 python -m i2rt.serving.run_robot_server dagger  --sim   # HG-DAgger: policy + button takeover
 python -m i2rt.serving.run_robot_server wrapper --sim   # followers track an external command
 
 # …or the shortcut launcher (activates the env for you):
-scripts/yam teleop --sim                        # also: dagger / wrapper / can / canup
+robot/yam teleop --sim                        # also: dagger / wrapper / can / canup
 ```
 
 Targets are rate-limited and gravity compensation is always on, so policy↔human
@@ -164,8 +264,8 @@ defaults, tasks, and the policy endpoint. Every tool auto-discovers `<repo>/conf
 (no env var, no matter the directory); no `--config` needed. Precedence:
 **CLI flag > `config.yaml` > default**.
 
-**Envs**: the **robot** is uv-managed — `scripts/yam …` uses `uv run`, nothing to
-activate. The **workstation** is a **conda** env (`scripts/setup_workstation_env.sh`)
+**Envs**: the **robot** is uv-managed — `robot/yam …` uses `uv run`, nothing to
+activate. The **workstation** is a **conda** env (`workstation/setup_workstation_env.sh`)
 with this repo installed via uv, so you can `pip install` other policy repos into the
 same env. The **policy server** env is unconstrained (its own conda/uv).
 

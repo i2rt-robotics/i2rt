@@ -12,15 +12,15 @@ Transports: robot↔workstation = **portal** (TCP, default `:11331`); workstatio
 ## 0. Environments (one-time)
 
 ```bash
-# [robot]   uv-managed; scripts/yam uses `uv run` (no activation needed)
-sh scripts/setup_robot_env.sh                       # optional pre-create + verify
+# [robot]   uv-managed; robot/yam uses `uv run` (no activation needed)
+sh robot/setup_robot_env.sh                       # optional pre-create + verify
 # [ws]      conda env + uv installs
-sh scripts/setup_workstation_env.sh && conda activate yam_ws
+sh workstation/setup_workstation_env.sh && conda activate yam_ws
 # [policy]  (any host/GPU)
 sh policy_serving/setup_policy_env.sh && source policy_serving/.venv/bin/activate
 ```
 - [ ] Workstation env imports cleanly (`python -c "import i2rt, yam_policy, lerobot, pyrealsense2"`).
-- [ ] Robot: `scripts/yam teleop --sim` boots (uv resolves the env on first run).
+- [ ] Robot: `robot/yam teleop --sim` boots (uv resolves the env on first run).
 - [ ] Edit the tracked `config.yaml` at the **repo root** (serials + robot.host); every
       tool auto-finds it — no `--config`, no env var, regardless of directory.
 
@@ -28,8 +28,8 @@ sh policy_serving/setup_policy_env.sh && source policy_serving/.venv/bin/activat
 
 ```bash
 # [robot]
-sh scripts/setup_can_ids.sh           # persistent names (once)
-scripts/yam canup                      # bring up at 1 Mbit/s (each boot)
+sh robot/setup_can_ids.sh           # persistent names (once)
+robot/yam canup                      # bring up at 1 Mbit/s (each boot)
 # [ws]
 workstation/yam-data cams              # list RealSense serials
 ```
@@ -42,7 +42,7 @@ workstation/yam-data cams              # list RealSense serials
 
 ```bash
 # [robot]
-scripts/yam teleop --bilateral-kp 0.0
+robot/yam teleop --bilateral-kp 0.0
 # [ws]
 python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host='<ROBOT_IP>'); print(c.metadata); print(sorted(c.get_observation()))"
 ```
@@ -51,7 +51,7 @@ python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host
 ## 3. Teleop gate (auto engage/home)
 
 ```bash
-# [robot]  scripts/yam teleop --bilateral-kp 0.0
+# [robot]  robot/yam teleop --bilateral-kp 0.0
 ```
 - [ ] Lift both leaders → state goes **ENGAGED**, followers track.
 - [ ] Return leaders home → **HOMING → IDLE**, robot eases home.
@@ -59,14 +59,14 @@ python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host
 ## 4. Bilateral engage — leader stays put
 
 ```bash
-# [robot]  scripts/yam teleop --bilateral-kp 0.15
+# [robot]  robot/yam teleop --bilateral-kp 0.15
 ```
 - [ ] With followers at home and **leaders lifted**, press engage: the **leader is NOT yanked toward home**. Leader stays free until the follower catches up, then you feel bilateral force.
 
 ## 5. Gentle homing speed
 
 ```bash
-# [robot]  scripts/yam teleop --bilateral-kp 0.15 --home-speed 0.4
+# [robot]  robot/yam teleop --bilateral-kp 0.15 --home-speed 0.4
 ```
 - [ ] Homing return is smooth/slow (raise/lower `--home-speed` to taste; engage approach uses `--ramp-speed 0.8`).
 
@@ -81,7 +81,7 @@ python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host
 ## 7. Data collection (recorder)
 
 ```bash
-# [robot]  scripts/yam teleop --bilateral-kp 0.15
+# [robot]  robot/yam teleop --bilateral-kp 0.15
 # [ws]
 workstation/yam-data record --robot-host <ROBOT_IP> \
     --repo-id user/yam_pick --root ~/lerobot_data \
@@ -114,7 +114,7 @@ cat ~/lerobot_data/outcomes.jsonl
 ## 9. Safety: watchdog + e-stop
 
 ```bash
-# [robot]  scripts/yam wrapper
+# [robot]  robot/yam wrapper
 # [ws]
 python -c "from i2rt.serving.robot_client import RobotClient; import numpy as np,time; c=RobotClient(host='<ROBOT_IP>'); c.command({'left':np.zeros(7),'right':np.zeros(7)}); print('sent')"
 ```
@@ -129,7 +129,7 @@ python -c "from i2rt.serving.robot_client import RobotClient; import numpy as np
 ```bash
 # [policy]  smoke test with the zero-model "hold" policy:
 python -m yam_policy.serve            # :8000
-# [robot]  scripts/yam dagger --mirror-kp 0.2
+# [robot]  robot/yam dagger --mirror-kp 0.2
 # [ws]
 workstation/yam-data bridge --robot-host <ROBOT_IP> --policy-host <POLICY_IP> \
     --serials <wl>,<wr>,<agent> --prompt "do the task"
@@ -141,7 +141,7 @@ workstation/yam-data bridge --robot-host <ROBOT_IP> --policy-host <POLICY_IP> \
 ## 11. HG-DAgger collection
 
 ```bash
-# [robot]  scripts/yam dagger --mirror-kp 0.2   (+ policy server + bridge as above)
+# [robot]  robot/yam dagger --mirror-kp 0.2   (+ policy server + bridge as above)
 # [ws]
 workstation/yam-data record --source dagger --robot-host <ROBOT_IP> \
     --repo-id user/yam_dagger --serials <wl>,<wr>,<agent>
@@ -160,7 +160,7 @@ workstation/yam-data record --source eval --robot-host <ROBOT_IP> \
 ## 13. Replay + scene overlay
 
 ```bash
-# [robot]  scripts/yam wrapper
+# [robot]  robot/yam wrapper
 # [ws]
 workstation/yam-data replay --robot-host <ROBOT_IP> --repo-id user/yam_pick --root ~/lerobot_data
 ```
@@ -177,6 +177,6 @@ Verified in sim (FK populates obs; IK round-trip holds). Confirm on hardware:
 python -c "from i2rt.serving.robot_client import RobotClient; c=RobotClient(host='<ROBOT_IP>'); print(c.get_observation()['left'].get('eef'))"
 ```
 - [ ] `observation.eef` is a 7-vector `[x,y,z,qw,qx,qy,qz]` that **moves sensibly** as you move the arm (and is recorded as `observation.eef(14)` in datasets).
-- [ ] **Safe OSC**: `scripts/yam wrapper --control eef`, then from the workstation send an EE-pose target via `RobotClient.command({"left": pose7, "right": pose7})`. The arm should track the target smoothly (resolved-rate IK → joint impedance + smoother), **no jump near singularities**. Start with small offsets from the current pose (get it from the snapshot's `eef`).
+- [ ] **Safe OSC**: `robot/yam wrapper --control eef`, then from the workstation send an EE-pose target via `RobotClient.command({"left": pose7, "right": pose7})`. The arm should track the target smoothly (resolved-rate IK → joint impedance + smoother), **no jump near singularities**. Start with small offsets from the current pose (get it from the snapshot's `eef`).
 - [ ] Confirm the IK site is correct for your gripper (default `grasp_site`; teaching handle uses `tcp_site`). If poses look off, set the site in `i2rt/serving/eef.py` (`ArmKinematics(..., site=...)`).
 - Note: torque-level OSC (`Jᵀ·F`) is intentionally not the default (singularity safety); ask if you want it as an opt-in since the motors are in MIT/torque mode.

@@ -3,7 +3,7 @@
 # regardless of directory). Just edit the values below. `--config <path>` can point
 # elsewhere for a one-off. Precedence: CLI flag > this file > built-in default.
 #
-#   scripts/yam teleop            # auto-reads <repo>/config.yaml
+#   robot/yam teleop            # auto-reads <repo>/config.yaml
 #   workstation/yam-data record   # same
 #
 # Fill in at least: cameras.* serials and robot.host (workstation -> robot IP).
@@ -46,7 +46,9 @@ recorder:
   # The writer is single-threaded per dataset, but the ENCODER can go faster/parallel:
   vcodec: auto               # auto = GPU h264_nvenc here (fastest) | h264 (CPU, reliable) | libsvtav1 (slow AV1)
   encoder_threads: 0         # threads per encode (0 = LeRobot default)
-  batch_encoding_size: 4     # >1 = encode that many episodes' videos in PARALLEL (more encoder workers)
+  batch_encoding_size: 1     # 1 = encode each episode to video immediately (recommended w/ GPU).
+                             # >1 batches/parallelizes encoding but keeps episodes as PNGs until the
+                             # batch fills; the writer flushes leftovers on close so none are lost.
   # async PNG writer — the slow pre-encode step; parallelize it (LeRobot advises ~4 threads/camera):
   image_writer_threads: 12   # 0 = synchronous (single-threaded, slow); 12 = 4 x 3 cameras
   image_writer_processes: 0  # >0 = also use subprocesses if threads alone aren't enough

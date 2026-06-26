@@ -89,7 +89,7 @@ skip-magic-trailing-comma = false
 python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_configs = true
-exclude = ["scripts/"]
+exclude = ["robot/"]
 
 [tool.coverage.report]
 exclude_also = [

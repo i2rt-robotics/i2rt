@@ -3,7 +3,7 @@
 Load a dataset, pick an episode, and Play — the frames are shown and (if "Send to
 robot" is on) each frame's action is sent to the YAM wrapper server (over portal)
 so the robot follows the dataset. The robot side must be running
-``scripts/yam wrapper``.
+``robot/yam wrapper``.
 """
 
 from __future__ import annotations

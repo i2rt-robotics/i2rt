@@ -4,7 +4,7 @@
     python -m workstation.lerobot_recorder.replay_main --mock      # synthetic dataset, no robot/lerobot
 
 With "Send to robot" enabled, the robot side must run the wrapper server:
-    scripts/yam wrapper
+    robot/yam wrapper
 """
 
 from __future__ import annotations

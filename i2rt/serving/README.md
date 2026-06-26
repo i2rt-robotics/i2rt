@@ -26,12 +26,12 @@ DEPLOYMENT
 ## Robot side
 
 ```bash
-source .venv/bin/activate        # robot env (uv; see scripts/setup_robot_env.sh)
+source .venv/bin/activate        # robot env (uv; see robot/setup_robot_env.sh)
 
-scripts/yam teleop  --bilateral-kp 0.15     # auto home/engage bimanual teleop
-scripts/yam dagger  --mirror-kp 0.2         # HG-DAgger: policy drives, button takeover
-scripts/yam wrapper                          # followers track an external command (replay)
-scripts/yam teleop  --sim                    # no hardware
+robot/yam teleop  --bilateral-kp 0.15     # auto home/engage bimanual teleop
+robot/yam dagger  --mirror-kp 0.2         # HG-DAgger: policy drives, button takeover
+robot/yam wrapper                          # followers track an external command (replay)
+robot/yam teleop  --sim                    # no hardware
 ```
 
 Each launches `python -m i2rt.serving.run_robot_server <mode>` (portal port

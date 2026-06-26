@@ -310,8 +310,25 @@ class AsyncDatasetWriter:
         if self._worker is not None:
             self._worker.join(timeout=600.0)
         if not self._mock and self._ds is not None and self._n_episodes > 0:
+            self._flush_pending_batch()
             try:
                 self._ds.finalize()
                 logger.info("dataset finalized (parquet/metadata closed)")
             except Exception as e:
                 logger.error("dataset finalize failed: %s", e)
+
+    def _flush_pending_batch(self) -> None:
+        """With batch_encoding_size > 1, LeRobot defers video encoding and its finalize()
+        does NOT flush the trailing (< batch) episodes — they'd stay as temp PNGs and the
+        dataset would be part-video/part-images. Encode that remainder here before closing."""
+        ds = self._ds
+        pending = int(getattr(ds, "episodes_since_last_encoding", 0) or 0)
+        if pending <= 0 or not hasattr(ds, "_batch_save_episode_video"):
+            return
+        try:
+            end = int(ds.num_episodes)
+            ds._batch_save_episode_video(end - pending, end)
+            ds.episodes_since_last_encoding = 0
+            logger.info("flushed %d trailing episode(s) to video before finalize", pending)
+        except Exception as e:
+            logger.error("could not flush pending batch encode (%d episodes): %s", pending, e)

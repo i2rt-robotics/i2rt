@@ -25,32 +25,32 @@ STATE_COLORS = {
 }
 
 QSS = f"""
-* {{ font-family: -apple-system, "Segoe UI", "Noto Sans", sans-serif; font-size: 20px; }}
+* {{ font-family: -apple-system, "Segoe UI", "Noto Sans", sans-serif; font-size: 26px; }}
 QWidget {{ background: {BG}; color: {TEXT}; }}
-QGroupBox {{ background: {PANEL}; border: 1px solid #30363d; border-radius: 10px; margin-top: 18px; padding: 14px; }}
+QGroupBox {{ background: {PANEL}; border: 1px solid #30363d; border-radius: 10px; margin-top: 20px; padding: 16px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 4px; color: {MUTED}; }}
 QLabel {{ background: transparent; }}
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {{
-    background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; color: {TEXT}; font-size: 20px;
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px; color: {TEXT}; font-size: 26px;
 }}
-QComboBox::drop-down {{ border: 0; width: 28px; }}
+QComboBox::drop-down {{ border: 0; width: 32px; }}
 QComboBox QAbstractItemView {{ background: {PANEL}; border: 1px solid #30363d; selection-background-color: {ACCENT}; }}
 QPushButton {{
-    background: #21262d; border: 1px solid #30363d; border-radius: 8px; padding: 13px 22px; color: {TEXT}; font-size: 20px;
+    background: #21262d; border: 1px solid #30363d; border-radius: 8px; padding: 16px 26px; color: {TEXT}; font-size: 26px;
 }}
 QPushButton:hover {{ border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: #30363d; }}
 QPushButton:disabled {{ color: #484f58; }}
 QPushButton:checked {{ background: {OK}; border-color: {OK}; color: white; }}
-QPushButton#start {{ background: {ACCENT}; border-color: {ACCENT}; color: white; font-size: 28px; font-weight: 700; padding: 18px 32px; }}
+QPushButton#start {{ background: {ACCENT}; border-color: {ACCENT}; color: white; font-size: 40px; font-weight: 700; padding: 22px 40px; }}
 QPushButton#start:hover {{ background: #6cb1ff; }}
-QPushButton#estop {{ font-size: 20px; font-weight: 700; }}
-QCheckBox {{ spacing: 8px; font-size: 20px; }}
+QPushButton#estop {{ font-size: 26px; font-weight: 700; }}
+QCheckBox {{ spacing: 10px; font-size: 26px; }}
 """
 
 
 def banner_style(color: str) -> str:
-    return f"background: {color}; color: white; border-radius: 10px; padding: 14px; font-size: 30px; font-weight: 600;"
+    return f"background: {color}; color: white; border-radius: 10px; padding: 16px; font-size: 44px; font-weight: 600;"
 
 
 def dot(ok: bool) -> str:

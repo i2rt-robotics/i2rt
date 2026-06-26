@@ -5,15 +5,15 @@
 # Uses `uv run` from the repo, so there is NOTHING to source/activate — uv resolves
 # (and on first run creates) the project environment automatically.
 #
-#   scripts/yam teleop  [args]   # auto home/engage bimanual teleop
-#   scripts/yam dagger  [args]   # HG-DAgger: policy drives, button takeover
-#   scripts/yam wrapper [args]   # followers track an external command (replay target)
-#   scripts/yam can              # interactive persistent CAN-id setup
-#   scripts/yam canup            # reset/bring up CAN interfaces at 1 Mbit/s
+#   robot/yam teleop  [args]   # auto home/engage bimanual teleop
+#   robot/yam dagger  [args]   # HG-DAgger: policy drives, button takeover
+#   robot/yam wrapper [args]   # followers track an external command (replay target)
+#   robot/yam can              # interactive persistent CAN-id setup
+#   robot/yam canup            # reset/bring up CAN interfaces at 1 Mbit/s
 #
 # Examples:
-#   scripts/yam teleop --sim
-#   scripts/yam teleop --bilateral-kp 0.15 --home 0,0,0,0,0,0
+#   robot/yam teleop --sim
+#   robot/yam teleop --bilateral-kp 0.15 --home 0,0,0,0,0,0
 #
 # If you'd rather use an already-activated env (conda/venv), set YAM_NO_UV=1 and the
 # launcher calls plain `python` instead of `uv run`.
@@ -36,8 +36,8 @@ case "$cmd" in
     teleop)  run i2rt.serving.run_robot_server teleop  "$@" ;;
     dagger)  run i2rt.serving.run_robot_server dagger  "$@" ;;
     wrapper) run i2rt.serving.run_robot_server wrapper "$@" ;;
-    can)     exec sh "$REPO/scripts/setup_can_ids.sh" "$@" ;;
-    canup)   exec sh "$REPO/scripts/reset_all_can.sh" "$@" ;;
+    can)     exec sh "$REPO/robot/setup_can_ids.sh" "$@" ;;
+    canup)   exec sh "$REPO/robot/reset_all_can.sh" "$@" ;;
     *)
         echo "usage: yam {teleop|dagger|wrapper|can|canup} [args]" >&2
         exit 2

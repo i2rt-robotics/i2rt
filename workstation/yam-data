@@ -24,7 +24,7 @@ if command -v conda >/dev/null 2>&1; then
     CONDA_BASE="$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")"
     # shellcheck disable=SC1091
     source "$CONDA_BASE/etc/profile.d/conda.sh"
-    conda activate "$ENV" 2>/dev/null || echo "yam-data: conda env '$ENV' not found (see scripts/setup_workstation_env.sh)" >&2
+    conda activate "$ENV" 2>/dev/null || echo "yam-data: conda env '$ENV' not found (see workstation/setup_workstation_env.sh)" >&2
 elif [ -n "${LEROBOT_ENV:-}" ] && [ -f "$LEROBOT_ENV/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "$LEROBOT_ENV/bin/activate"

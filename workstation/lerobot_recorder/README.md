@@ -60,11 +60,11 @@ Recorded at **60 fps** (matched to the cameras). Uses the official v3.0 API
 ### [robot machine] — YAM robot server (uv; nothing to activate)
 
 ```bash
-sh scripts/setup_robot_env.sh            # optional: pre-create .venv + install i2rt
-sh scripts/setup_can_ids.sh              # persistent CAN names (once)
+sh robot/setup_robot_env.sh            # optional: pre-create .venv + install i2rt
+sh robot/setup_can_ids.sh              # persistent CAN names (once)
 ```
 
-You don't need to activate anything — `scripts/yam` uses **`uv run`**, which resolves
+You don't need to activate anything — `robot/yam` uses **`uv run`**, which resolves
 (and on first run creates) the env automatically. Already inside a conda/venv? set
 `YAM_NO_UV=1` and it uses plain `python`.
 
@@ -74,7 +74,7 @@ conda owns the env (so you can also `pip install` other policy repos into it); u
 does the fast installs for this repo:
 
 ```bash
-sh scripts/setup_workstation_env.sh       # conda create yam_ws + uv pip install + udev rules
+sh workstation/setup_workstation_env.sh       # conda create yam_ws + uv pip install + udev rules
 conda activate yam_ws
 ```
 
@@ -134,8 +134,8 @@ component runs locally).
 
 ```bash
 # [robot]
-scripts/yam canup                 # bring up the 4 CAN interfaces (after boot)
-scripts/yam teleop --bilateral-kp 0.15
+robot/yam canup                 # bring up the 4 CAN interfaces (after boot)
+robot/yam teleop --bilateral-kp 0.15
 # lift both gellos to engage; bring both home to stop & auto-return.
 ```
 
@@ -143,8 +143,8 @@ scripts/yam teleop --bilateral-kp 0.15
 
 ```bash
 # 1. [robot]   start the teleop server (serves state/action/gate over portal)
-scripts/yam canup
-scripts/yam teleop --bilateral-kp 0.15
+robot/yam canup
+robot/yam teleop --bilateral-kp 0.15
 
 # 2. [workstation]   start the recorder GUI
 workstation/yam-data record \
@@ -181,8 +181,8 @@ workstation/yam-data record --mock
 
 ```bash
 # 1. [robot]    dagger server (policy drives followers; handle button = takeover)
-scripts/yam canup
-scripts/yam dagger --mirror-kp 0.2
+robot/yam canup
+robot/yam dagger --mirror-kp 0.2
 
 # 2. [policy]   serve your policy (own env; openpi-compatible websocket)
 #               see policy_serving/README.md
@@ -212,8 +212,8 @@ This closes the loop: train → deploy (bridge) → intervene → collect → re
 
 ```bash
 # 1. [robot]   wrapper server so the followers track an external command
-scripts/yam canup
-scripts/yam wrapper
+robot/yam canup
+robot/yam wrapper
 
 # 2. [workstation]   open the replay GUI
 workstation/yam-data replay --robot-host <ROBOT_IP> --repo-id user/yam_pick --root ~/lerobot_data

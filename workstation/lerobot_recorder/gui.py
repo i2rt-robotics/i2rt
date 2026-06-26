@@ -134,7 +134,7 @@ class RecorderGUI(QtWidgets.QWidget):
         self.log_view.setMinimumHeight(220)
         self.log_view.setStyleSheet(
             f"background:#0d1117;border:1px solid #30363d;border-radius:6px;color:{theme.MUTED};"
-            "font-family:monospace;font-size:18px;"
+            "font-family:monospace;font-size:23px;"
         )
 
         root = QtWidgets.QVBoxLayout(self)
@@ -206,9 +206,9 @@ class RecorderGUI(QtWidgets.QWidget):
 
         self.health = QtWidgets.QLabel()
         self.health.setTextFormat(QtCore.Qt.RichText)
-        self.health.setStyleSheet("font-size:22px;")  # bigger health/queue strip
+        self.health.setStyleSheet("font-size:28px;")  # bigger health/queue strip
         self.stats = QtWidgets.QLabel("episodes 0")
-        self.stats.setStyleSheet(f"color:{theme.MUTED};font-size:21px;")
+        self.stats.setStyleSheet(f"color:{theme.MUTED};font-size:26px;")
         self.estop_btn = QtWidgets.QPushButton("■ E-STOP")
         self.estop_btn.setObjectName("estop")
         self.estop_btn.setStyleSheet(f"background:{theme.BAD};color:white;font-weight:700;")
