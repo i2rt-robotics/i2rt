@@ -42,6 +42,10 @@ recorder:
   source: teleop             # teleop | dagger | eval
   format: lerobot            # lerobot (LeRobotDataset) | abcdl (abcdl MP4+binary cache; needs the `abcdl` pkg)
   # abcdl_size: 224          # square px cameras are resized to for the abcdl format
+  # --- per-frame RL signals (stored as dataset features; preserved across resume) ---
+  rl_features: false         # add per-frame success / reward / mc_return from the episode outcome
+  reward_mode: sparse        # sparse (0/+1 at success) | step (-1/step, 0 at success)
+  discount_factor: 0.99      # γ for the Monte-Carlo return-to-go (mc_return)
   review_before_save: false  # auto-save every engage→idle episode (no Keep/Delete hold)
   auto_arm: true             # arm collection on Start; records on the next teleop engage
   # --- saving speed (video encoding) ---

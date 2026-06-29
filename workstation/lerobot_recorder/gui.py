@@ -172,12 +172,32 @@ class RecorderGUI(QtWidgets.QWidget):
         self.resume_check = QtWidgets.QCheckBox("Continue collecting (append to the existing dataset)")
         self.resume_check.setChecked(self.cfg.resume)
         self.resume_check.toggled.connect(lambda *_: self._update_setup_status())
+        self.resume_check.toggled.connect(self._sync_rl_enabled)
+
+        # Per-frame RL signals (success / reward / mc_return). On resume these are
+        # inherited from the existing dataset's rl_config.json, so the controls are
+        # disabled to make clear the original scheme is preserved.
+        self.rl_check = QtWidgets.QCheckBox("Per-frame RL signals (success / reward / mc_return)")
+        self.rl_check.setChecked(bool(getattr(self.cfg, "rl_features", False)))
+        self.reward_combo = QtWidgets.QComboBox()
+        self.reward_combo.addItems(["sparse", "step"])
+        ridx = self.reward_combo.findText(getattr(self.cfg, "reward_mode", "sparse"))
+        self.reward_combo.setCurrentIndex(ridx if ridx >= 0 else 0)
+        self.discount_spin = QtWidgets.QDoubleSpinBox()
+        self.discount_spin.setRange(0.0, 1.0)
+        self.discount_spin.setSingleStep(0.01)
+        self.discount_spin.setDecimals(3)
+        self.discount_spin.setValue(float(getattr(self.cfg, "discount_factor", 0.99)))
 
         form.addRow("repo_id", self.repo_edit)
         form.addRow("root", self.root_edit)
         form.addRow("task", self.task_combo)
         form.addRow("source", self.source_combo)
         form.addRow("", self.resume_check)
+        form.addRow("", self.rl_check)
+        form.addRow("reward", self.reward_combo)
+        form.addRow("discount γ", self.discount_spin)
+        self._sync_rl_enabled()
 
         self.setup_status = QtWidgets.QLabel()
         self.setup_status.setTextFormat(QtCore.Qt.RichText)
@@ -306,6 +326,13 @@ class RecorderGUI(QtWidgets.QWidget):
         self.setup_status.setText(cam_txt + "<br>" + ds_txt)
 
     # ------------------------------------------------------------------ actions
+    def _sync_rl_enabled(self) -> None:
+        """On resume the RL scheme is inherited from the dataset, so grey out the
+        controls to signal they won't change the existing dataset."""
+        resuming = self.resume_check.isChecked()
+        for w in (self.rl_check, self.reward_combo, self.discount_spin):
+            w.setEnabled(not resuming)
+
     def _on_start(self) -> None:
         cfg = self.cfg
         cfg.repo_id = self.repo_edit.text().strip()
@@ -313,6 +340,9 @@ class RecorderGUI(QtWidgets.QWidget):
         cfg.task = self.task_combo.currentText().strip()
         cfg.record_source = self.source_combo.currentText().strip()
         cfg.resume = self.resume_check.isChecked()
+        cfg.rl_features = self.rl_check.isChecked()
+        cfg.reward_mode = self.reward_combo.currentText().strip()
+        cfg.discount_factor = float(self.discount_spin.value())
 
         # Single-instance guard: two recorders fighting over the cameras causes the
         # flapping/freeze, so refuse to start a second one with a clear message.

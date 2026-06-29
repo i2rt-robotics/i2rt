@@ -143,11 +143,60 @@ class AsyncDatasetWriter:
                 continue
             vec = np.asarray(val, dtype=np.float32).reshape(-1)
             feats[key] = {"dtype": "float32", "shape": (vec.size,), "names": self._vector_names(key, vec.size)}
+        if getattr(self.cfg, "rl_features", False):
+            for key in ("success", "reward", "mc_return"):  # per-frame RL signals
+                feats[key] = {"dtype": "float32", "shape": (1,), "names": None}
         return feats
+
+    # ------------------------------------------------------- RL per-frame features
+    def _rl_config_path(self) -> str:
+        return os.path.join(self._root, "rl_config.json")
+
+    def _read_rl_config_on_resume(self) -> None:
+        """Continuing an existing dataset must reuse its reward scheme — load the
+        sidecar and override the (possibly different) current config."""
+        path = self._rl_config_path()
+        if self.cfg.resume and os.path.exists(path):
+            try:
+                rc = json.load(open(path))
+                self.cfg.rl_features = bool(rc.get("rl_features", self.cfg.rl_features))
+                self.cfg.reward_mode = str(rc.get("reward_mode", self.cfg.reward_mode))
+                self.cfg.discount_factor = float(rc.get("discount_factor", self.cfg.discount_factor))
+                logger.info("resume: inheriting RL settings %s", rc)
+            except Exception as e:
+                logger.error("could not read rl_config.json on resume: %s", e)
+
+    def _write_rl_config_once(self) -> None:
+        """Persist the reward scheme next to the dataset so resume can inherit it."""
+        path = self._rl_config_path()
+        if os.path.exists(path):
+            return
+        try:
+            os.makedirs(self._root, exist_ok=True)
+            json.dump({"rl_features": bool(getattr(self.cfg, "rl_features", False)),
+                       "reward_mode": getattr(self.cfg, "reward_mode", "sparse"),
+                       "discount_factor": float(getattr(self.cfg, "discount_factor", 0.99))},
+                      open(path, "w"), indent=2)
+        except Exception as e:
+            logger.error("could not write rl_config.json: %s", e)
+
+    def _frame_features(self, n_frames: int, outcome: Optional[str]) -> Optional[dict]:
+        """Per-frame success/reward/mc_return for one episode, or None when disabled."""
+        if not getattr(self.cfg, "rl_features", False):
+            return None
+        from abcdl.rewards import compute_frame_features
+        return compute_frame_features(
+            n_frames, success=(outcome == "success"),
+            mode=getattr(self.cfg, "reward_mode", "sparse"),
+            discount=float(getattr(self.cfg, "discount_factor", 0.99)),
+        )
 
     # ------------------------------------------------------------------ lifecycle
     def open(self, sample_frame: dict) -> None:
         """Open the dataset using ``sample_frame`` to derive the feature schema."""
+        # On resume, inherit the dataset's original RL settings so the per-frame
+        # reward/return scheme stays consistent across a continued collection.
+        self._read_rl_config_on_resume()
         self._features = self._build_features(sample_frame)
         if self._abcdl:
             os.makedirs(self._root, exist_ok=True)
@@ -289,26 +338,33 @@ class AsyncDatasetWriter:
             logger.warning("LOW DISK: %.1f GB free (< %s GB) — episode NOT saved", free, self.cfg.min_free_gb)
             return
         self.low_disk = False
+        # Per-frame RL signals from the episode outcome (None when disabled).
+        ff = self._frame_features(len(frames), outcome)
         if not self._mock:
             if self._abcdl:
-                self._save_episode_abcdl(frames, task, self._n_episodes)
+                self._save_episode_abcdl(frames, task, self._n_episodes, ff)
             else:
-                for f in frames:
+                for i, f in enumerate(frames):
                     frame = {f"observation.images.{k}": v for k, v in f["images"].items()}
                     for key, val in f.items():
                         if key in ("images", "task"):
                             continue
                         frame[key] = np.asarray(val, dtype=np.float32)
+                    if ff:
+                        for k, v in ff.items():
+                            frame[k] = np.asarray([v[i]], dtype=np.float32)
                     frame["task"] = task
                     self._ds.add_frame(frame)
                 self._ds.save_episode()
+        self._write_rl_config_once()
         with self._lock:
             episode_index = self._n_episodes
             self._n_episodes += 1
         self._record_outcome(episode_index, outcome, task, len(frames))
         logger.info("saved episode #%d (%d frames, outcome=%s)", episode_index, len(frames), outcome)
 
-    def _save_episode_abcdl(self, frames: List[dict], task: str, ep_index: int) -> None:
+    def _save_episode_abcdl(self, frames: List[dict], task: str, ep_index: int,
+                            frame_features: Optional[dict] = None) -> None:
         """Write one episode as an abcdl dir via abcdl.EpisodeWriter (images square-resized)."""
         import cv2
 
@@ -326,7 +382,7 @@ class AsyncDatasetWriter:
             }
             w.add_frame(i * tick, np.asarray(f["observation.state"], np.float64),
                         np.asarray(f["action"], np.float64), imgs)
-        w.save(task=task)
+        w.save(task=task, frame_features=frame_features)
 
     def _record_outcome(self, episode_index: int, outcome: Optional[str], task: str, n_frames: int) -> None:
         entry = {

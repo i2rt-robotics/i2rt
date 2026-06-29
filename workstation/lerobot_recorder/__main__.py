@@ -96,6 +96,10 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     # output format: "lerobot" (default) or "abcdl" (abcdl MP4+binary training cache)
     cfg.record_format = str(rec_section.get("format", rec_section.get("record_format", cfg.record_format)))
     cfg.abcdl_size = int(rec_section.get("abcdl_size", cfg.abcdl_size))
+    # per-frame RL signals (success / reward / mc_return)
+    cfg.rl_features = bool(rec_section.get("rl_features", cfg.rl_features))
+    cfg.reward_mode = str(rec_section.get("reward_mode", cfg.reward_mode))
+    cfg.discount_factor = float(rec_section.get("discount_factor", cfg.discount_factor))
     # video-encoding knobs (saving speed): config.yaml recorder.* overrides the defaults
     cfg.use_videos = bool(rec_section.get("use_videos", cfg.use_videos))
     cfg.vcodec = str(rec_section.get("vcodec", cfg.vcodec))
