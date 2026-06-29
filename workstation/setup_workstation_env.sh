@@ -43,6 +43,11 @@ uv pip install -e .                                   # uv targets the active co
 uv pip install -e policy_serving
 uv pip install -r workstation/lerobot_recorder/requirements.txt
 
+# Optional: abcdl data layer (recorder `format: abcdl` + per-frame RL signals). Pulled
+# from GitHub; skip-on-failure so a network hiccup doesn't break the core setup.
+echo "[setup] abcdl data layer (optional; for format: abcdl + rl_features) ..."
+uv pip install -e '.[abcdl]' || echo "  (abcdl skipped; only needed for abcdl format / rl_features)"
+
 echo "[setup] RealSense udev rules (USB permissions) ..."
 if [ ! -e /etc/udev/rules.d/99-realsense-libusb.rules ]; then
     git clone --depth 1 https://github.com/IntelRealSense/librealsense.git /tmp/librealsense 2>/dev/null || true

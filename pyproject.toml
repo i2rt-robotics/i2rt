@@ -33,6 +33,12 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+# Optional: the abcdl data layer (https://github.com/jellyho/abcdl_RLLAB). Only needed
+# for the recorder's `format: abcdl` backend and the per-frame RL signals (rl_features);
+# the default LeRobot collection works without it. Install: pip install -e '.[abcdl]'
+abcdl = [
+    "abcdl @ git+https://github.com/jellyho/abcdl_RLLAB",
+]
 
 [tool.flit.module]
 name = "i2rt"

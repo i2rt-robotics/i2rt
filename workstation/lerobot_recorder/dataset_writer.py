@@ -184,7 +184,10 @@ class AsyncDatasetWriter:
         """Per-frame success/reward/mc_return for one episode, or None when disabled."""
         if not getattr(self.cfg, "rl_features", False):
             return None
-        from abcdl.rewards import compute_frame_features
+        try:
+            from abcdl.rewards import compute_frame_features
+        except ImportError as e:
+            raise RuntimeError("rl_features needs the abcdl package — pip install -e '.[abcdl]'") from e
         return compute_frame_features(
             n_frames, success=(outcome == "success"),
             mode=getattr(self.cfg, "reward_mode", "sparse"),
@@ -368,7 +371,10 @@ class AsyncDatasetWriter:
         """Write one episode as an abcdl dir via abcdl.EpisodeWriter (images square-resized)."""
         import cv2
 
-        from abcdl.writer import EpisodeWriter
+        try:
+            from abcdl.writer import EpisodeWriter
+        except ImportError as e:
+            raise RuntimeError("format: abcdl needs the abcdl package — pip install -e '.[abcdl]'") from e
 
         size = int(getattr(self.cfg, "abcdl_size", 224))
         out_dir = os.path.join(self._root, f"episode_{ep_index:06d}")
