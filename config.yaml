@@ -40,6 +40,8 @@ recorder:
   fps: 60
   min_free_gb: 1.0
   source: teleop             # teleop | dagger | eval
+  format: lerobot            # lerobot (LeRobotDataset) | abcdl (abcdl MP4+binary cache; needs the `abcdl` pkg)
+  # abcdl_size: 224          # square px cameras are resized to for the abcdl format
   review_before_save: false  # auto-save every engage→idle episode (no Keep/Delete hold)
   auto_arm: true             # arm collection on Start; records on the next teleop engage
   # --- saving speed (video encoding) ---

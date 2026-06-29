@@ -93,6 +93,9 @@ def build_config(argv: Optional[List[str]] = None) -> RecorderConfig:
     buttons = rec_section.get("buttons")  # leader button -> outcome (keeps the built-in default if unset)
     if buttons:
         cfg.button_map = {str(k): str(v) for k, v in buttons.items()}
+    # output format: "lerobot" (default) or "abcdl" (abcdl MP4+binary training cache)
+    cfg.record_format = str(rec_section.get("format", rec_section.get("record_format", cfg.record_format)))
+    cfg.abcdl_size = int(rec_section.get("abcdl_size", cfg.abcdl_size))
     # video-encoding knobs (saving speed): config.yaml recorder.* overrides the defaults
     cfg.use_videos = bool(rec_section.get("use_videos", cfg.use_videos))
     cfg.vcodec = str(rec_section.get("vcodec", cfg.vcodec))

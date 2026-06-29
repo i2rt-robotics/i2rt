@@ -87,6 +87,9 @@ class AsyncDatasetWriter:
         self.image_keys = image_keys
         self.image_shapes = image_shapes
         self._mock = cfg.mock
+        # Output format: "lerobot" (LeRobotDataset) or "abcdl" (the abcdl MP4+binary
+        # training cache; one episode dir per submit, written via abcdl.EpisodeWriter).
+        self._abcdl = str(getattr(cfg, "record_format", "lerobot")).lower() == "abcdl"
         self._ds = None
         self._features: Optional[dict] = None
         # The dataset lives in <root>/<name>; root is just the parent directory.
@@ -146,6 +149,21 @@ class AsyncDatasetWriter:
     def open(self, sample_frame: dict) -> None:
         """Open the dataset using ``sample_frame`` to derive the feature schema."""
         self._features = self._build_features(sample_frame)
+        if self._abcdl:
+            os.makedirs(self._root, exist_ok=True)
+            if self.cfg.resume and os.path.isdir(self._root):
+                self._n_episodes = sum(
+                    1 for d in os.listdir(self._root)
+                    if d.startswith("episode_")
+                    and os.path.exists(os.path.join(self._root, d, "states_actions.bin"))
+                )
+                logger.info("abcdl dataset resuming at %s (%d episodes)", self._root, self._n_episodes)
+            else:
+                logger.info("abcdl dataset at %s (format=abcdl, size=%d)",
+                            self._root, int(getattr(self.cfg, "abcdl_size", 224)))
+            self._worker = threading.Thread(target=self._run, daemon=True)
+            self._worker.start()
+            return
         if not self._mock:
             LeRobotDataset = _import_lerobot_dataset()
             if self.cfg.resume and os.path.isdir(self._root):
@@ -272,20 +290,43 @@ class AsyncDatasetWriter:
             return
         self.low_disk = False
         if not self._mock:
-            for f in frames:
-                frame = {f"observation.images.{k}": v for k, v in f["images"].items()}
-                for key, val in f.items():
-                    if key in ("images", "task"):
-                        continue
-                    frame[key] = np.asarray(val, dtype=np.float32)
-                frame["task"] = task
-                self._ds.add_frame(frame)
-            self._ds.save_episode()
+            if self._abcdl:
+                self._save_episode_abcdl(frames, task, self._n_episodes)
+            else:
+                for f in frames:
+                    frame = {f"observation.images.{k}": v for k, v in f["images"].items()}
+                    for key, val in f.items():
+                        if key in ("images", "task"):
+                            continue
+                        frame[key] = np.asarray(val, dtype=np.float32)
+                    frame["task"] = task
+                    self._ds.add_frame(frame)
+                self._ds.save_episode()
         with self._lock:
             episode_index = self._n_episodes
             self._n_episodes += 1
         self._record_outcome(episode_index, outcome, task, len(frames))
         logger.info("saved episode #%d (%d frames, outcome=%s)", episode_index, len(frames), outcome)
+
+    def _save_episode_abcdl(self, frames: List[dict], task: str, ep_index: int) -> None:
+        """Write one episode as an abcdl dir via abcdl.EpisodeWriter (images square-resized)."""
+        import cv2
+
+        from abcdl.writer import EpisodeWriter
+
+        size = int(getattr(self.cfg, "abcdl_size", 224))
+        out_dir = os.path.join(self._root, f"episode_{ep_index:06d}")
+        tick = int(1e9 / max(1, int(self.cfg.fps)))
+        w = EpisodeWriter(out_dir, formats=("abcdl",), fps=int(self.cfg.fps),
+                          cameras=list(self.image_keys))
+        for i, f in enumerate(frames):
+            imgs = {
+                k: cv2.resize(np.asarray(v), (size, size), interpolation=cv2.INTER_AREA)
+                for k, v in f["images"].items()
+            }
+            w.add_frame(i * tick, np.asarray(f["observation.state"], np.float64),
+                        np.asarray(f["action"], np.float64), imgs)
+        w.save(task=task)
 
     def _record_outcome(self, episode_index: int, outcome: Optional[str], task: str, n_frames: int) -> None:
         entry = {
