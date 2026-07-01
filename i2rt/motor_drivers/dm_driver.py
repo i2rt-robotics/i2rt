@@ -384,6 +384,7 @@ class DMChainCanInterface(MotorChain):
         use_buffered_reader: bool = False,  # buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader
         report_interval: float = REPORT_INTERVAL,
         control_freq: float = CONTROL_FREQ,  # Control loop frequency (Hz), used for the CAN bandwidth check
+        enable_auto_recovery: bool = False,  # if True, try to clean+re-enable errored motors in the control loop instead of failing fast
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -401,6 +402,9 @@ class DMChainCanInterface(MotorChain):
         self.motor_offset = np.array(motor_offset, dtype=float)
         self.motor_direction = np.array(motor_direction)
         self.channel = channel
+        # Read live each control-loop iteration; must be set before _motor_on()/start_thread() since
+        # some callers (e.g. _get_gripper_only_robot) start the thread inside this constructor.
+        self.enable_auto_recovery = enable_auto_recovery
         logging.info(f"Channel: {channel}, Bitrate: {bitrate}")
         if "can" in channel:
             self.motor_interface = DMSingleMotorCanInterface(
@@ -578,29 +582,25 @@ class DMChainCanInterface(MotorChain):
                         try:
                             motor_feedback = self._set_commands(self.commands)
                         except RuntimeError as e:
-                            if "Motor error detected" in str(e):
+                            if self.enable_auto_recovery and "Motor error detected" in str(e):
                                 logging.warning(f"Motor error in control loop, attempting recovery: {e}")
-                                recovered = self._try_recover_motors()
-                                if recovered:
+                                if self._try_recover_motors():
                                     logging.warning("Motor recovery successful, continuing control loop")
                                     continue
-                                else:
-                                    self.running = False
-                                    raise
+                                self.running = False
+                                raise
                             raise
 
                         errors = np.array([motor_feedback[i].error_code != "0x1" for i in range(len(motor_feedback))])
                         if np.any(errors):
-                            logging.warning(f"Motor errors detected in feedback: {errors}")
-                            recovered = self._try_recover_motors(motor_feedback)
-                            if recovered:
-                                logging.warning("Motor recovery successful, continuing control loop")
-                                continue
+                            if self.enable_auto_recovery:
+                                logging.warning(f"Motor errors detected in feedback: {errors}, attempting recovery")
+                                if self._try_recover_motors(motor_feedback):
+                                    logging.warning("Motor recovery successful, continuing control loop")
+                                    continue
                             self.running = False
                             logging.error(f"motor errors: {errors}")
-                            raise Exception(
-                                "motors have unrecoverable errors after recovery attempts, stopping control loop"
-                            )
+                            raise Exception(f"motor errors detected: {errors}, stopping control loop")
 
                     with self.state_lock:
                         self.state = motor_feedback
