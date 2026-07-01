@@ -93,6 +93,7 @@ class MotorChainRobot(Robot):
         pinned_cpu: int | None = None,
         joint_state_saver_factory: Optional[Callable[[], Any]] = None,
         set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
+        enable_auto_recovery: Optional[bool] = None,  # None: inherit motor_chain's setting; True/False: override it
     ) -> None:
         # Set up CPU pinning and real-time scheduling if requested
         if pinned_cpu is not None and set_realtime_and_pin_callback is not None:
@@ -138,6 +139,10 @@ class MotorChainRobot(Robot):
         assert clip_motor_torque >= 0.0
         self._clip_motor_torque = clip_motor_torque
         self.motor_chain = motor_chain
+        # None means inherit whatever the chain was constructed with; an explicit value overrides it.
+        # The chain reads this flag live each control-loop iteration, so a late set is safe.
+        if enable_auto_recovery is not None:
+            self.motor_chain.enable_auto_recovery = enable_auto_recovery
         self.use_gravity_comp = use_gravity_comp
         self.gravity_comp_factor = (
             gravity_comp_factor if gravity_comp_factor is not None else np.ones(len(motor_chain))
@@ -303,6 +308,7 @@ class MotorChainRobot(Robot):
             "gripper_limits": self._gripper_limits,
             "gravity_comp_factor": self.gravity_comp_factor,
             "gripper_index": self._gripper_index,
+            "enable_auto_recovery": getattr(self.motor_chain, "enable_auto_recovery", False),
         }
         if self._gripper_index is not None:
             info["limit_gripper_effort"] = self._limit_gripper_force
