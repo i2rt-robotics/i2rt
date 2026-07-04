@@ -1,20 +1,54 @@
-import argparse
 import sys
 import threading
 import time
-from typing import Any
+from dataclasses import dataclass
+from pprint import pprint
+from typing import Any, Literal
 
 import numpy as np
 import portal
+import tyro
 
 from i2rt.flow_base.flow_base_controller import BASE_DEFAULT_PORT
 
+# Hard caps for the client-side velocity limits (validated at init).
+# x, y, z are linear m/s; theta is rad/s. Min is the symmetric negative of each max.
+MAX_VEL_X_CAP = 1.0  # m/s
+MAX_VEL_Y_CAP = 1.0  # m/s
+MAX_VEL_THETA_CAP = np.pi  # rad/s
+MAX_VEL_Z_CAP = 1.0  # m/s (linear rail)
+
+# Defaults applied when the caller does not specify a limit.
+DEFAULT_MAX_VEL_X = 0.5  # m/s
+DEFAULT_MAX_VEL_Y = 0.5  # m/s
+DEFAULT_MAX_VEL_THETA = np.pi / 2  # rad/s
+DEFAULT_MAX_VEL_Z = 0.5  # m/s
+
 
 class FlowBaseClient:
-    def __init__(self, host: str = "localhost", with_linear_rail: bool = False):
+    def __init__(
+        self,
+        host: str = "localhost",
+        with_linear_rail: bool = False,
+        max_vel_x: float = DEFAULT_MAX_VEL_X,
+        max_vel_y: float = DEFAULT_MAX_VEL_Y,
+        max_vel_theta: float = DEFAULT_MAX_VEL_THETA,
+        max_vel_z: float = DEFAULT_MAX_VEL_Z,
+    ):
+        for name, value, cap in (
+            ("max_vel_x", max_vel_x, MAX_VEL_X_CAP),
+            ("max_vel_y", max_vel_y, MAX_VEL_Y_CAP),
+            ("max_vel_theta", max_vel_theta, MAX_VEL_THETA_CAP),
+            ("max_vel_z", max_vel_z, MAX_VEL_Z_CAP),
+        ):
+            if not 0.0 < value <= cap:
+                raise ValueError(f"{name}={value} must be in (0, {cap}]")
+
         self.with_linear_rail = with_linear_rail
-        self.client = portal.Client(f"{host}:{BASE_DEFAULT_PORT}")
         self.num_dofs = 3 if not self.with_linear_rail else 4
+        # Per-axis symmetric clip magnitudes for [x, y, theta(, z)] commands.
+        self._max_vel = np.array([max_vel_x, max_vel_y, max_vel_theta, max_vel_z][: self.num_dofs])
+        self.client = portal.Client(f"{host}:{BASE_DEFAULT_PORT}")
         self.command = {"target_velocity": np.zeros(self.num_dofs), "frame": "local"}
         self._lock = threading.Lock()
         self.running = True
@@ -30,6 +64,21 @@ class FlowBaseClient:
     def get_odometry(self) -> Any:
         return self.client.get_odometry({}).result()
 
+    def get_wheel_states(self) -> Any:
+        """Return full per-motor state for the 8 base motors, grouped {steer, drive}.
+
+        Each group has pos (rad), vel (rad/s), and eff (torque, Nm) arrays of length 4.
+        """
+        return self.client.get_wheel_states({}).result()
+
+    def get_observation(self) -> Any:
+        """Return combined observation: odometry, wheel states, and linear rail state if enabled."""
+        obs: dict[str, Any] = {"odometry": self.get_odometry()}
+        if self.with_linear_rail:
+            obs["linear_rail"] = self.get_linear_rail_state()
+        obs["wheel_states"] = self.get_wheel_states()
+        return obs
+
     def reset_odometry(self) -> Any:
         return self.client.reset_odometry({}).result()
 
@@ -37,11 +86,15 @@ class FlowBaseClient:
         """Set target velocity for base and optionally linear rail.
 
         Args:
-            target_velocity: [x, y, theta] or [x, y, theta, linear_rail_vel]
+            target_velocity: [x, y, theta] or [x, y, theta, linear_rail_vel]. x, y and
+                linear_rail_vel are in m/s, theta in rad/s. Each axis is clipped to
+                ±max_vel_* client-side.
             frame: "local" or "global"
         """
         assert target_velocity.shape == (self.num_dofs,), f"Target velocity must have shape ({self.num_dofs},)"
         assert frame in ["local", "global"], "Frame must be either local or global"
+
+        target_velocity = np.clip(target_velocity, -self._max_vel, self._max_vel)
 
         with self._lock:
             self.command["target_velocity"] = target_velocity
@@ -57,10 +110,12 @@ class FlowBaseClient:
         """Set the velocity of the linear rail.
 
         Args:
-            velocity (float): Target velocity in rad/s
+            velocity (float): Target linear velocity in m/s (positive = up). Clipped to
+                ±max_vel_z client-side; converted to motor rad/s server-side.
         """
         if not self.with_linear_rail:
             raise ValueError("Linear rail not enabled. Initialize FlowBaseClient with with_linear_rail=True")
+        velocity = float(np.clip(velocity, -self._max_vel[3], self._max_vel[3]))
         with self._lock:
             if len(self.command["target_velocity"]) < 4:
                 self.command["target_velocity"] = np.append(self.command["target_velocity"], 0.0)
@@ -73,21 +128,67 @@ class FlowBaseClient:
             self._thread.join(timeout=1.0)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", type=str, default="localhost")
-    parser.add_argument("--command", type=str, default="get_odometry")
-    parser.add_argument("--with-linear-rail", action="store_true", help="Enable linear rail support")
-    args = parser.parse_args()
+def _format_rail_state(rail_state: dict) -> str:
+    """Format a one-line summary of get_linear_rail_state() for the CLI."""
+    position = rail_state.get("position", {})
+    velocity = rail_state.get("velocity", {})
+    pos_motor = position.get("motor")
+    pos_linear = position.get("linear")
+    vel_motor = velocity.get("motor")
+    vel_linear = velocity.get("linear")
+    motor_part = (
+        f"motor: {pos_motor:+.3f} rad / {vel_motor:+.3f} rad/s"
+        if pos_motor is not None and vel_motor is not None
+        else f"motor: {pos_motor} rad / {vel_motor} rad/s"
+    )
+    linear_part = (
+        f"linear: {pos_linear:+.4f} m / {vel_linear:+.4f} m/s"
+        if pos_linear is not None and vel_linear is not None
+        else "linear: not calibrated"
+    )
+    return (
+        f"{motor_part}, {linear_part} "
+        f"upper_limit: {rail_state.get('upper_limit_triggered')} "
+        f"lower_limit: {rail_state.get('lower_limit_triggered')}"
+    )
 
-    # Auto-enable linear rail for linear rail commands
-    linear_rail_commands = ["test_linear_rail", "get_linear_rail_state"]
+
+@dataclass
+class Args:
+    command: Literal[
+        "get_odometry",
+        "get_observation",
+        "get_wheel_states",
+        "reset_odometry",
+        "test_command",
+        "test_linear_rail",
+        "get_linear_rail_state",
+    ] = "get_odometry"
+    """Command to run against the FlowBase server."""
+    host: str = "localhost"
+    """Host running the FlowBase server."""
+    with_linear_rail: bool = False
+    """Enable linear rail support (auto-enabled for linear-rail commands)."""
+
+
+if __name__ == "__main__":
+    args = tyro.cli(Args)
+
+    linear_rail_commands = ("test_linear_rail", "get_linear_rail_state")
     use_linear_rail = args.with_linear_rail or args.command in linear_rail_commands
 
     client = FlowBaseClient(args.host, with_linear_rail=use_linear_rail)
 
     if args.command == "get_odometry":
         print(client.get_odometry())
+        client.close()
+        exit()
+    elif args.command == "get_observation":
+        pprint(client.get_observation(), sort_dicts=False, width=100)
+        client.close()
+        exit()
+    elif args.command == "get_wheel_states":
+        pprint(client.get_wheel_states(), sort_dicts=False, width=100)
         client.close()
         exit()
     elif args.command == "reset_odometry":
@@ -98,18 +199,25 @@ if __name__ == "__main__":
         client.set_target_velocity(np.array([0.0, 0.0, 0.1]), "local")
         while True:
             odo_reading = client.get_odometry()
-            sys.stdout.write(f"\r translation: {odo_reading['translation']} rotation: {odo_reading['rotation']}")
+            pos = odo_reading["position"]
+            vw = odo_reading["velocity"]["world"]
+            vb = odo_reading["velocity"]["body"]
+            px, py, pz = pos["translation"]
+            wx, wy, wz = vw["translation"]
+            bx, by, bz = vb["translation"]
+            sys.stdout.write(
+                f"\r pos.t: [{px:+.3f} {py:+.3f} {pz:+.3f}] pos.r: {pos['rotation']:+.3f} "
+                f"world.t: [{wx:+.3f} {wy:+.3f} {wz:+.3f}] world.r: {vw['rotation']:+.3f} "
+                f"body.t: [{bx:+.3f} {by:+.3f} {bz:+.3f}] body.r: {vb['rotation']:+.3f}"
+            )
             sys.stdout.flush()
             time.sleep(0.02)
     elif args.command == "test_linear_rail":
         try:
-            client.set_linear_rail_velocity(0.5)
+            client.set_linear_rail_velocity(0.05)  # m/s (slow test speed)
             while True:
                 rail_state = client.get_linear_rail_state()
-                sys.stdout.write(
-                    f"\r position: {rail_state['position']:.4f} velocity: {rail_state['velocity']:.4f} "
-                    f"upper_limit: {rail_state['upper_limit_triggered']} lower_limit: {rail_state['lower_limit_triggered']}"
-                )
+                sys.stdout.write("\r" + _format_rail_state(rail_state))
                 sys.stdout.flush()
                 time.sleep(0.1)
         except KeyboardInterrupt:
@@ -121,14 +229,8 @@ if __name__ == "__main__":
         try:
             while True:
                 rail_state = client.get_linear_rail_state()
-                sys.stdout.write(
-                    f"\r position: {rail_state['position']:.4f} velocity: {rail_state['velocity']:.4f} "
-                    f"upper_limit: {rail_state['upper_limit_triggered']} lower_limit: {rail_state['lower_limit_triggered']}"
-                )
+                sys.stdout.write("\r" + _format_rail_state(rail_state))
                 sys.stdout.flush()
                 time.sleep(1.0)
         except KeyboardInterrupt:
             print("\nExiting")
-    else:
-        client.close()
-        sys.exit(1)

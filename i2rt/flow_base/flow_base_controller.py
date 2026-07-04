@@ -37,6 +37,11 @@ BASE_DEFAULT_PORT = 11323
 POLICY_CONTROL_FREQ = 10
 POLICY_CONTROL_PERIOD = 1.0 / POLICY_CONTROL_FREQ
 h_x, h_y = 0.2 * np.array([1.0, 1.0, -1.0, -1.0]), 0.2 * np.array([-1.0, 1.0, 1.0, -1.0])
+# Body-frame axis-sign correction: the i2rt base is mirrored about its x-axis relative to
+# the tidybot2 kinematic model, so y and yaw read reversed. Applied symmetrically to the
+# odometry output and the command input (AXIS_SIGN**2 == 1) so odom still equals the
+# command while physical motion follows the standard convention: +x fwd, +y left, +z CCW.
+AXIS_SIGN = np.array([1.0, -1.0, -1.0])  # (x, y, theta)
 
 
 def remove_pid_file(pid_file_path: str) -> None:
@@ -77,8 +82,7 @@ def create_pid_file(name: str) -> None:
 
 
 # Vehicle
-CONTROL_FREQ = 200
-CONTROL_PERIOD = 1.0 / CONTROL_FREQ  # 4 ms
+CONTROL_FREQ = 200  # Default control loop frequency (Hz); override per-instance via control_freq
 NUM_CASTERS = 4
 
 # Caster
@@ -244,9 +248,12 @@ class Vehicle(Robot):
         max_accel: Tuple[float, float, float] = (0.25, 0.25, 0.79),
         channel: str | DMChainCanInterface = "can_flow_base",
         auto_start: bool = True,
+        control_freq: float = CONTROL_FREQ,
     ):
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
+        self.control_freq = control_freq
+        self.control_period = 1.0 / control_freq
 
         # Use PID file to enforce single instance
         create_pid_file("base-controller")
@@ -268,6 +275,7 @@ class Vehicle(Robot):
         self.num_dofs = 3  # (x, y, theta)
         self.x = np.zeros(self.num_dofs)
         self.dx = np.zeros(self.num_dofs)
+        self.dx_local = np.zeros(self.num_dofs)
 
         # C matrix relating operational space velocities to joint velocities
         self.C = np.zeros((num_motors, self.num_dofs))
@@ -289,7 +297,7 @@ class Vehicle(Robot):
 
         # OTG (online trajectory generation)
         # Note: It would be better to couple x and y using polar coordinates
-        self.otg = Ruckig(self.num_dofs, CONTROL_PERIOD)
+        self.otg = Ruckig(self.num_dofs, self.control_period)
         self.otg_inp = InputParameter(self.num_dofs)
         self.otg_out = OutputParameter(self.num_dofs)
         self.otg_res = Result.Working
@@ -347,8 +355,9 @@ class Vehicle(Robot):
 
         # Odometry
         with self._lock:
-            dx_local = self.C_pinv @ self.dq
-            theta_avg = self.x[2] + 0.5 * dx_local[2] * CONTROL_PERIOD
+            dx_local = AXIS_SIGN * (self.C_pinv @ self.dq)
+            self.dx_local = dx_local
+            theta_avg = self.x[2] + 0.5 * dx_local[2] * self.control_period
             R = np.array(
                 [
                     [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
@@ -357,7 +366,7 @@ class Vehicle(Robot):
                 ]
             )
             self.dx = R @ dx_local
-            self.x += self.dx * CONTROL_PERIOD
+            self.x += self.dx * self.control_period
         time.sleep(0.0005)
 
     def start_control(self) -> None:
@@ -390,7 +399,7 @@ class Vehicle(Robot):
 
         while self.control_loop_running:
             # Maintain the desired control frequency
-            while time.time() - last_step_time < CONTROL_PERIOD:
+            while time.time() - last_step_time < self.control_period:
                 time.sleep(0.0001)
             curr_time = time.time()
             step_time = curr_time - last_step_time
@@ -465,7 +474,7 @@ class Vehicle(Robot):
                 dx_d_local = R @ dx_d
 
                 # Joint velocities
-                dq_d = self.C @ dx_d_local
+                dq_d = self.C @ (AXIS_SIGN * dx_d_local)
 
                 vel_dict = {
                     "steer_vel": np.asarray(dq_d[::2], order="C"),
@@ -483,16 +492,56 @@ class Vehicle(Robot):
             self.command_queue.put(command, block=False)
 
     def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        # 3-D translations: z and vz are 0.0 on the bare Vehicle; LinearRailVehicle
+        # overrides this method to substitute the rail height / rate in m and m/s.
         with self._lock:
             return {
-                "translation": self.x[:2],
-                "rotation": self.x[2],
+                "position": {
+                    "translation": np.array([self.x[0], self.x[1], 0.0]),
+                    "rotation": self.x[2],
+                },
+                "velocity": {
+                    "world": {
+                        "translation": np.array([self.dx[0], self.dx[1], 0.0]),
+                        "rotation": self.dx[2],
+                    },
+                    "body": {
+                        "translation": np.array([self.dx_local[0], self.dx_local[1], 0.0]),
+                        "rotation": self.dx_local[2],
+                    },
+                },
             }
 
     def reset_odometry(self, input_dict: Dict[str, Any] | None = None) -> None:
         with self._lock:
             self.x = np.zeros(self.num_dofs)
             self.dx = np.zeros(self.num_dofs)
+            self.dx_local = np.zeros(self.num_dofs)
+
+    def get_wheel_states(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Full per-motor state (pos rad, vel rad/s, eff Nm) for the 8 base motors.
+
+        Reads the unified motor chain once and groups the 4 casters into steer/drive. The
+        linear rail (9th) motor, if present, is excluded here; its state is reported by
+        get_linear_rail_state.
+        """
+        motor_states = self.caster_module_controller.motor_interface.read_states()
+        num_casters = self.caster_module_controller.num_casters
+        steer = {"pos": [], "vel": [], "eff": []}
+        drive = {"pos": [], "vel": [], "eff": []}
+        for idx in range(num_casters):
+            s = motor_states[idx * 2]
+            d = motor_states[idx * 2 + 1]
+            steer["pos"].append(s.pos)
+            steer["vel"].append(s.vel)
+            steer["eff"].append(s.eff)
+            drive["pos"].append(d.pos)
+            drive["vel"].append(d.vel)
+            drive["eff"].append(d.eff)
+        return {
+            "steer": {k: np.array(v) for k, v in steer.items()},
+            "drive": {k: np.array(v) for k, v in drive.items()},
+        }
 
     def set_target_velocity(self, velocity: Any, frame: str = "local") -> None:
         self._enqueue_command(CommandType.VELOCITY, velocity, frame)
@@ -546,6 +595,9 @@ class LinearRailVehicle(Vehicle):
         auto_home: bool = True,
         homing_timeout: float = 30.0,
         enable_linear_rail: bool = True,
+        control_freq: float = CONTROL_FREQ,
+        total_stroke_m: float = 1.0,
+        usb_gpio_device: Optional[str] = None,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -553,7 +605,9 @@ class LinearRailVehicle(Vehicle):
         Args:
             vehicle_max_vel: Maximum velocity for vehicle base (x, y, theta)
             vehicle_max_accel: Maximum acceleration for vehicle base (x, y, theta)
-            lift_max_vel: Maximum velocity for linear rail lift (rad/s)
+            lift_max_vel: Linear rail homing speed in motor rad/s (applied as
+                rail_speed * HOMING_SPEED_RATIO during homing); not a clip on user
+                rail velocity commands.
             channel: CAN channel name for motor communication
             auto_start: Whether to automatically start the control loop
             lift_motor_id: Motor ID for the linear rail motor
@@ -561,6 +615,13 @@ class LinearRailVehicle(Vehicle):
             auto_home: Whether to automatically home the linear rail on initialization
             homing_timeout: Timeout for homing procedure (seconds)
             enable_linear_rail: Whether to enable linear rail. If False, only base (8 motors) will be initialized.
+            control_freq: Control loop frequency in Hz (drives the OTG period and CAN bandwidth check).
+            total_stroke_m: Physical stroke between the rail's upper and lower limit switches,
+                in meters. Used by the startup top-then-bottom calibration to derive
+                meters_per_rad from the motor encoder.
+            usb_gpio_device: Serial device path for the USB-GPIO converter on x86 (e.g.
+                "/dev/ttyUSB0"). Ignored on a Raspberry Pi (native GPIO). When None, the
+                backend keeps its default (/dev/ttyUSB0 or the I2RT_USB_GPIO_PORT env var).
         """
         # Create base motor list (8 motors: 4 casters * 2 motors each)
         motor_list = []
@@ -596,12 +657,15 @@ class LinearRailVehicle(Vehicle):
             channel=channel,
             motor_chain_name="linear_rail_vehicle" if enable_linear_rail else "holonomic_base",
             control_mode=ControlMode.VEL,
+            control_freq=control_freq,
         )
 
         # Initialize brake GPIO only if linear rail is enabled
         if enable_linear_rail:
-            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio
+            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio, set_usb_gpio_device
 
+            if usb_gpio_device is not None:
+                set_usb_gpio_device(usb_gpio_device)  # no-op on Raspberry Pi
             initialize_brake_gpio()
 
         # Initialize vehicle base with the unified motor chain using super().__init__()
@@ -610,6 +674,7 @@ class LinearRailVehicle(Vehicle):
             max_accel=vehicle_max_accel,
             channel=unified_motor_chain,  # Pass the unified motor chain
             auto_start=auto_start,
+            control_freq=control_freq,
         )
 
         # Initialize linear rail only if enabled
@@ -631,6 +696,7 @@ class LinearRailVehicle(Vehicle):
                 rail_speed=lift_max_vel,
                 auto_home=False,  # Don't auto home yet, initialize GPIO first
                 homing_timeout=homing_timeout,
+                total_stroke_m=total_stroke_m,
             )
 
             # Initialize GPIO early, before starting homing
@@ -653,6 +719,7 @@ class LinearRailVehicle(Vehicle):
             velocity: Target velocity. Can be:
                 - 3D array [x, y, theta] for base only
                 - 4D array [x, y, theta, linear_rail_vel] for base + linear rail
+                  (linear_rail_vel in m/s, positive = up)
             frame: Frame for base velocity ("local" or "global")
         """
         velocity = np.asarray(velocity)
@@ -672,6 +739,22 @@ class LinearRailVehicle(Vehicle):
                 f"Velocity must be 3D [x, y, theta] or 4D [x, y, theta, linear_rail_vel], got shape {velocity.shape}"
             )
 
+    def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Vehicle odometry with rail height (m) substituted into the z component.
+
+        The base only rotates about its vertical axis, so the rail's vertical motion is
+        identical in the world and body frames; the same vz is written to both.
+        """
+        odom = super().get_odometry(input_dict)
+        if self.linear_rail is not None and self.linear_rail.meters_per_rad is not None:
+            rail = self.linear_rail.get_state()
+            z = rail["position"]["linear"]
+            vz = rail["velocity"]["linear"]
+            odom["position"]["translation"][2] = z
+            odom["velocity"]["world"]["translation"][2] = vz
+            odom["velocity"]["body"]["translation"][2] = vz
+        return odom
+
     def get_linear_rail_state(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Get the current state of the linear rail.
 
@@ -681,21 +764,29 @@ class LinearRailVehicle(Vehicle):
         if self.linear_rail is None:
             return {"error": "Linear rail not available"}
         state = self.linear_rail.get_state()
-        if "motor_state" in state:
-            state = {k: v for k, v in state.items() if k != "motor_state"}
+        motor_state = state.pop("motor_state", None)
+        if motor_state is not None:
+            state["eff"] = motor_state.eff  # rail motor torque (Nm)
         return state
 
     def set_linear_rail_velocity(self, velocity: float) -> None:
         """Set the velocity of the linear rail.
 
         Args:
-            velocity: Target velocity in rad/s
+            velocity: Target linear velocity in m/s (positive = up). Converted to motor
+                rad/s using the signed calibration factor meters_per_rad, so the sign
+                stays correct regardless of motor direction.
         """
         if self.linear_rail is None:
             logger.warning("Linear rail not available, ignoring velocity command")
             return
+        meters_per_rad = self.linear_rail.meters_per_rad
+        if meters_per_rad is None:
+            logger.warning("Linear rail not calibrated (meters_per_rad is None), ignoring velocity command")
+            return
+        motor_velocity = velocity / meters_per_rad  # m/s / (m/rad) = rad/s
         try:
-            self.linear_rail.set_velocity(velocity)
+            self.linear_rail.set_velocity(motor_velocity)
         except AssertionError as e:
             logger.warning(f"Linear rail velocity command rejected: {e}")
         except Exception as e:
@@ -709,49 +800,66 @@ class LinearRailVehicle(Vehicle):
 
 
 if __name__ == "__main__":
-    import argparse
     import os
     import sys
     import time
+    from dataclasses import dataclass
 
     import pygame
+    import tyro
 
     from i2rt.utils.gamepad_utils import Gamepad
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", type=str, default="can0")
-    parser.add_argument(
-        "--no-linear-rail",
-        action="store_true",
-        help="Disable linear rail (use only 8 base motors)",
-    )
+    @dataclass
+    class Args:
+        channel: str = "can0"
+        """CAN channel for the base motors."""
+        linear_rail: bool = False
+        """Enable linear rail (9th motor). Disabled by default."""
+        gamepad: bool = False
+        """Enable gamepad/joystick teleop. Disabled by default (remote commands only)."""
+        control_freq: float = CONTROL_FREQ
+        """Control loop frequency in Hz."""
+        device: Optional[str] = None
+        """Serial device for the USB-GPIO converter; REQUIRED with --linear-rail on x86. Ignored on a Raspberry Pi (native GPIO)."""
 
-    # Initialize pygame and joystick
-    pygame.init()
-    pygame.joystick.init()
-    if pygame.joystick.get_count() == 0:
-        print("No joystick/gamepad connected!")
-        exit()
+    args = tyro.cli(Args)
 
-    joy = pygame.joystick.Joystick(0)
+    from i2rt.utils.usb_gpio_driver import is_raspberry_pi
+
+    if args.linear_rail and args.device is None and not is_raspberry_pi():
+        sys.exit("--device is required when --linear-rail is set on x86 (non-Raspberry Pi)")
+
     CALIBRATION_RETRY_DELAY = 1
     DEADZONE = 0.05  # Deadzone for base control (x, y, theta)
     RAIL_DEADZONE = 0.15  # Larger deadzone for linear rail to prevent unwanted movement
-    args = parser.parse_args()
 
-    max_vel = np.array([0.8, 0.8, 3.0])
+    # Initialize pygame and joystick only when gamepad teleop is enabled
+    joy = None
+    if args.gamepad:
+        pygame.init()
+        pygame.joystick.init()
+        if pygame.joystick.get_count() == 0:
+            print("No joystick/gamepad connected!")
+            exit()
+        joy = pygame.joystick.Joystick(0)
+
+    max_vel = np.array([1.0, 1.0, np.pi])
     max_accel = np.array([0.8, 0.8, 3.0])
-    lift_max_vel = 14.0  # Maximum velocity for linear rail (rad/s)
+    lift_max_vel = 14.0  # Linear rail homing speed (motor rad/s); not a clip on user commands
+    lift_max_vel_ms = 0.5  # Gamepad stick -> linear rail velocity scaling (m/s)
 
     # Use LinearRailVehicle instead of Vehicle
-    # Use --no-linear-rail flag if you only have base (8 motors) without linear rail
+    # Pass --linear-rail to enable the 9th (lift) motor; otherwise only the 8 base motors are used.
     vehicle = LinearRailVehicle(
         vehicle_max_vel=max_vel,
         vehicle_max_accel=max_accel,
         lift_max_vel=lift_max_vel,
         channel=args.channel,
         auto_home=True,
-        enable_linear_rail=not args.no_linear_rail,  # Enable by default, disable with --no-linear-rail
+        enable_linear_rail=args.linear_rail,  # Disabled by default, enable with --linear-rail
+        control_freq=args.control_freq,
+        usb_gpio_device=args.device,  # serial port for the USB-GPIO converter (x86)
     )
 
     # Register cleanup function to ensure brake is engaged on exit
@@ -806,6 +914,7 @@ if __name__ == "__main__":
     server.bind("get_odometry", vehicle.get_odometry)
     server.bind("reset_odometry", vehicle.reset_odometry)
     server.bind("set_target_velocity", remote_command.remote_set_target_velocity)
+    server.bind("get_wheel_states", vehicle.get_wheel_states)
 
     # Bind linear rail APIs if vehicle has linear rail
     if hasattr(vehicle, "linear_rail"):
@@ -814,25 +923,29 @@ if __name__ == "__main__":
 
     server.start(block=False)
 
-    print(f"Joystick Name: {joy.get_name()}")
-    print(f"Number of Axes: {joy.get_numaxes()}")
-    print(f"Number of Buttons: {joy.get_numbuttons()}")
+    gamepad = None
+    if args.gamepad:
+        print(f"Joystick Name: {joy.get_name()}")
+        print(f"Number of Axes: {joy.get_numaxes()}")
+        print(f"Number of Buttons: {joy.get_numbuttons()}")
 
-    # Check all x, y, th are 0 at the beginning, if not ask user to check joystick
-    while True:
-        # Pump events to update joystick state
-        pygame.event.pump()
-        four_axis = [joy.get_axis(1), joy.get_axis(0), joy.get_axis(2), joy.get_axis(3)]
-        if all(np.abs(axis) < DEADZONE for axis in four_axis):
-            logger.info("Joystick is at rest, please check joystick")
-            break
-        else:
-            logger.warning(f"four_axis: {four_axis}")
-            logger.warning("Joystick's rest position is not at the center, please check joystick")
-            time.sleep(CALIBRATION_RETRY_DELAY)
+        # Check all x, y, th are 0 at the beginning, if not ask user to check joystick
+        while True:
+            # Pump events to update joystick state
+            pygame.event.pump()
+            four_axis = [joy.get_axis(1), joy.get_axis(0), joy.get_axis(2), joy.get_axis(3)]
+            if all(np.abs(axis) < DEADZONE for axis in four_axis):
+                logger.info("Joystick is at rest, please check joystick")
+                break
+            else:
+                logger.warning(f"four_axis: {four_axis}")
+                logger.warning("Joystick's rest position is not at the center, please check joystick")
+                time.sleep(CALIBRATION_RETRY_DELAY)
 
-    # Main loop to read joystick inputs
-    gamepad = Gamepad()
+        gamepad = Gamepad()
+    else:
+        logger.info("Gamepad disabled; running with remote commands only.")
+
     gamepad_command_frame = "local"
     gamepad_command_override = True
 
@@ -842,37 +955,38 @@ if __name__ == "__main__":
     RAIL_LOG_INTERVAL = 1.0  # Log linear rail position every 1 second
     try:
         while True:
-            gamepad_cmd = gamepad.get_user_cmd()  # 3D: [x, y, theta]
-            gamepad_button = gamepad.get_button_reading()
+            cmd_4d = np.zeros(4)
+            gamepad_override_button = False
+            if args.gamepad:
+                gamepad_cmd = gamepad.get_user_cmd()  # 3D: [x, y, theta]
+                gamepad_button = gamepad.get_button_reading()
 
-            if gamepad_button["key_mode"] and not last_gampad_mode_togged:
-                last_gampad_mode_togged = True
-                gamepad_command_frame = "global" if gamepad_command_frame == "local" else "local"
-            else:
-                last_gampad_mode_togged = False
+                if gamepad_button["key_mode"] and not last_gampad_mode_togged:
+                    last_gampad_mode_togged = True
+                    gamepad_command_frame = "global" if gamepad_command_frame == "local" else "local"
+                else:
+                    last_gampad_mode_togged = False
 
-            # Handle reset odometry (key_left_1)
-            if gamepad_button["key_left_1"]:
-                vehicle.reset_odometry()
+                # Handle reset odometry (key_left_1)
+                if gamepad_button["key_left_1"]:
+                    vehicle.reset_odometry()
 
-            lift_vel = 0.0
-            if joy.get_numaxes() > 3:
-                right_stick_y = joy.get_axis(3)  # Right stick Y-axis
-                # Apply larger deadzone for linear rail to prevent unwanted movement
-                # Invert: up (negative axis value) = positive velocity
-                if np.abs(right_stick_y) > RAIL_DEADZONE:
-                    lift_vel = -right_stick_y  # Invert: up (negative axis) = positive velocity
+                lift_vel = 0.0
+                if joy.get_numaxes() > 3:
+                    right_stick_y = joy.get_axis(3)  # Right stick Y-axis
+                    # Apply larger deadzone for linear rail to prevent unwanted movement
+                    # Invert: up (negative axis value) = positive velocity
+                    if np.abs(right_stick_y) > RAIL_DEADZONE:
+                        lift_vel = -right_stick_y  # Invert: up (negative axis) = positive velocity
 
-            cmd_4d = np.append(gamepad_cmd, lift_vel)
+                cmd_4d = np.append(gamepad_cmd, lift_vel)
+                gamepad_override_button = gamepad_button["key_left_2"]
 
             is_remote_command_valid = remote_command.is_command_valid()
 
             if is_remote_command_valid:
                 user_cmd, user_frame = remote_command.get_command()
-                gamepad_command_override = False
-
-                if gamepad_button["key_left_2"]:
-                    gamepad_command_override = True
+                gamepad_command_override = gamepad_override_button
             else:
                 gamepad_command_override = True
             if not vehicle.running():
@@ -880,9 +994,11 @@ if __name__ == "__main__":
                 print("Please check the E stop or the motor connection. ")
                 break
             if gamepad_command_override:
-                cmd = cmd_4d
+                # Gamepad sticks are normalized [-1, 1] -> scale to physical units
+                cmd = np.append(cmd_4d[:3] * max_vel, cmd_4d[3] * lift_max_vel_ms)
                 frame = gamepad_command_frame
             else:
+                # Remote commands are already physical units (m/s, m/s, rad/s, rail m/s)
                 cmd = user_cmd
                 frame = user_frame
             if count % 20 == 0:
@@ -891,33 +1007,37 @@ if __name__ == "__main__":
                 sys.stdout.write(f"\rframe: {frame} cmd: {cmd[0]:.1f} {cmd[1]:.1f} {cmd[2]:.1f} rail: {cmd[3]:.1f}")
                 sys.stdout.flush()
 
-            # Log linear rail position and velocity every 1 second
+            # Log linear rail position and velocity every 1 second (only when rail is enabled)
             current_time = time.time()
             if current_time - last_rail_log_time >= RAIL_LOG_INTERVAL:
-                try:
-                    if hasattr(vehicle, "linear_rail"):
+                if vehicle.linear_rail is not None:
+                    try:
                         rail_state = vehicle.get_linear_rail_state()
-                        position = rail_state.get("position")
-                        velocity = rail_state.get("velocity")
-                        if position is not None and velocity is not None:
-                            print(f"Linear rail - pos: {position:.4f} rad, vel: {velocity:.4f} rad/s")
-                        else:
-                            print(f"Linear rail - pos: {position}, vel: {velocity}")
-                except Exception as e:
-                    print(f"Failed to get linear rail state: {e}")
+                        position = rail_state.get("position", {})
+                        velocity = rail_state.get("velocity", {})
+                        pos_motor = position.get("motor")
+                        pos_linear = position.get("linear")
+                        vel_motor = velocity.get("motor")
+                        vel_linear = velocity.get("linear")
+                        motor_part = (
+                            f"motor: {pos_motor:.3f} rad / {vel_motor:.3f} rad/s"
+                            if pos_motor is not None and vel_motor is not None
+                            else f"motor: {pos_motor} rad / {vel_motor} rad/s"
+                        )
+                        linear_part = (
+                            f"linear: {pos_linear:.4f} m / {vel_linear:.4f} m/s"
+                            if pos_linear is not None and vel_linear is not None
+                            else "linear: not calibrated"
+                        )
+                        print(f"Linear rail - {motor_part}, {linear_part}")
+                    except Exception as e:
+                        print(f"Failed to get linear rail state: {e}")
                 last_rail_log_time = current_time
 
             count += 1
 
-            # Set target velocity (supports both 3D and 4D)
-            if len(cmd) == 4:
-                # 4D: [x, y, theta, linear_rail] - cmd is already normalized [-1, 1]
-                base_cmd = cmd[:3] * max_vel
-                rail_cmd = cmd[3] * lift_max_vel
-                vehicle.set_target_velocity(np.append(base_cmd, rail_cmd), frame=frame)
-            else:
-                # 3D: [x, y, theta] (backward compatibility)
-                vehicle.set_target_velocity(cmd * max_vel, frame=frame)
+            # Set target velocity: [x, y, theta, linear_rail] in physical units
+            vehicle.set_target_velocity(cmd, frame=frame)
 
             time.sleep(0.02)
     except KeyboardInterrupt:
@@ -928,4 +1048,5 @@ if __name__ == "__main__":
             vehicle.close()
         except Exception as e:
             logger.error(f"Error during close: {e}")
-        pygame.quit()
+        if args.gamepad:
+            pygame.quit()

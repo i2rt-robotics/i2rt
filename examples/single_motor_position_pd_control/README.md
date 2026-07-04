@@ -14,7 +14,7 @@ This example demonstrates a simple interface to control a single motor using you
 Run the script from the command line:
 
 ```bash
-python i2rt/scripts/single_motor_pd_pos_control.py --channel can1 --motor_id 1 --kd 5
+python examples/single_motor_position_pd_control/single_motor_position_pd_control.py --channel can1 --motor_id 1 --kd 5
 ```
 
 You will see example panel like this:

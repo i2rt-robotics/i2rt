@@ -2,7 +2,7 @@
 Type=Application
 Name=FlowBase
 Comment=Run FlowBase with base only (8 motors, no linear rail)
-Exec=lxterminal -e "bash -c '/usr/bin/python3 /home/i2rt/i2rt/i2rt/flow_base/flow_base_controller.py --channel can0 --no-linear-rail; echo; echo \"Process finished. Press Enter to close...\"; read'"
-Icon=../i2rt/flow_base/assets/flow_base.png
+Exec=lxterminal -e "bash -c '/home/i2rt/i2rt/.venv/bin/python /home/i2rt/i2rt/i2rt/flow_base/flow_base_controller.py --channel can0; echo; echo \"Process finished. Press Enter to close...\"; read'"
+Icon=../i2rt/i2rt/flow_base/assets/flow_base.png
 Terminal=true
 Categories=Utility;
