@@ -23,7 +23,7 @@ dependencies = [
     "rerun-sdk>=0.32.2",
     "ruckig==0.15.3",
     "threadpoolctl==3.6.0",
-    "tyro==0.9.26",
+    "tyro>=1.0.0",
     "viser>=0.2.0",
     # USB-to-GPIO converter for the linear-rail brake + limit switches on x86/non-Pi hosts.
     "pyserial>=3.5",
