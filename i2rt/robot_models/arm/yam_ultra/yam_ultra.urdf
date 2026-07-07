@@ -129,7 +129,7 @@
             </material>
         </visual>
     </link>
-    <link name="ultra_base">
+    <link name="base">
         <inertial>
             <mass value="0.940115" />
             <origin xyz="-0.0274792 -2.26344e-05 3.611e-05" rpy="0 -0 0" />
@@ -138,7 +138,7 @@
         <visual>
             <origin xyz="-0.193801 -0.0464005 -0.0374966" rpy="0 -0 0" />
             <geometry>
-                <mesh filename="package://urdf_top_assembly/meshes/ultra_base.stl" scale="1 1 1" />
+                <mesh filename="package://urdf_top_assembly/meshes/base.stl" scale="1 1 1" />
             </geometry>
             <material name="0.317647_0.121569_0.498039_0.000000_0.000000">
                 <color rgba="0.317647 0.121569 0.498039 1" />
@@ -149,13 +149,13 @@
         <origin xyz="-4.16334e-17 0 0" rpy="0 1.5708 -3.57884e-17" />
         <axis xyz="-1 0 0" />
         <parent link="root" />
-        <child link="ultra_base" />
+        <child link="base" />
         <limit effort="1" velocity="1" lower="0" upper="0" />
     </joint>
     <joint name="dof_joint1" type="revolute">
         <origin xyz="-0.0733 -1.27793e-15 -8.20164e-16" rpy="1.6619e-16 -2.22045e-16 3.93401e-17" />
         <axis xyz="-1 0 0" />
-        <parent link="ultra_base" />
+        <parent link="base" />
         <child link="link1" />
         <limit effort="1" velocity="1" lower="-2.61799" upper="3.05433" />
     </joint>
