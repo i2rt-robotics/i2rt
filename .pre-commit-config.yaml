@@ -1,18 +1,36 @@
 repos:
--   repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.15.4
+-   repo: https://github.com/astral-sh/uv-pre-commit
+    # Keep the lockfile and venv in sync with pyproject.toml.
+    rev: 0.11.24
     hooks:
-    # Run the linter.
+    -   id: uv-lock
+    -   id: uv-sync
+        args: ["--locked"]
+
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version — kept >= the floor in pyproject.toml (ruff>=0.15.6) so hook and CI agree.
+    rev: v0.15.6
+    hooks:
+    # Run the linter (import sorting included — rule "I" is enabled in pyproject [tool.ruff]).
     - id: ruff
       types_or: [ python, pyi, jupyter ]
       args: [ --fix ]
-    # Sort imports
-    - id: ruff
-      args: ["check", "--select", "I", "--fix"]
     # Run the formatter.
     - id: ruff-format
       types_or: [ python, pyi, jupyter ]
+
+# Type-check via the project's uv venv so installed package stubs (click, etc.)
+# are visible. Scoped to modules already known to be pyright-clean — extend
+# `files:` as more of the repo is cleaned up.
+-   repo: local
+    hooks:
+    -   id: pyright
+        name: pyright
+        entry: uv run -- python -m pyright
+        language: system
+        pass_filenames: true
+        types: [python]
+        files: ^i2rt/utils/(encoder_manager|can_flash)\.py$
 
 # cleanup notebooks
 -   repo: https://github.com/kynan/nbstripout

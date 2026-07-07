@@ -10,6 +10,8 @@ requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "click<8.2.0",
+    # crcmod-plus is a maintained fork that installs into the `crcmod` namespace, so code still does `import crcmod`.
+    "crcmod-plus>=2.3.1",
     "dm-env==1.6",
     "mink>=0.0.13",
     "mujoco>=3.3.5",

@@ -325,6 +325,15 @@ class ViserControlInterface:
                     )
                 )
 
+        # ---- Initial camera — start zoomed in on the arm ---------------------
+        # Viser's default framing sits far back; pull each new client's camera
+        # close to the arm so the robot fills the view on first load. Users can
+        # still orbit/zoom freely afterwards.
+        @server.on_client_connect
+        def _set_initial_camera(client: viser.ClientHandle) -> None:
+            client.camera.position = (0.55, 0.55, 0.45)
+            client.camera.look_at = (0.0, 0.0, 0.2)
+
         # ---- Shared mutable state (read by loop, written by callbacks) --------
         state: Dict[str, Any] = {"enabled": False, "mode": "vis"}
 
