@@ -311,28 +311,7 @@ class Vehicle(Robot):
         if auto_start:
             self.start_control()
 
-    @staticmethod
-    def _integrate_pose(x: np.ndarray, dx_local: np.ndarray, dt: float) -> Tuple[np.ndarray, np.ndarray]:
-        """Midpoint-Euler integrate world pose x by body twist dx_local over dt.
-
-        Returns (new_x, dx_world). Uses the half-step heading so the body twist is rotated
-        into the world frame at the midpoint of the interval.
-        """
-        theta_avg = x[2] + 0.5 * dx_local[2] * dt
-        R = np.array(
-            [
-                [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
-                [math.sin(theta_avg), math.cos(theta_avg), 0.0],
-                [0.0, 0.0, 1.0],
-            ]
-        )
-        dx = R @ dx_local
-        return x + dx * dt, dx
-
-    def update_state(self, dt: float | None = None) -> None:
-        # Integrate against the actual elapsed loop time; fall back to the nominal period.
-        if dt is None:
-            dt = self.control_period
+    def update_state(self) -> None:
         # Joint positions and velocities
         now = time.time()
         state_dict = self.caster_module_controller.get_state()
@@ -378,7 +357,16 @@ class Vehicle(Robot):
         with self._lock:
             dx_local = AXIS_SIGN * (self.C_pinv @ self.dq)
             self.dx_local = dx_local
-            self.x, self.dx = self._integrate_pose(self.x, dx_local, dt)
+            theta_avg = self.x[2] + 0.5 * dx_local[2] * self.control_period
+            R = np.array(
+                [
+                    [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
+                    [math.sin(theta_avg), math.cos(theta_avg), 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            )
+            self.dx = R @ dx_local
+            self.x += self.dx * self.control_period
         time.sleep(0.0005)
 
     def start_control(self) -> None:
@@ -419,8 +407,8 @@ class Vehicle(Robot):
             if step_time > 0.01:  # 10 ms
                 logger.warning(f"Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
 
-            # Update state (integrate odometry against the measured loop period)
-            self.update_state(step_time)
+            # Update state
+            self.update_state()
             # Global to local frame conversion
             theta = self.x[2]
             R = np.array(
