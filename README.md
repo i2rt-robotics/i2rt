@@ -4,6 +4,8 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 
 [![I2RT](https://github.com/user-attachments/assets/025ac3f0-7af1-4e6f-ab9f-7658c5978f92)](https://i2rt.com/)
 
+> 📚 **Full documentation:** [doc.i2rt.com](https://doc.i2rt.com)
+
 ## Features
 
 - Plug-and-play Python interface for YAM arms and Flow Base
