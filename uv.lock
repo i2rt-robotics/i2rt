@@ -9,6 +9,9 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+build-constraints = [{ name = "scikit-build-core", specifier = "<0.10" }]
+
 [[package]]
 name = "absl-py"
 version = "2.4.0"
