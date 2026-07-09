@@ -392,6 +392,10 @@ class DMChainCanInterface(MotorChain):
         assert len(motor_list) == len(motor_offset) == len(motor_direction), (
             f"len{len(motor_list)}, len{len(motor_offset)}, len{len(motor_direction)}"
         )
+        motor_ids = [motor_id for motor_id, _ in motor_list]
+        assert motor_ids == sorted(set(motor_ids)), (
+            f"motor_list IDs must be strictly ascending (unique), got {motor_ids}"
+        )
         self.motor_list = motor_list
         # float dtype so a homing routine can write a radian zero offset (see set_zero_position)
         self.motor_offset = np.array(motor_offset, dtype=float)

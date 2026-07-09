@@ -36,12 +36,18 @@ logger = logging.getLogger("FlowBaseController")
 BASE_DEFAULT_PORT = 11323
 POLICY_CONTROL_FREQ = 10
 POLICY_CONTROL_PERIOD = 1.0 / POLICY_CONTROL_FREQ
-h_x, h_y = 0.2 * np.array([1.0, 1.0, -1.0, -1.0]), 0.2 * np.array([-1.0, 1.0, 1.0, -1.0])
-# Body-frame axis-sign correction: the i2rt base is mirrored about its x-axis relative to
-# the tidybot2 kinematic model, so y and yaw read reversed. Applied symmetrically to the
-# odometry output and the command input (AXIS_SIGN**2 == 1) so odom still equals the
-# command while physical motion follows the standard convention: +x fwd, +y left, +z CCW.
-AXIS_SIGN = np.array([1.0, -1.0, -1.0])  # (x, y, theta)
+# Caster positions in the base body frame (+x forward, +y left), in motor-chain order:
+# index 0 = rear-left (motors 1,2), 1 = front-left (3,4), 2 = front-right (5,6), 3 = rear-right (7,8).
+h_x, h_y = 0.2 * np.array([-1.0, 1.0, 1.0, -1.0]), 0.2 * np.array([1.0, 1.0, -1.0, -1.0])
+# The kinematic model now uses the true physical caster layout (see h_x/h_y), so no
+# body-frame mirroring is needed. AXIS_SIGN is the identity, kept as an explicit hook applied
+# symmetrically to odometry (below) and command input so physical motion follows the standard
+# convention (+x fwd, +y left, +z CCW) and odom equals the command.
+AXIS_SIGN = np.array([1.0, 1.0, 1.0])  # (x, y, theta)
+# Per-caster steering calibration, in motor-chain order (0=rear-left … 3=rear-right).
+# Shared by every Vehicle/LinearRailVehicle motor chain; adjust here to recalibrate.
+STEERING_OFFSET = [0.0, 0.0, 0.0, 0.0]
+STEERING_DIRECTION = [-1, -1, -1, -1]
 
 
 def remove_pid_file(pid_file_path: str) -> None:
@@ -135,7 +141,7 @@ class VehicleMotorController:
         motor_offsets = []
 
         motor_directions = []
-        for caster_idx in [1, 2, 3, 0]:
+        for caster_idx in range(4):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
             motor_offsets.append(steering_offset[caster_idx])
             motor_offsets.append(0)  # drive motor no need to set offset
             motor_directions.append(steering_direction[caster_idx])
@@ -259,8 +265,8 @@ class Vehicle(Robot):
         create_pid_file("base-controller")
 
         # Initialize hardware module
-        steering_offset = [0.0, 0.0, 0.0, 0.0]
-        steering_direction = [1, 1, 1, 1]
+        steering_offset = STEERING_OFFSET
+        steering_direction = STEERING_DIRECTION
         self.num_casters = len(steering_offset)
 
         self.caster_module_controller = VehicleMotorController(steering_offset, steering_direction, channel)
@@ -311,7 +317,28 @@ class Vehicle(Robot):
         if auto_start:
             self.start_control()
 
-    def update_state(self) -> None:
+    @staticmethod
+    def _integrate_pose(x: np.ndarray, dx_local: np.ndarray, dt: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Midpoint-Euler integrate world pose x by body twist dx_local over dt.
+
+        Returns (new_x, dx_world). Uses the half-step heading so the body twist is rotated
+        into the world frame at the midpoint of the interval.
+        """
+        theta_avg = x[2] + 0.5 * dx_local[2] * dt
+        R = np.array(
+            [
+                [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
+                [math.sin(theta_avg), math.cos(theta_avg), 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        dx = R @ dx_local
+        return x + dx * dt, dx
+
+    def update_state(self, dt: float | None = None) -> None:
+        # Integrate against the actual elapsed loop time; fall back to the nominal period.
+        if dt is None:
+            dt = self.control_period
         # Joint positions and velocities
         now = time.time()
         state_dict = self.caster_module_controller.get_state()
@@ -357,16 +384,7 @@ class Vehicle(Robot):
         with self._lock:
             dx_local = AXIS_SIGN * (self.C_pinv @ self.dq)
             self.dx_local = dx_local
-            theta_avg = self.x[2] + 0.5 * dx_local[2] * self.control_period
-            R = np.array(
-                [
-                    [math.cos(theta_avg), -math.sin(theta_avg), 0.0],
-                    [math.sin(theta_avg), math.cos(theta_avg), 0.0],
-                    [0.0, 0.0, 1.0],
-                ]
-            )
-            self.dx = R @ dx_local
-            self.x += self.dx * self.control_period
+            self.x, self.dx = self._integrate_pose(self.x, dx_local, dt)
         time.sleep(0.0005)
 
     def start_control(self) -> None:
@@ -407,8 +425,8 @@ class Vehicle(Robot):
             if step_time > 0.01:  # 10 ms
                 logger.warning(f"Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
 
-            # Update state
-            self.update_state()
+            # Update state (integrate odometry against the measured loop period)
+            self.update_state(step_time)
             # Global to local frame conversion
             theta = self.x[2]
             R = np.array(
@@ -628,10 +646,10 @@ class LinearRailVehicle(Vehicle):
         motor_offsets = []
         motor_directions = []
 
-        steering_offset = [0.0, 0.0, 0.0, 0.0]
-        steering_direction = [1, 1, 1, 1]
+        steering_offset = STEERING_OFFSET
+        steering_direction = STEERING_DIRECTION
 
-        for caster_idx in [1, 2, 3, 0]:
+        for caster_idx in range(4):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
             motor_offsets.append(steering_offset[caster_idx])
             motor_offsets.append(0)  # drive motor no need to set offset
             motor_directions.append(steering_direction[caster_idx])

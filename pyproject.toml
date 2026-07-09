@@ -43,6 +43,12 @@ dev = [
     "ruff>=0.15.6",
 ]
 
+[tool.uv]
+# ruckig 0.15.3 publishes only an sdist, so it is compiled from source on a fresh
+# install (e.g. CI). Its build fails under scikit-build-core >= 0.10, which rejects the
+# package's deprecated `cmake.targets`. Pin the build backend below that so it builds.
+build-constraint-dependencies = ["scikit-build-core<0.10"]
+
 [tool.flit.module]
 name = "i2rt"
 
