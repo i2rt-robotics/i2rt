@@ -170,6 +170,15 @@ python i2rt/flow_base/flow_base_client.py --command get_wheel_states --host 172.
 `eff` is motor torque in Nm. The 4 entries per group are the casters in chain order; the linear
 rail (9th) motor is reported separately by `get_linear_rail_state()`.
 
+Chain order matches the physical motor-ID wiring (steer, drive) → caster:
+
+| Index | Motors (steer, drive) | Caster |
+|-------|-----------------------|--------|
+| 0 | 1, 2 | rear-left |
+| 1 | 3, 4 | front-left |
+| 2 | 5, 6 | front-right |
+| 3 | 7, 8 | rear-right |
+
 ### Linear Rail API (if equipped)
 
 If your FlowBase has a linear rail lift module installed, you can control it via API:
@@ -266,6 +275,120 @@ x86 host --[USB 115200 8N1]--> bestep USB-to-16ch GPIO converter (ZT-DPI/SY),
                                +-- ch3  --> brake control signal (BCM 12)
                                +-- GND  --> brake driver GND
 ```
+
+## Commissioning & Calibration
+
+> One-time hardware bring-up for a **new base** (or after replacing a motor, wheel, or caster). A base shipped from the factory is already commissioned — you only need this if you built/repaired the drivetrain or the base fails the functional checks below. All commands assume the CAN interface is `can0`.
+
+### 1. Motor IDs & Parameters
+
+Each of the four casters has two Damiao (DM) motors — a **steering** motor (DM4310V) and a **drive** motor (DMH6215, or DM4310V on some units). The eight motors use CAN IDs **1–8**; the ID → caster mapping is the *Chain order* table in [API Control](#api-control) (steering = odd IDs 1/3/5/7, drive = even IDs 2/4/6/8). Identify each motor's caster and number from the physical layout:
+
+<p align="center">
+  <img src="assets/motor_numbering.jpg" alt="Caster numbering viewed from below; the arrow marks the forward direction" width="49%">
+  <img src="assets/base_heading.jpg" alt="Base heading and corner numbering viewed from the top deck" width="49%">
+</p>
+
+Configuration rules:
+- **Master ID = CAN ID + 16** (DM protocol), so IDs 1–8 map to Master IDs 17–24.
+- All motors run in **speed (velocity) mode**.
+- Target per-motor register limits:
+
+  | Motor | Model | `p_max` | `v_max` | `torque_max` |
+  |-------|-------|---------|---------|--------------|
+  | Steering | DM4310V | π (≈3.1416) rad | 30 rad/s | 10 Nm |
+  | Drive | DMH6215 | 12.5 rad | 45 rad/s | 10 Nm |
+
+IDs, control mode, and these limits are set with the **Damiao motor host tool** (上位机); this repository does not ship the interactive ID-config CLI. The low-level CAN register helpers live in [`motor_config_tool/utils.py`](../motor_config_tool/utils.py) (and [`set_timeout.py`](../motor_config_tool/set_timeout.py)) if you need to script register writes.
+
+**Verify** every motor answers on the bus (reads only — motors briefly energize, no motion command is sent):
+```bash
+python i2rt/motor_config_tool/ping_motors.py --channel can0            # checks IDs 1–7
+python i2rt/motor_config_tool/ping_motors.py --channel can0 --motor_id 8
+```
+Each responding motor prints its info and is listed under `online motors: [...]`.
+
+### 2. Drive-Motor Direction
+
+Every drive motor must spin the same way for a given base motion. The "forward" rotation convention is defined by the figure below — the straight arrow is the travel direction, the curved arrow is how the wheel turns:
+
+<p align="center">
+  <img src="assets/drive_motor_direction.jpg" alt="Drive-wheel forward rotation direction" width="55%">
+</p>
+
+If a wheel is wired or mounted backwards, the base will creep or veer during the forward check in [§5](#5-functional-verification) — reinstall the motor/wheel or flip its direction. The controller also sanity-checks drive direction on startup.
+
+### 3. Steering-Zero Calibration
+
+**Only the steering motors need zeroing** — their zero must correspond to the wheel pointing straight forward, and all four wheels must end up parallel.
+
+1. With the motors **disabled**, manually rotate each caster so the wheel points straight ahead. Use the alignment-pin fixture to lock the casters square:
+
+   <p align="center">
+     <img src="assets/steering_alignment_pin.jpg" alt="Steering alignment-pin fixture" width="45%">
+     <img src="assets/motor_numbering.jpg" alt="Caster numbering reference" width="45%">
+   </p>
+
+2. Save the current position as the hardware zero for each steering motor (IDs 1, 3, 5, 7), one at a time:
+   ```bash
+   python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
+   python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 3
+   python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 5
+   python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 7
+   ```
+   Running `set_zero.py` with no `--motor_id` zeroes motors 1–7 (drive motors included) — pass `--motor_id` explicitly to zero the steering motors only.
+
+### 4. Kinematics Parameters
+
+The swerve kinematics constants live in [`flow_base_controller.py`](flow_base_controller.py) — refer to the code rather than re-listing the numbers here:
+- Caster hip positions `h_x, h_y` (line ~41), in **motor-chain order** with the body convention **+x forward, +y left**. The sign/order therefore differ from the internal SOP's per-wheel table even though the 0.2 m magnitudes match.
+- Caster offset `b_x` / `b_y` and wheel radius `r` (lines ~95–97).
+- Per-caster steering calibration `STEERING_OFFSET` / `STEERING_DIRECTION` (lines ~49–50).
+
+Velocity and acceleration limits are already covered under [Remote Control](#remote-control) and [API Control](#api-control) above; the values are configured in `flow_base_controller.py`.
+
+### 5. Functional Verification
+
+> ⚠️ **Invert the base (or raise it so all wheels are off the ground) before running these — the base will try to drive.**
+
+With the base controller running, send each velocity command and confirm the expected motion. The quickest way is the API client, which keeps the command heartbeat alive and clips each axis to its configured `max_vel` (see [API Control](#api-control)):
+
+```python
+import time
+import numpy as np
+from i2rt.flow_base.flow_base_client import FlowBaseClient
+
+client = FlowBaseClient(host="172.6.2.20")   # heartbeat runs in the background
+client.set_target_velocity(np.array([1.0, 0.0, 0.0]), frame="local")  # forward
+time.sleep(5)
+client.set_target_velocity(np.zeros(3), frame="local")                # stop
+client.close()
+```
+
+| Command `[x, y, θ]` | Expected motion | Common fault → cause |
+|---------------------|-----------------|----------------------|
+| `[1, 0, 0]` | Wheels straight, base drives **straight forward** | Drives backward → drive direction wrong; veers → steering zero off or geometry error |
+| `[0, 0, 1]` | Wheels toe in, base **spins in place** (CCW) | Translates instead → steering zero off; spins the wrong way → steering direction wrong |
+| `[0, 1, 0]` | Wheels at 90°, base **strafes** sideways, heading fixed | Heading rotates → steering zero off; angle ≠ 90° → steering zero offset |
+| `[1, 1, 0]` | Base moves on a **45° diagonal** | Direction ≠ 45° → x/y drive mismatch or geometry error |
+| `[1, 0, 1]` | Forward **and** rotating (spiral) | Only one component present → check the corresponding motor group |
+
+Adjust the vector in the snippet for each row; hold ~5–10 s, then command zero. For continuous manual control instead, use gamepad teleop (see §6).
+
+### 6. Gamepad & Controller Run Test
+
+Final check with the real controller:
+```bash
+python i2rt/flow_base/flow_base_controller.py            # remote / API teleop
+python i2rt/flow_base/flow_base_controller.py --gamepad  # wired-gamepad teleop
+```
+To debug a gamepad's raw axis/button values, run the standalone reader:
+```bash
+python -m i2rt.utils.gamepad_utils
+```
+Gamepad notes: set a Logitech pad to **D (DirectInput) mode** before launching, then let the sticks settle — on startup the pad may report residual non-zero values, so wait until the printed axes read ~0 before driving. This wired gamepad is separate from the wireless RC remote in [Remote Control](#remote-control).
+
+The controller should initialize all motors, respond smoothly to input, and move without abnormal vibration or noise. If startup fails, check CAN wiring and re-run the motor verification in §1; if motion is rough or veers, re-check the steering-zero calibration in §3.
 
 ## Troubleshooting
 
