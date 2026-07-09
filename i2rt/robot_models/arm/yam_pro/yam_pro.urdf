@@ -333,28 +333,28 @@
         <axis xyz="-1 0 0" />
         <parent link="base_1" />
         <child link="link1" />
-        <limit effort="1" velocity="1" lower="-2.61799" upper="3.05433" />
+        <limit effort="1" velocity="1" lower="-2.61799" upper="3.14159" />
     </joint>
     <joint name="dof_joint2" type="revolute">
         <origin xyz="-0.0455 -0.0329 -0.02" rpy="4.47367e-16 5.42424e-16 4.00074e-15" />
         <axis xyz="-3.58252e-15 -1 3.35753e-16" />
         <parent link="link1" />
         <child link="link2_1" />
-        <limit effort="1" velocity="1" lower="0" upper="3.14159" />
+        <limit effort="1" velocity="1" lower="0" upper="3.66519" />
     </joint>
     <joint name="dof_joint3" type="revolute">
         <origin xyz="4.08431e-07 -0.00205 0.264" rpy="-1.08814e-14 5.62765e-16 6.86704e-16" />
         <axis xyz="4.54273e-15 1 1.04275e-14" />
         <parent link="link2_1" />
         <child link="link3" />
-        <limit effort="1" velocity="1" lower="-6.28319" upper="3.66519" />
+        <limit effort="1" velocity="1" lower="0" upper="3.14159" />
     </joint>
     <joint name="dof_joint4" type="revolute">
         <origin xyz="-0.0600003 0.0688 -0.244999" rpy="1.04275e-14 3.83027e-15 -4.34003e-15" />
         <axis xyz="0 1 0" />
         <parent link="link3" />
         <child link="link4_1" />
-        <limit effort="1" velocity="1" lower="-1.5708" upper="1.5708" />
+        <limit effort="1" velocity="1" lower="-1.69297" upper="1.5708" />
     </joint>
     <joint name="dof_joint5" type="revolute">
         <origin xyz="-0.0403003 -0.0338507 -0.0739989" rpy="-1.03641e-14 -1.15907e-14 6.37337e-29" />
