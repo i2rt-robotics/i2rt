@@ -160,6 +160,7 @@ class VehicleMotorController:
             channel=channel,
             motor_chain_name="holonomic_base",
             control_mode=ControlMode.VEL,
+            enable_auto_recovery=False,  # fail-fast on motor error (ROB-1449); base does not self-heal
         )
         return motor_interface
 
@@ -676,6 +677,7 @@ class LinearRailVehicle(Vehicle):
             motor_chain_name="linear_rail_vehicle" if enable_linear_rail else "holonomic_base",
             control_mode=ControlMode.VEL,
             control_freq=control_freq,
+            enable_auto_recovery=False,  # fail-fast on motor error (ROB-1449); base does not self-heal
         )
 
         # Initialize brake GPIO only if linear rail is enabled
