@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv pip install --system "scikit-build-core<0.10"
-          uv pip install --system -e ".[dev]"
+          echo "scikit-build-core<0.10" > /tmp/build-constraints.txt
+          UV_BUILD_CONSTRAINT=/tmp/build-constraints.txt uv pip install --system -e ".[dev]"
       - name: Test with pytest
         run: pytest -n auto
