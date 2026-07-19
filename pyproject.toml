@@ -52,6 +52,9 @@ build-constraint-dependencies = ["scikit-build-core<0.10"]
 [tool.flit.module]
 name = "i2rt"
 
+[tool.uv]
+build-constraint-dependencies = ["scikit-build-core<0.10"]
+
 [tool.ruff]
 line-length = 119 # Set the max line length to 119 characters.
 lint.select = [

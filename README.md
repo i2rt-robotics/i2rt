@@ -133,6 +133,30 @@ client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 
 ## Advanced: Motor Configuration
 
+## CI
+
+Every push and pull request to `main` runs two workflows:
+
+| Workflow | What it does | ~Time |
+|----------|-------------|-------|
+| **ruff_CI** | Lints the codebase with `ruff check` | ~1 min |
+| **unit_tests_CI** | Installs the package and runs `pytest -n auto` | ~5 min |
+
+Both also run weekly on a Sunday schedule.
+
+### Run locally before pushing
+
+```bash
+pip install ruff==0.15.4
+ruff check .
+pip install -e ".[dev]" && pytest -n auto
+```
+### Adding a new check
+
+1. Edit the relevant file under `.github/workflows/` (`ruff.yml` or `unit_tests.yml`), or create a new workflow file
+2. Push to a feature branch — the workflows run automatically on your PR
+3. If CI fails, check the Actions tab on your PR for logs, fix, and push again
+
 ### Safety timeout
 
 The factory default is a **400 ms timeout** — motors enter damping mode if no command is received within 400 ms.
