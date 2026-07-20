@@ -23,7 +23,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "qpsolvers[quadprog]==4.7.1",
     "rerun-sdk>=0.32.2",
-    "ruckig==0.15.3",
+    "ruckig>=0.19.4",
     "threadpoolctl==3.6.0",
     "tyro>=1.0.0",
     "viser>=0.2.0",
@@ -42,12 +42,6 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
-
-[tool.uv]
-# ruckig 0.15.3 publishes only an sdist, so it is compiled from source on a fresh
-# install (e.g. CI). Its build fails under scikit-build-core >= 0.10, which rejects the
-# package's deprecated `cmake.targets`. Pin the build backend below that so it builds.
-build-constraint-dependencies = ["scikit-build-core<0.10"]
 
 [tool.flit.module]
 name = "i2rt"
