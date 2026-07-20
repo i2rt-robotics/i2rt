@@ -54,3 +54,4 @@ Directly control each joint angle (in degrees) and the gripper position using in
 | `--dt` | `0.02` | Control loop timestep in seconds |
 | `--port` | `8080` | Viser server port |
 | `--site` | auto | End-effector site name (auto-detected from gripper type) |
+| `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |

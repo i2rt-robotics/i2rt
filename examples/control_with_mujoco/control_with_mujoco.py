@@ -240,6 +240,7 @@ def _robot_worker(
     gripper_value: str,
     channel: str,
     sim: bool,
+    use_coulomb_friction: bool,
     meta_queue: mp.Queue,
     cmd_queue: mp.Queue,
     stop_event: Any,
@@ -252,7 +253,9 @@ def _robot_worker(
     arm = ArmType.from_string_name(arm_value)
     gripper = GripperType.from_string_name(gripper_value)
 
-    robot = get_yam_robot(channel=channel, arm_type=arm, gripper_type=gripper, sim=sim)
+    robot = get_yam_robot(
+        channel=channel, arm_type=arm, gripper_type=gripper, sim=sim, use_coulomb_friction=use_coulomb_friction
+    )
     if sim and hasattr(robot, "start_server"):
         robot.start_server()
 
@@ -409,6 +412,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.02, help="Loop timestep (s)")
     parser.add_argument("--site", type=str, default=None, help="EE site name (auto-detected if omitted)")
     parser.add_argument("--log", action="store_true", help="Log joint state and torques each loop iteration")
+    parser.add_argument(
+        "--friction",
+        action="store_true",
+        help="Enable Coulomb friction compensation in gravity comp (real hardware only)",
+    )
     return parser.parse_args()
 
 
@@ -445,7 +453,7 @@ def main() -> None:
     robot_proc = mp.Process(
         target=_robot_worker,
         name="robot_worker",
-        args=(args.arm, args.gripper, args.channel, args.sim, meta_queue, cmd_queue, stop_event),
+        args=(args.arm, args.gripper, args.channel, args.sim, args.friction, meta_queue, cmd_queue, stop_event),
     )
     robot_proc.start()
 

@@ -1,4 +1,4 @@
-<mujoco model="linear_4310">
+<mujoco model="linear_3507">
   <compiler angle="radian" meshdir="assets"/>
 
   <asset>

@@ -45,6 +45,7 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 | `--dt` | `0.02` | Control loop timestep in seconds |
 | `--site` | auto | MuJoCo site used as end-effector (auto-detected from gripper: `tcp_site` for `yam_teaching_handle`, else `grasp_site`) |
 | `--log` | off | Log joint state and torques to terminal each iteration |
+| `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |
 
 ## Viewer Controls (CONTROL mode)
 

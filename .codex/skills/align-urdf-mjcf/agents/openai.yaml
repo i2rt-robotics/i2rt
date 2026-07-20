@@ -1,0 +1,4 @@
+interface:
+  display_name: "Align URDF and MJCF"
+  short_description: "Align robot geometry and dynamics across formats"
+  default_prompt: "Use $align-urdf-mjcf to align an MJCF robot model with its URDF source and verify the result."

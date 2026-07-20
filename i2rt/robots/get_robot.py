@@ -145,6 +145,7 @@ def get_yam_robot(
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     enable_auto_recovery: bool = False,
+    use_coulomb_friction: bool = False,
 ) -> "Robot":
     """Create a YAM-family robot (real or sim).
 
@@ -163,6 +164,9 @@ def get_yam_robot(
         sim: If True, return a SimRobot instead of connecting to real hardware.
         enable_auto_recovery: If True, the motor chain tries to clean+re-enable errored motors in its
             control loop instead of failing fast. Defaults to False (fail-fast).
+        use_coulomb_friction: If True, add the per-joint Coulomb friction feedforward (from the arm
+            config) during gravity compensation. Defaults to False. Only affects real hardware; ignored
+            in sim mode (SimRobot has no friction feedforward).
     """
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
@@ -285,6 +289,7 @@ def get_yam_robot(
         kd=kd,
         grav_comp_kd=grav_comp_kd,
         coulomb_friction=coulomb_friction,
+        use_coulomb_friction=use_coulomb_friction,
         zero_gravity_mode=zero_gravity_mode,
         joint_state_saver_factory=joint_state_saver_factory,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,
