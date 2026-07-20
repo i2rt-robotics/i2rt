@@ -164,11 +164,17 @@ def _yam_polling_worker(
     rate.start()
     while not stop_event.is_set():
         if cmd_queue is not None:
-            try:
-                cmd = cmd_queue.get_nowait()
-            except queue.Empty:
-                pass
-            else:
+            # Drain to the newest command and drop any stale backlog. Commands arrive (over RPC)
+            # at least as fast as this loop actuates them, so replaying every queued command in
+            # FIFO order would make the follower lag further and further behind. Mirrors the
+            # leader io loop's drain-to-newest (_run_leader_io_loop).
+            cmd = None
+            while True:
+                try:
+                    cmd = cmd_queue.get_nowait()
+                except queue.Empty:
+                    break
+            if cmd is not None:
                 yam.command_joint_pos(cmd)
         try:
             pos = yam.get_joint_pos()
@@ -299,6 +305,23 @@ def _wait_for_dof(n_dofs_value: Any, timeout_s: float = 30.0) -> int:
     return int(n_dofs_value.value)
 
 
+def _put_latest_command(cmd_queue: Any, item: np.ndarray) -> None:
+    """Non-blocking latest-wins enqueue onto a (bounded) command queue.
+
+    Never blocks the caller: if the queue is full (the hardware worker has not drained it
+    yet), drop the stale item and replace it with the newest, so the follower always actuates
+    the freshest target. A setpoint stream is latest-wins, not a work queue."""
+    while True:
+        try:
+            cmd_queue.put_nowait(item)
+            return
+        except queue.Full:
+            try:
+                cmd_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+
 def _build_follower_server(
     server_port: int,
     n_dofs_value: Any,
@@ -324,11 +347,11 @@ def _build_follower_server(
         return pos_shared.array[: n_dofs_value.value].copy()
 
     def _cmd_pos(joint_pos: np.ndarray) -> None:
-        cmd_queue.put(np.asarray(joint_pos))
+        _put_latest_command(cmd_queue, np.asarray(joint_pos))
 
     def _cmd_state(state: Dict[str, np.ndarray]) -> None:
         key = "position" if "position" in state else "pos"
-        cmd_queue.put(np.asarray(state[key]))
+        _put_latest_command(cmd_queue, np.asarray(state[key]))
 
     def _get_obs() -> Dict[str, np.ndarray]:
         return {"joint_pos": _get_pos()}
@@ -463,7 +486,10 @@ def run_follower(args: Args) -> None:
     spawn = partial(_spawn_into, resources.processes)
 
     n_dofs_value = portal.mp.Value("i", 0)
-    cmd_queue = portal.mp.Queue()
+    # maxsize=1 so the command queue holds only the latest setpoint; _cmd_pos/_cmd_state drop
+    # stale commands on overflow (see _build_follower_server). A setpoint stream is latest-wins,
+    # not a work queue — bounding it prevents any backlog from accumulating on this hop.
+    cmd_queue = portal.mp.Queue(maxsize=1)
 
     spawn(
         portal.Process(

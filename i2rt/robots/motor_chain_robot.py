@@ -76,6 +76,7 @@ class MotorChainRobot(Robot):
         coulomb_friction: Optional[
             np.ndarray
         ] = None,  # per-joint Coulomb friction (Nm); applied as coulomb_friction * sign(q_dot)
+        use_coulomb_friction: bool = False,  # if True, add the Coulomb friction feedforward in the grav-comp loop
         joint_limits: Optional[np.ndarray] = None,  # if provided, override the mujoco xml joint limits
         gripper_limits: Optional[np.ndarray] = None,  # [closed, open]
         limit_gripper_force: float = -1,  # whether to limit the gripper effort when it is blocked. -1 means no limit.
@@ -193,6 +194,7 @@ class MotorChainRobot(Robot):
         assert len(self._grav_comp_kd) == len(motor_chain), (
             f"grav_comp_kd length {len(self._grav_comp_kd)} != motor_chain length {len(motor_chain)}"
         )
+        self.use_coulomb_friction = use_coulomb_friction
         self._coulomb_friction = (
             np.array(coulomb_friction, dtype=float) if coulomb_friction is not None else np.zeros(len(motor_chain))
         )
@@ -304,6 +306,7 @@ class MotorChainRobot(Robot):
             "kd": self._kd,
             "grav_comp_kd": self._grav_comp_kd,
             "coulomb_friction": self._coulomb_friction,
+            "use_coulomb_friction": self.use_coulomb_friction,
             "joint_limits": self._joint_limits,
             "gripper_limits": self._gripper_limits,
             "gravity_comp_factor": self.gravity_comp_factor,
@@ -353,7 +356,9 @@ class MotorChainRobot(Robot):
             joint_commands = copy.deepcopy(self._commands)
         with self._state_lock:
             g = self._compute_gravity_compensation(self._joint_state)
-            friction_comp = self._coulomb_friction * np.sign(self._joint_state.vel)
+            friction_comp = (
+                self._coulomb_friction * np.sign(self._joint_state.vel) if self.use_coulomb_friction else 0.0
+            )
             motor_torques = joint_commands.torques + g * self.gravity_comp_factor + friction_comp
             motor_torques = np.clip(motor_torques, -self._clip_motor_torque, self._clip_motor_torque)
             self._last_motor_torques = motor_torques.copy()
