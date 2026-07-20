@@ -55,6 +55,227 @@ sh scripts/reset_all_can.sh
 python i2rt/robots/motor_chain_robot.py --channel can0 --gripper linear_4310
 ```
 
+### YAM LeWM Inference Runbook
+
+This is the quick operator path used for running goal-conditioned LeWM + CEM/MPC
+on the gem9 bimanual YAM rig. The GPU server runs on RunPod; the robot client runs
+on gem9 because it owns the CAN buses, RealSense cameras, and arm drivers.
+
+#### Known gem9 mapping
+
+| Device | Value |
+|--------|-------|
+| GPU server Tailscale IP | `100.123.144.75` |
+| gem9 Tailscale IP | `100.77.141.106` |
+| CEM server port | `8017` |
+| Left arm CAN | `can1` |
+| Right arm CAN | `can0` |
+| Exo camera | `353322271538` |
+| Left wrist camera | `353322271686` |
+| Right wrist camera | `353322270649` |
+
+#### 1. Prepare the checkpoint on RunPod
+
+The deploy directory expects a config JSON and checkpoint weights. On the current
+RunPod image these were staged as symlinks:
+
+```bash
+cd /workspace/src/research/deploy/lewm-yam
+ln -sf /workspace/.stable_worldmodel/checkpoints/yam_swm_lewm_mosaic224_vitb_proprio_decoder/config.json config.json
+ln -sf /workspace/.stable_worldmodel/checkpoints/yam_swm_lewm_mosaic224_vitb_proprio_decoder/weights_step_440000.pt weights_step_440000.pt
+```
+
+Do not commit these symlinks or the checkpoint. They are machine-local artifacts.
+
+The matching model config is:
+
+- ViT-B/14, image size 224
+- 14D proprio
+- action encoder input dim 70 (`frameskip=5 * 14D`)
+- predictor history size 3
+
+#### 2. Start the GPU server on RunPod
+
+In a RunPod terminal:
+
+```bash
+cd /workspace/src/research/deploy/lewm-yam
+python serve_lewm.py \
+  --config config.json \
+  --weights weights_step_440000.pt \
+  --port 8017 \
+  --device cuda \
+  --bf16
+```
+
+Wait for:
+
+```text
+Warmup done.
+Serving on 0.0.0.0:8017
+```
+
+In a second terminal on the same RunPod, verify:
+
+```bash
+curl http://127.0.0.1:8017/health
+```
+
+Expected output:
+
+```text
+ok
+```
+
+From gem9, use the RunPod Tailscale IP:
+
+```bash
+curl http://100.123.144.75:8017/health
+```
+
+#### 3. SSH to gem9
+
+Tailnet DNS may not resolve inside RunPod. If this fails:
+
+```bash
+ssh pantheon@pantheon-gem9.tailc7b2a4.ts.net
+```
+
+use the Tailscale IP and proxy command:
+
+```bash
+ssh -o StrictHostKeyChecking=accept-new \
+  -o ProxyCommand='tailscale --socket=/var/run/tailscale/tailscaled.sock nc %h %p' \
+  pantheon@100.77.141.106
+```
+
+#### 4. Check gem9 hardware
+
+On gem9:
+
+```bash
+source /home/pantheon/miniconda3/etc/profile.d/conda.sh
+conda activate atlas
+
+curl http://100.123.144.75:8017/health
+ip -details -statistics link show can0
+ip -details -statistics link show can1
+python -c "import pyrealsense2 as rs; print([d.get_info(rs.camera_info.serial_number) for d in rs.context().query_devices()])"
+```
+
+Expected:
+
+- server health prints `ok`
+- both CAN buses are `UP`, `LOWER_UP`, `ERROR-ACTIVE`, 1 Mbit/s, and zero bus errors
+- RealSense lists `353322271538`, `353322271686`, `353322270649`
+
+If a CAN bus was power-cycled or a power cable was replugged:
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can0 up
+```
+
+Ping motors:
+
+```bash
+for id in 1 2 3 4 5 6 7; do
+  echo "PING can0 motor $id"
+  timeout 8 python -m i2rt.motor_config_tool.ping_motors --channel can0 --motor_id "$id"
+done
+```
+
+Repeat with `can1` if needed.
+
+#### 5. Start the robot client
+
+On gem9:
+
+```bash
+cd /home/pantheon/lewm-yam
+./run_gem9_client.sh 100.123.144.75:8017
+```
+
+The script initializes both YAM arms with `zero_gravity_mode=True`. The pose at
+startup becomes the stored `home` pose.
+
+Expected prompt:
+
+```text
+Ready. Commands:
+  g  = capture goal image + goal-pose proprio from current cameras
+  c  = capture goal, then smooth return to home
+  s  = start inference loop from current pose
+  r  = return home, then start CEM/MPC from home
+  h  = smooth return to home
+  e  = E-stop
+  q  = quit
+```
+
+#### 6. Normal operation
+
+Use this flow for home-to-goal CEM/MPC:
+
+1. Start the client with the arms physically at the desired home pose.
+2. Manually move the arms and scene to the goal pose.
+3. Type `c` and press Enter.
+   - Captures goal camera frames.
+   - Captures current 14D arm state as goal proprio.
+   - Sends the goal to the GPU server.
+   - Smoothly returns to home.
+4. Reset the object/scene to the start state.
+5. Type `r` and press Enter.
+   - Returns home if needed.
+   - Resets planner history while keeping the goal.
+   - Runs CEM/MPC from home to goal.
+
+Emergency stop:
+
+```text
+e
+```
+
+or Ctrl-C while the client is running.
+
+Once the client exits and the terminal prompt is back to
+`pantheon@pantheon-gem9:~/lewm-yam$`, the one-letter commands no longer apply.
+Typing `e` at the shell prompt is just a shell command, not an E-stop.
+
+#### 7. Common failure recovery
+
+Port already in use on RunPod:
+
+```bash
+pkill -f 'serve_lewm.py.*--port 8017'
+ss -ltnp | grep 8017 || true
+```
+
+Robot client stuck in `Shutting down...`:
+
+```bash
+pgrep -af 'inference_lewm.py|run_gem9_client.sh'
+pkill -f inference_lewm.py
+pkill -f run_gem9_client.sh
+```
+
+Camera `VIDIOC_S_FMT` or input/output error:
+
+```bash
+pgrep -af 'inference_lewm.py|run_gem9_client.sh'
+pkill -f inference_lewm.py
+pkill -f run_gem9_client.sh
+./run_gem9_client.sh 100.123.144.75:8017 --reset-cameras
+```
+
+Wrong home pose:
+
+```text
+q
+```
+
+Move the arms manually to the desired home pose, then restart the client.
+
 ### Python API
 
 ```python
