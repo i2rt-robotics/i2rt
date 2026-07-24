@@ -533,6 +533,7 @@ class DMChainCanInterface(MotorChain):
             return
         logging.info("starting separate thread for control loop")
         thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread = thread
         thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
@@ -747,7 +748,15 @@ class DMChainCanInterface(MotorChain):
             return self.same_bus_device_states
 
     def close(self) -> None:
+        # Stop the control loop and wait for it to finish its current iteration
+        # BEFORE closing the CAN interface: closing the bus under a mid-flight
+        # _set_commands makes the thread crash on the dead socket (ValueError:
+        # "file descriptor cannot be a negative integer") and dump a traceback
+        # on every shutdown.
         self.running = False
+        thread = getattr(self, "_control_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
         self.motor_interface.close()
 
 
