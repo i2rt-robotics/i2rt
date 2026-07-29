@@ -47,10 +47,18 @@ class ClientRobot(Robot):
         return self._client.get_joint_pos().result()
 
     def command_joint_pos(self, joint_pos: np.ndarray) -> None:
-        self._client.command_joint_pos(joint_pos)
+        # .result() is load-bearing, not just error propagation. portal's client wakes its socket
+        # thread by writing one byte to a signal pipe per request, but drains that pipe only once
+        # per send-queue-emptying (portal/client_socket.py). A fire-and-forget command followed
+        # immediately by another call lands both requests in one send burst: two bytes written, one
+        # drained — a leak that fills the 64 KiB pipe in minutes of teleop, after which send()
+        # blocks forever in os.write and the leader silently stops forwarding commands (confirmed
+        # twice via py-spy: MainThread stuck at client_socket.py send). Waiting for the reply keeps
+        # every request in its own burst, so writes and drains stay exactly balanced.
+        self._client.command_joint_pos(joint_pos).result()
 
     def command_joint_state(self, joint_state: Dict[str, np.ndarray]) -> None:
-        self._client.command_joint_state(joint_state)
+        self._client.command_joint_state(joint_state).result()  # see command_joint_pos for why
 
     def get_observations(self) -> Dict[str, np.ndarray]:
         return self._client.get_observations().result()
@@ -207,6 +215,9 @@ def _rpc_polling_worker(
         except Exception as e:
             logging.error(f"[{rate_name}] error: {e}")
             time.sleep(0.1)
+        # Pace the loop: unbounded RPC deadlocks portal's client the same way as in
+        # _run_leader_io_loop (see the comment there).
+        time.sleep(_WORKER_LOOP_PERIOD_S)
 
 
 def _leader_control_worker(
@@ -399,6 +410,13 @@ def _run_leader_io_loop(
             # leader arm is energized in bilateral PD — an abrupt loss of control of a powered arm.
             logging.error(f"[yam-leader web-port io] error: {e}")
             time.sleep(0.1)
+        # Pace the loop. portal's client wakes its socket thread by writing one byte to a pipe per
+        # request, but that pipe is drained at most one byte per socket-loop iteration and only while
+        # the send queue is empty (portal/client_socket.py: the `if not writing:` guard). Unpaced this
+        # loop issues ~7 kHz of RPCs, the send queue never empties, the 64 KiB pipe fills, and send()
+        # blocks forever in os.write with no timeout — the leader silently stops forwarding commands
+        # while its control worker keeps running. 500 Hz is well clear of the ~250 Hz hardware rate.
+        time.sleep(_WORKER_LOOP_PERIOD_S)
 
 
 def _run_viewer_loop(
