@@ -14,9 +14,9 @@ Comparison is done in frame-invariant / world terms so the two file formats can 
     in the link frame)
 
 Notes on scope:
-  - ``link6`` is the gripper-mount frame, not a physical link; its MJCF inertial is a placeholder
-    (``mass=1e-6``), so only its *frame*/axis/range are checked, not mass/COM/inertia (the READMEs
-    likewise show ``-`` for the mount).
+  - the terminal ``gripper`` body is the mount frame, not a physical link; its MJCF inertial is a
+    placeholder (``mass=1e-6``), so only its *frame*/axis/range are checked, not mass/COM/inertia
+    (the READMEs likewise show ``-`` for the mount).
   - ``big_yam``'s MJCF models the fixed base as a static worldbody geom (no ``base`` body), so its
     base mass/COM/inertia have no MJCF counterpart to compare; the base frame is the world origin.
 """
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
@@ -32,22 +33,13 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
-from i2rt.robot_models import (
-    ARM_BIG_YAM_XML_PATH,
-    ARM_YAM_PRO_XML_PATH,
-    ARM_YAM_ULTRA_XML_PATH,
-    ARM_YAM_XML_PATH,
-)
-from i2rt.robots.utils import ArmType
+from i2rt.robot_models import available_arm_versions
+from i2rt.robots.utils import ArmType, _load_arm_config
 
-# Arm-only MJCF path per arm; the URDF sits beside it with the same basename.
-ARM_XML = {
-    ArmType.YAM: ARM_YAM_XML_PATH,
-    ArmType.YAM_PRO: ARM_YAM_PRO_XML_PATH,
-    ArmType.YAM_ULTRA: ARM_YAM_ULTRA_XML_PATH,
-    ArmType.BIG_YAM: ARM_BIG_YAM_XML_PATH,
-}
-ARMS = list(ARM_XML)
+ARMS = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.BIG_YAM]
+# Every (arm, model version) shipped under robot_models/arm/<arm>/v<N>/. Discovered rather than
+# hardcoded so a new version dir is covered by these tests without editing them.
+ARM_VERSIONS = [(arm, v) for arm in ARMS for v in available_arm_versions(arm.value)]
 
 # Tolerances. The yam family's MJCFs are generated from their URDFs so they agree to ~1e-15;
 # big_yam's MJCF is hand-maintained and agrees to ~1e-6 on geometry / exactly on mass+range.
@@ -61,8 +53,9 @@ INERTIA_TOL = 1e-5
 RANGE_TOL = 1e-6
 
 ARM_JOINT_RE = re.compile(r"^(?:dof_)?joint(\d+)$")
-# MJCF body name -> URDF link name resolver key ("mount" == the joint6 child link).
-MJCF_BODIES = ["base", "link1", "link2", "link3", "link4", "link5", "link6"]
+# MJCF bodies in chain order. The terminal ``gripper`` body is the mount (joint6's child), named
+# after the URDF link it represents.
+MJCF_BODIES = ["base", "link1", "link2", "link3", "link4", "link5", "gripper"]
 
 
 # --------------------------------------------------------------------------- math
@@ -196,8 +189,9 @@ def _mjcf_body_inertial(body_el: ET.Element) -> tuple[float, np.ndarray, np.ndar
     return mass, com, _inertia_in_link_frame(rot, diag)
 
 
-def _load_arm_model(arm: ArmType) -> _ArmModel:
-    xml_path = ARM_XML[arm]
+def _load_arm_model(arm: ArmType, version: int = 1) -> _ArmModel:
+    xml_path = arm.get_xml_path(version)
+    # The URDF sits beside the MJCF in the same version dir, with the same basename.
     urdf_path = os.path.splitext(xml_path)[0] + ".urdf"
     robot = ET.parse(urdf_path).getroot()
     mjcf = ET.parse(xml_path).getroot()
@@ -215,7 +209,7 @@ def _load_arm_model(arm: ArmType) -> _ArmModel:
     urdf_w = _urdf_world_transforms(robot)
     mjcf_w, mjcf_el = _mjcf_world_transforms(mjcf)
     # MJCF body name -> corresponding URDF link name.
-    urdf_link_of = {"base": base, "link6": mount}
+    urdf_link_of = {"base": base, "gripper": mount}
     for i in range(1, 6):
         urdf_link_of[f"link{i}"] = links[i]
 
@@ -226,7 +220,7 @@ def _load_arm_model(arm: ArmType) -> _ArmModel:
             continue
         urdf_link = urdf_link_of[name]
         frames.append(_Frame(name, urdf_w[urdf_link], mjcf_w[name]))
-        if name == "link6":  # gripper mount: placeholder inertial, excluded from README mass/inertia
+        if name == "gripper":  # mount frame: placeholder inertial, excluded from README mass/inertia
             continue
         um, uc, ui = _urdf_link_inertial(_link_by_name(robot, urdf_link))
         mm, mc, mi = _mjcf_body_inertial(mjcf_el[name])
@@ -265,9 +259,9 @@ def _mjcf_joint(mjcf: ET.Element, joint_name: str) -> tuple[str, ET.Element]:
     raise AssertionError(f"MJCF has no joint {joint_name!r}")
 
 
-@pytest.fixture(params=ARMS, ids=lambda a: a.value)
+@pytest.fixture(params=ARM_VERSIONS, ids=lambda p: f"{p[0].value}_v{p[1]}")
 def model(request: pytest.FixtureRequest) -> _ArmModel:
-    return _load_arm_model(request.param)
+    return _load_arm_model(*request.param)
 
 
 # --------------------------------------------------------------------------- tests
@@ -334,3 +328,31 @@ def test_link_inertias_aligned(model: _ArmModel) -> None:
         if np.max(np.abs(i.urdf_I - i.mjcf_I)) > INERTIA_TOL
     ]
     assert not bad, f"{model.arm}: URDF/MJCF inertia tensors diverge -> " + "; ".join(bad)
+
+
+def test_arm_version_resolution() -> None:
+    """version defaults to 1, resolves into the v1 dir, and errors legibly when absent."""
+    assert ArmType.YAM.get_xml_path() == ArmType.YAM.get_xml_path(1)
+    assert ArmType.YAM.get_xml_path(1).endswith(os.path.join("arm", "yam", "v1", "yam.xml"))
+    assert available_arm_versions("yam") == [1]
+    assert available_arm_versions("not_an_arm") == []
+
+    # A v<N> dir without <arm>.xml is an in-progress import (e.g. a raw CAD export dropped in
+    # before the alignment pipeline runs), not a shipped version. Reporting it would parametrize
+    # every test in this file onto a model that cannot be loaded.
+    arm_dir = os.path.dirname(os.path.dirname(ArmType.YAM.get_xml_path(1)))
+    scratch = os.path.join(arm_dir, "v98765")
+    os.makedirs(os.path.join(scratch, "assets"))
+    try:
+        assert available_arm_versions("yam") == [1]
+    finally:
+        shutil.rmtree(scratch)
+
+    # A missing version must name the arm, the version, and what is actually available --
+    # a bare FileNotFoundError on a composed path is not diagnosable in the field.
+    for absent in (lambda: ArmType.YAM.get_xml_path(99), lambda: _load_arm_config(ArmType.YAM, 99)):
+        with pytest.raises(FileNotFoundError, match=r"version 99.*Available versions.*\[1\]"):
+            absent()
+
+    with pytest.raises(ValueError, match="NO_ARM"):
+        ArmType.NO_ARM.get_xml_path(1)

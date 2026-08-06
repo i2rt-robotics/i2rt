@@ -21,7 +21,7 @@ Treat the URDF as the source of truth unless the user states otherwise. Produce 
 4. Preserve unrelated user changes and assets.
 5. Create a short, verifiable task plan before editing.
 
-For the YAM arm-only contract, retain exactly six arm joints named `joint1` through `joint6`. Keep `link6` as the end-effector mount body. Do not copy the URDF gripper mass, gripper geometry, or tip bodies into the arm MJCF.
+For the YAM arm-only contract, retain exactly six arm joints named `joint1` through `joint6`. Keep the terminal body named `gripper` -- the end-effector mount, named after the URDF's `joint6` child link. Do not copy the URDF gripper mass, gripper geometry, or tip bodies into the arm MJCF.
 
 ## Inventory the Models
 
@@ -146,7 +146,7 @@ world
     └── link1 / joint1
         └── link2 / joint2
             └── ...
-                └── link6 / joint6
+                └── gripper / joint6   (end-effector mount; empty in the arm-only MJCF)
 ```
 
 Place each joint at `pos="0 0 0"` inside its child body when the body's transform already represents the URDF joint origin. Copy joint type, axis, range, and name exactly. Keep actuator-force metadata only if the existing MJCF convention requires it.
@@ -220,11 +220,11 @@ Use tight tolerances appropriate to the source precision. A useful target for va
 
 Compile the MJCF with the repository's supported MuJoCo version. For the standalone YAM arm-only model, verify:
 
-- `nbody == 8`: world plus base and six link bodies.
+- `nbody == 8`: world plus base, five link bodies, and the gripper mount.
 - `njnt == 6`
 - `nq == 6`
 - `ngeom == 6`
-- Body names are exactly `base`, `link1` through `link6`.
+- Body names are exactly `base`, `link1` through `link5`, and `gripper`.
 - Joint names begin with exactly `joint1` through `joint6`.
 - No gripper or tip geom exists.
 

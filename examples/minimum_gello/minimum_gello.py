@@ -97,6 +97,8 @@ class YAMLeaderRobot:
 @dataclass
 class Args:
     arm: Literal["yam", "yam_pro", "yam_ultra", "big_yam", "no_arm"] = "yam"
+    version: int = 1
+    """Arm hardware revision (the v<N> model/config version)."""
     gripper: Literal[
         "crank_4310", "linear_3507", "linear_4310", "flexible_4310", "yam_teaching_handle", "no_gripper"
     ] = "yam_teaching_handle"
@@ -155,6 +157,7 @@ def _yam_polling_worker(
     yam = get_yam_robot(
         channel=args.can_channel,
         arm_type=arm_type,
+        version=args.version,
         gripper_type=gripper_type,
         ee_mass=args.ee_mass,
         sim=args.sim,
@@ -226,6 +229,7 @@ def _leader_control_worker(
     yam = get_yam_robot(
         channel=args.can_channel,
         arm_type=arm_type,
+        version=args.version,
         gripper_type=gripper_type,
         ee_mass=args.ee_mass,
         sim=args.sim,
@@ -404,11 +408,12 @@ def _run_leader_io_loop(
 def _run_viewer_loop(
     arm_type: ArmType,
     gripper_type: GripperType,
+    version: int,
     get_pos_fn: Callable[[], np.ndarray],
 ) -> None:
     """Foreground MuJoCo viewer. Pulls joint_pos from ``get_pos_fn`` each frame
     — typically a snapshot of a SharedArray populated by a background worker."""
-    xml_path = combine_arm_and_gripper_xml(arm_type, gripper_type)
+    xml_path = combine_arm_and_gripper_xml(arm_type, gripper_type, version=version)
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 
@@ -586,7 +591,7 @@ def run_visualizer_local(args: Args) -> None:
         return resources.pos_shared.array[:n_dofs].copy()
 
     try:
-        _run_viewer_loop(arm_type, gripper_type, get_pos)
+        _run_viewer_loop(arm_type, gripper_type, args.version, get_pos)
     except Exception:
         logging.exception("visualizer_local mode failed")
         raise
@@ -624,7 +629,7 @@ def run_visualizer_remote(args: Args) -> None:
         return resources.pos_shared.array[:n_dofs].copy()
 
     try:
-        _run_viewer_loop(arm_type, gripper_type, get_pos)
+        _run_viewer_loop(arm_type, gripper_type, args.version, get_pos)
     except Exception:
         logging.exception("visualizer_remote mode failed")
         raise

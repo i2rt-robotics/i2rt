@@ -146,6 +146,8 @@ def get_yam_robot(
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     enable_auto_recovery: bool = False,
     use_coulomb_friction: bool = False,
+    *,
+    version: int = 1,
 ) -> "Robot":
     """Create a YAM-family robot (real or sim).
 
@@ -167,6 +169,9 @@ def get_yam_robot(
         use_coulomb_friction: If True, add the per-joint Coulomb friction feedforward (from the arm
             config) during gravity compensation. Defaults to False. Only affects real hardware; ignored
             in sim mode (SimRobot has no friction feedforward).
+        version: Arm hardware revision. Selects both the model dir
+            (``robot_models/arm/<arm>/v<N>/``) and the config (``config/<arm>_v<N>.yml``).
+            Defaults to 1. Ignored when ``arm_type`` is ``NO_ARM``.
     """
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
@@ -177,7 +182,7 @@ def get_yam_robot(
     with_gripper = gripper_type not in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER)
     with_teaching_handle = gripper_type == GripperType.YAM_TEACHING_HANDLE
 
-    hw = _load_arm_config(arm_type)
+    hw = _load_arm_config(arm_type, version)
     effective_gravity_comp = hw.gravity_comp_factor if gravity_comp_factor is None else gravity_comp_factor
     if with_gripper:
         effective_gravity_comp = np.append(effective_gravity_comp, 1.0)
@@ -187,10 +192,11 @@ def get_yam_robot(
         gripper_type,
         ee_mass=ee_mass,
         ee_inertia=ee_inertia,
+        version=version,
     )
 
     # Load limits for motor-driven joints only (arm joints + last wrist joint from gripper XML).
-    all_joint_limits = _load_joint_limits_from_xml(arm_type.get_xml_path(), gripper_type.get_xml_path())
+    all_joint_limits = _load_joint_limits_from_xml(arm_type.get_xml_path(version), gripper_type.get_xml_path())
     n_arm_joints = len(hw.motor_list)
     joint_limits = all_joint_limits[:n_arm_joints]
     joint_limits[:, 0] -= 0.15  # safety buffer

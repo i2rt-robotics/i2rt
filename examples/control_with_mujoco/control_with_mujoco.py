@@ -12,20 +12,15 @@ CONTROL mode; then use the per-joint sliders or double-click the
 mocap marker + ctrl+drag for IK. Commands are blocked on self-
 collision.
 
-With ``--log`` the table header shows ``[loop XX.X Hz]``, which is
-the motor chain's measured ``comm_freq`` (the same number
-``dm_driver.py`` reports) instead of the viewer's data-read
-cadence.
-
 Usage:
     python examples/control_with_mujoco/control_with_mujoco.py --sim
-    python examples/control_with_mujoco/control_with_mujoco.py --sim --log
     python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripper linear_4310 --sim
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra --version 1 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0
+    python examples/control_with_mujoco/control_with_mujoco.py --channel can0 --record
 """
 
-import argparse
 import logging
 import multiprocessing as mp
 import os
@@ -33,12 +28,14 @@ import queue as _queue
 import signal
 import sys
 import time
+from dataclasses import dataclass
 from multiprocessing import shared_memory
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import numpy as np
+import tyro
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
@@ -237,10 +234,12 @@ def _apply_command(robot: Any, cmd: tuple) -> None:
 
 def _robot_worker(
     arm_value: str,
+    arm_version: int,
     gripper_value: str,
     channel: str,
     sim: bool,
     use_coulomb_friction: bool,
+    record: bool,
     meta_queue: mp.Queue,
     cmd_queue: mp.Queue,
     stop_event: Any,
@@ -254,8 +253,19 @@ def _robot_worker(
     gripper = GripperType.from_string_name(gripper_value)
 
     robot = get_yam_robot(
-        channel=channel, arm_type=arm, gripper_type=gripper, sim=sim, use_coulomb_friction=use_coulomb_friction
+        channel=channel,
+        arm_type=arm,
+        version=arm_version,
+        gripper_type=gripper,
+        sim=sim,
+        use_coulomb_friction=use_coulomb_friction,
     )
+    if record:
+        try:
+            print(f"Recording motor feedback to {robot.start_mcap_recording()}")
+        except Exception:
+            robot.close()
+            raise
     if sim and hasattr(robot, "start_server"):
         robot.start_server()
 
@@ -365,7 +375,6 @@ def _viewer_worker(
     gripper_value: str,
     site_arg: Optional[str],
     dt: float,
-    log: bool,
     cmd_queue: mp.Queue,
     meta: Dict[str, Any],
     stop_event: Any,
@@ -384,7 +393,7 @@ def _viewer_worker(
     else:
         site = "grasp_site"
 
-    iface = MujocoControlInterface.from_robot(proxy, ee_site=site, dt=dt, log=log)
+    iface = MujocoControlInterface.from_robot(proxy, ee_site=site, dt=dt)
     try:
         iface.run()
     except KeyboardInterrupt:
@@ -399,25 +408,28 @@ def _viewer_worker(
 # ---------------------------------------------------------------------------
 
 
-def _parse_args() -> argparse.Namespace:
-    from i2rt.robots.utils import ArmType, GripperType
+@dataclass
+class _CliArgs:
+    """MuJoCo control interface for i2rt robots."""
 
-    arm_choices = [a.value for a in ArmType]
-    gripper_choices = [g.value for g in GripperType]
-    parser = argparse.ArgumentParser(description="MuJoCo control interface for i2rt robots")
-    parser.add_argument("--arm", type=str, default="yam", choices=arm_choices)
-    parser.add_argument("--gripper", type=str, default="linear_4310", choices=gripper_choices)
-    parser.add_argument("--channel", type=str, default="can0", help="CAN channel")
-    parser.add_argument("--sim", action="store_true", help="Use SimRobot")
-    parser.add_argument("--dt", type=float, default=0.02, help="Loop timestep (s)")
-    parser.add_argument("--site", type=str, default=None, help="EE site name (auto-detected if omitted)")
-    parser.add_argument("--log", action="store_true", help="Log joint state and torques each loop iteration")
-    parser.add_argument(
-        "--friction",
-        action="store_true",
-        help="Enable Coulomb friction compensation in gravity comp (real hardware only)",
-    )
-    return parser.parse_args()
+    arm: str = "yam"
+    """Arm variant (yam, yam_pro, yam_ultra, big_yam, no_arm)."""
+    version: int = 1
+    """Arm hardware revision (the v<N> model/config version)."""
+    gripper: str = "linear_4310"
+    """Gripper variant."""
+    channel: str = "can0"
+    """CAN channel."""
+    sim: bool = False
+    """Use SimRobot."""
+    dt: float = 0.02
+    """Loop timestep (s)."""
+    site: Optional[str] = None
+    """EE site name (auto-detected if omitted)."""
+    friction: bool = False
+    """Enable Coulomb friction compensation in gravity comp (real hardware only)."""
+    record: bool = False
+    """Record motor feedback and computed required torques to a ROS 2 CDR MCAP file."""
 
 
 def _wait_for_meta(meta_queue: mp.Queue, robot_proc: mp.Process, timeout: float = 60.0) -> Dict[str, Any]:
@@ -436,13 +448,15 @@ def _wait_for_meta(meta_queue: mp.Queue, robot_proc: mp.Process, timeout: float 
 
 
 def main() -> None:
-    args = _parse_args()
+    args = tyro.cli(_CliArgs)
     from i2rt.robots.utils import ArmType, GripperType
 
     arm = ArmType.from_string_name(args.arm)
     gripper = GripperType.from_string_name(args.gripper)
     if arm == ArmType.NO_ARM and gripper == GripperType.NO_GRIPPER:
         raise SystemExit("--gripper cannot be 'no_gripper' when --arm is 'no_arm'")
+    if args.record and args.sim:
+        raise SystemExit("--record requires real hardware motor feedback; remove --sim")
 
     mp.set_start_method("spawn", force=True)
 
@@ -453,7 +467,18 @@ def main() -> None:
     robot_proc = mp.Process(
         target=_robot_worker,
         name="robot_worker",
-        args=(args.arm, args.gripper, args.channel, args.sim, args.friction, meta_queue, cmd_queue, stop_event),
+        args=(
+            args.arm,
+            args.version,
+            args.gripper,
+            args.channel,
+            args.sim,
+            args.friction,
+            args.record,
+            meta_queue,
+            cmd_queue,
+            stop_event,
+        ),
     )
     robot_proc.start()
 
@@ -470,7 +495,7 @@ def main() -> None:
     viewer_proc = mp.Process(
         target=_viewer_worker,
         name="viewer_worker",
-        args=(args.gripper, args.site, args.dt, args.log, cmd_queue, meta, stop_event),
+        args=(args.gripper, args.site, args.dt, cmd_queue, meta, stop_event),
     )
     viewer_proc.start()
 
@@ -487,7 +512,8 @@ def main() -> None:
                 except ProcessLookupError:
                     pass
         for p in (robot_proc, viewer_proc):
-            p.join(timeout=2.0)
+            join_timeout = 10.0 if args.record and p is robot_proc else 2.0
+            p.join(timeout=join_timeout)
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=1.0)

@@ -39,13 +39,14 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm` (gripper-only; cannot combine with `--gripper no_gripper`) |
+| `--version` | `1` | Arm hardware revision — selects `robot_models/arm/<arm>/v<N>/` and `config/<arm>_v<N>.yml` |
 | `--gripper` | `linear_4310` | Gripper type: `linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
 | `--channel` | `can0` | CAN interface name (real hardware only) |
 | `--sim` | off | Use simulation instead of real hardware |
 | `--dt` | `0.02` | Control loop timestep in seconds |
 | `--site` | auto | MuJoCo site used as end-effector (auto-detected from gripper: `tcp_site` for `yam_teaching_handle`, else `grasp_site`) |
-| `--log` | off | Log joint state and torques to terminal each iteration |
 | `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |
+| `--record` | off | Record real-hardware motor feedback and computed required torques to a timestamped ROS 2 CDR MCAP file |
 
 ## Viewer Controls (CONTROL mode)
 

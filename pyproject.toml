@@ -13,6 +13,7 @@ dependencies = [
     # crcmod-plus is a maintained fork that installs into the `crcmod` namespace, so code still does `import crcmod`.
     "crcmod-plus>=2.3.1",
     "dm-env==1.6",
+    "mcap-ros2-support>=0.5.5",
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",

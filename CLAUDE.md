@@ -63,20 +63,34 @@ robot instance comes together.
 
 ### Config-driven, runtime-composed models
 
-A robot = an **arm** + a **gripper**, each independently versioned:
+A robot = an **arm** + a **gripper**, each independently selected. The arm additionally carries a
+**hardware revision**, chosen with the `version: int = 1` argument on `get_yam_robot`,
+`combine_arm_and_gripper_xml`, `ArmType.get_xml_path`, and `_load_arm_config` (CLI flag: `--version`):
 
 - `ArmType` / `GripperType` enums live in [utils.py](i2rt/robots/utils.py) and map to:
-  - a **hardware YAML** in [i2rt/robots/config/](i2rt/robots/config/) (`yam.yml`, `linear_4310.yml`, ...) —
-    motor IDs, directions, kp/kd, gravity-comp factors, gripper limits, force-torque maps.
+  - a **hardware YAML** in [i2rt/robots/config/](i2rt/robots/config/) — motor IDs, directions, kp/kd,
+    gravity-comp factors, gripper limits, force-torque maps. **Arm** configs are version-suffixed
+    (`yam_v1.yml`, `yam_ultra_v1.yml`); **gripper** configs are not (`linear_4310.yml`).
   - a **robot model** (URDF + MJCF) under [i2rt/robot_models/](i2rt/robot_models/), resolved via the path
     constants in [i2rt/robot_models/__init__.py](i2rt/robot_models/__init__.py).
 - **`combine_arm_and_gripper_xml`** (in [utils.py](i2rt/robots/utils.py)) merges the arm MJCF and gripper MJCF
   into one model at runtime (written to `/tmp/`). **Critical subtlety:** it locates the arm's deepest body
-  (the `link6` mount frame) and *overwrites* its `pos`/`quat` and `joint6`'s `axis` from the **gripper**
-  config's `last_joint_mount.<arm>` block. So the terminal-mount transform is physically arm data but is
-  duplicated across every gripper config — a stale copy silently misplaces the gripper for that arm.
+  (the `gripper` mount frame) and *overwrites* its `pos`/`quat` and `joint6`'s `axis` from the **gripper**
+  config's `last_joint_mount.<arm>.v<N>` block. So the terminal-mount transform is physically arm data but is
+  duplicated across every gripper config — a stale copy silently misplaces the gripper for that arm. The
+  mount is keyed by arm **and** arm model version because a hardware revision can move the terminal frame;
+  an un-versioned `last_joint_mount.<arm>` block (with `pos` directly under the arm key) is still accepted
+  for backward compatibility. Seed a new version's blocks with
+  `sync_gripper_mounts.py <arm>.xml --version N` rather than hand-editing all six configs.
+- **Both bodies are named `gripper`** — the arm's terminal mount (matching the URDF's `joint6` child) and the
+  gripper model's root — and MuJoCo body names must be unique, so composition *merges* them instead of nesting:
+  the gripper's children move into the mount body under a `<frame>` carrying the gripper root's own
+  `pos`/`quat`. Its `<inertial>` is the exception — MuJoCo accepts an `<inertial>` inside a `<frame>` but does
+  **not** apply the frame transform to it, so that element is composed into the mount frame explicitly and
+  replaces the mount's `mass=1e-6` placeholder.
 
-Arm variants: `yam`, `yam_pro`, `yam_ultra`, `big_yam`. Grippers: `crank_4310`, `linear_3507`, `linear_4310`,
+Arm variants: `yam`, `yam_pro`, `yam_ultra`, `big_yam` — each shipping revisions `v1..vN` (only `v1`
+today). Grippers: `crank_4310`, `linear_3507`, `linear_4310`,
 `flexible_4310`, plus the non-gripper `yam_teaching_handle` and `no_gripper`. `ArmType.NO_ARM` gives a
 gripper-only robot.
 
@@ -97,8 +111,12 @@ lives in a separate internal repo, not here.
 
 ### robot_models: URDF is the source of truth
 
-Each arm dir (`i2rt/robot_models/arm/<arm>/`) has `<arm>.urdf`, `<arm>.xml` (MJCF), an `assets/` mesh dir, and
-a `README.md`. **The URDF is the kinematic/dynamic source of truth; the MJCF is generated from it.** The
+Arm models are **versioned by hardware revision**: each version dir (`i2rt/robot_models/arm/<arm>/v<N>/`) has
+`<arm>.urdf`, `<arm>.xml` (MJCF), an `assets/` mesh dir, and a `README.md`. Everything ships as `v1` today; the
+file basenames are *not* version-suffixed, so `<mujoco model="yam">` and the `assets/` relative mesh paths are
+identical across versions. Resolve a path with `get_arm_xml_path(arm, version)` from
+[i2rt/robot_models/__init__.py](i2rt/robot_models/__init__.py) — the `ARM_*_XML_PATH` constants remain as v1
+aliases for downstream users. **The URDF is the kinematic/dynamic source of truth; the MJCF is generated from it.** The
 per-arm README tabulates masses, COMs, inertia tensors, joint frames/axes/ranges, link lengths, home-pose
 global frames, Modified-DH parameters, and space/body-frame PoE screw axes. A CI test keeps the URDF and MJCF
 honest against each other (masses, COMs, inertia, frames, axes, ranges); the README tables themselves are
@@ -117,8 +135,9 @@ The branch `fix/urdf-mjcf-alignment` is about aligning MJCF models with their UR
    `root`, canonicalize joint/mesh names, bake root rotation `R0` into base mesh **and** inertia together).
 2. `view_urdf.py` — load the normalized URDF in MuJoCo against world axes; the operator decides the heading.
 3. `apply_urdf_heading.py` — bake the chosen heading rotation (not idempotent; previews unless `--apply`).
-4. `urdf_to_arm_mjcf.py` — regenerate the arm-only MJCF (exactly `joint1..joint6`; `link6` is an empty mount
-   placeholder; gripper/tip bodies excluded; URDF inertia → MuJoCo principal `quat` + `diaginertia`).
+4. `urdf_to_arm_mjcf.py` — regenerate the arm-only MJCF (exactly `joint1..joint6`; the terminal `gripper` body
+   is an empty mount placeholder; gripper/tip bodies excluded; URDF inertia → MuJoCo principal `quat` +
+   `diaginertia`).
 5. `sync_gripper_mounts.py` — re-write `last_joint_mount.<arm>` in every gripper config from the regenerated
    MJCF (because of the runtime overwrite described above). **Always run this after regenerating an arm MJCF.**
 
@@ -134,8 +153,9 @@ Shared math/FK helpers live in `.claude/skills/transform-onshape-urdf/scripts/ur
   non-home joint configurations.
 
 `big_yam` is a special case in these tests: its MJCF models the fixed base as a static worldbody geom (no
-`base` body) and uses an opposite mount/axis convention, so parts of the comparison exclude it. `link6` is a
-mount frame with placeholder inertia (`mass=1e-6`), so only its frame/axis is checked, not mass/COM/inertia.
+`base` body) and uses an opposite mount/axis convention, so parts of the comparison exclude it. The terminal
+`gripper` body is a mount frame with placeholder inertia (`mass=1e-6`), so only its frame/axis is checked, not
+mass/COM/inertia.
 
 ## Testing notes
 

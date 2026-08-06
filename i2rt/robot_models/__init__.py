@@ -1,12 +1,56 @@
 import os
+import re
+from typing import List
 
 _ROBOT_MODELS_ROOT = os.path.dirname(os.path.abspath(__file__))
+_ARM_ROOT = os.path.join(_ROBOT_MODELS_ROOT, "arm")
+_VERSION_DIR_RE = re.compile(r"^v(\d+)$")
 
-# Arm XML paths
-ARM_YAM_XML_PATH = os.path.join(_ROBOT_MODELS_ROOT, "arm/yam/yam.xml")
-ARM_YAM_PRO_XML_PATH = os.path.join(_ROBOT_MODELS_ROOT, "arm/yam_pro/yam_pro.xml")
-ARM_YAM_ULTRA_XML_PATH = os.path.join(_ROBOT_MODELS_ROOT, "arm/yam_ultra/yam_ultra.xml")
-ARM_BIG_YAM_XML_PATH = os.path.join(_ROBOT_MODELS_ROOT, "arm/big_yam/big_yam.xml")
+
+def _arm_xml_path(arm: str, version: int) -> str:
+    """Build the MJCF path for ``arm`` at model ``version``. Does not check existence."""
+    return os.path.join(_ARM_ROOT, arm, f"v{version}", f"{arm}.xml")
+
+
+def available_arm_versions(arm: str) -> List[int]:
+    """Model versions shipped for ``arm``, ascending. Empty if the arm is unknown.
+
+    A ``v<N>`` dir only counts once it actually holds ``<arm>.xml``. An in-progress import --
+    e.g. a raw CAD export dropped in before the alignment pipeline has been run -- is a directory,
+    not a shipped version, and must not be reported as one.
+    """
+    arm_dir = os.path.join(_ARM_ROOT, arm)
+    if not os.path.isdir(arm_dir):
+        return []
+    return sorted(
+        int(m.group(1))
+        for name in os.listdir(arm_dir)
+        if (m := _VERSION_DIR_RE.match(name)) and os.path.isfile(os.path.join(arm_dir, name, f"{arm}.xml"))
+    )
+
+
+def get_arm_xml_path(arm: str, version: int = 1) -> str:
+    """Return the arm-only MJCF path for ``arm`` at model ``version``.
+
+    Layout is ``arm/<arm>/v<version>/<arm>.xml``; the URDF and the ``assets/`` mesh dir sit
+    beside it in the same version dir.
+    """
+    path = _arm_xml_path(arm, version)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"No model for arm {arm!r} version {version}: {path} does not exist. "
+            f"Available versions for {arm!r}: {available_arm_versions(arm)}"
+        )
+    return path
+
+
+# Arm XML paths — deprecated v1 aliases, kept so downstream users of the public package keep
+# working. Prefer get_arm_xml_path(arm, version). Built without a filesystem check so importing
+# this package never raises, matching the previous plain-os.path.join behavior.
+ARM_YAM_XML_PATH = _arm_xml_path("yam", 1)
+ARM_YAM_PRO_XML_PATH = _arm_xml_path("yam_pro", 1)
+ARM_YAM_ULTRA_XML_PATH = _arm_xml_path("yam_ultra", 1)
+ARM_BIG_YAM_XML_PATH = _arm_xml_path("big_yam", 1)
 
 # Gripper XML paths
 GRIPPER_CRANK_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/crank_4310/crank_4310.xml")

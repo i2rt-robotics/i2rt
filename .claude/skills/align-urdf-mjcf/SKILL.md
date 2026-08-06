@@ -36,7 +36,7 @@ raw ONShape export
   2. python .claude/skills/transform-onshape-urdf/scripts/view_urdf.py <model.urdf>                # HUMAN CHECKPOINT: world axes
   3. python .claude/skills/transform-onshape-urdf/scripts/apply_urdf_heading.py <model.urdf> --axis z --deg N --apply   # user's heading
   4. python .claude/skills/align-urdf-mjcf/scripts/urdf_to_arm_mjcf.py <model.urdf> <model.xml>     # URDF -> arm MJCF
-  5. python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <model.xml>              # re-sync last_joint_mount.<arm>
+  5. python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <model.xml> --version N  # re-sync last_joint_mount.<arm>.v<N>
 ```
 
 - Stages 1 and 3 were one script (`transform_onshape_urdf.py`); they were split so the heading
@@ -56,7 +56,7 @@ raw ONShape export
 4. Preserve unrelated user changes and assets.
 5. Create a short, verifiable task plan before editing.
 
-For the YAM arm-only contract, retain exactly six arm joints named `joint1` through `joint6`. Keep `link6` as the end-effector mount body. Do not copy the URDF gripper mass, gripper geometry, or tip bodies into the arm MJCF.
+For the YAM arm-only contract, retain exactly six arm joints named `joint1` through `joint6`. Keep the terminal body named `gripper` -- the end-effector mount, named after the URDF's `joint6` child link. Do not copy the URDF gripper mass, gripper geometry, or tip bodies into the arm MJCF.
 
 ## Inventory the Models
 
@@ -223,7 +223,7 @@ world
     └── link1 / joint1
         └── link2 / joint2
             └── ...
-                └── link6 / joint6
+                └── gripper / joint6   (end-effector mount; empty in the arm-only MJCF)
 ```
 
 Place each joint at `pos="0 0 0"` inside its child body when the body's transform already represents the URDF joint origin. Copy joint type, axis, range, and name exactly. Keep actuator-force metadata only if the existing MJCF convention requires it.
@@ -231,7 +231,7 @@ Place each joint at `pos="0 0 0"` inside its child body when the body's transfor
 For YAM, expect six arm meshes: `base.stl` and `link1.stl` through `link5.stl`. Exclude `gripper.stl`, `tip_left.stl`, and `tip_right.stl` from the arm MJCF.
 
 Whenever the arm MJCF is regenerated, immediately re-sync the gripper mounts (next section) --
-`link6` may have moved, and the composition code trusts the config, not the MJCF.
+the `gripper` mount may have moved, and the composition code trusts the config, not the MJCF.
 
 ## Cover All YAM End-Effector Variants
 
@@ -254,20 +254,22 @@ When a shared mount or composition change is in scope, compile the full four-arm
 
 ## Standardize Interchangeable Gripper Mounts
 
-Keep the arm's terminal joint frame independent of the selected gripper. `combine_arm_and_gripper_xml` (`i2rt/robots/utils.py`) finds the arm's deepest body (`link6`) and **overwrites** its `pos`, `quat`, and first joint's `axis` from the selected gripper config's `last_joint_mount.<arm>` block before attaching the gripper. Treat those fields as arm mount data, not gripper-specific offsets: the block is identical across every gripper config for a given arm.
+Keep the arm's terminal joint frame independent of the selected gripper. `combine_arm_and_gripper_xml` (`i2rt/robots/utils.py`) finds the arm's deepest body (`gripper`) and **overwrites** its `pos`, `quat`, and first joint's `axis` from the selected gripper config's `last_joint_mount.<arm>` block before attaching the gripper. Treat those fields as arm mount data, not gripper-specific offsets: the block is identical across every gripper config for a given arm.
+
+The arm's mount body and the gripper model's root body are both named `gripper`, and MuJoCo body names must be unique, so composition **merges** them instead of nesting: the gripper model's children are transplanted into the mount body under a `<frame>` carrying the gripper root's own `pos`/`quat`. The gripper's `<inertial>` is the one exception -- MuJoCo does not apply an enclosing `<frame>` to an inertial, so it is composed into the mount frame explicitly and replaces the mount's `mass=1e-6` placeholder. A gripper XML root body may therefore keep a non-identity `pos`/`quat` (as `crank_4310`, `flexible_4310`, and `yam_teaching_handle` do) without any change to composition.
 
 ### Sync gripper mounts after regenerating the arm MJCF
 
 Because composition trusts the gripper config over the MJCF, a `last_joint_mount.<arm>` that is stale
 relative to a freshly regenerated `<arm>.xml` does not sit harmlessly -- it actively relocates
-`link6` (and can flip the joint axis, inverting the gripper motor direction), misplacing every
-gripper on that arm. So after stage 4:
+the `gripper` mount (and can flip the joint axis, inverting the gripper motor direction),
+misplacing every gripper on that arm. So after stage 4:
 
 ```bash
-python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py i2rt/robot_models/arm/<arm>/<arm>.xml   # --dry-run to preview
+python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py i2rt/robot_models/arm/<arm>/v<N>/<arm>.xml --version N   # add --dry-run to preview
 ```
 
-It reads `link6`'s `pos`/`quat` and `joint6`'s `axis` from the arm MJCF -- using the same
+It reads the `gripper` body's `pos`/`quat` and `joint6`'s `axis` from the arm MJCF -- using the same
 `_find_deepest_body` composition uses, so the body it reads is the body composition overwrites --
 and writes them into `last_joint_mount.<arm>` in every gripper config that has such a block
 (`linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `no_gripper`, `yam_teaching_handle`).
@@ -321,11 +323,11 @@ Use tight tolerances appropriate to the source precision. A useful target for va
 
 Compile the MJCF with the repository's supported MuJoCo version. For the standalone YAM arm-only model, verify:
 
-- `nbody == 8`: world plus base and six link bodies.
+- `nbody == 8`: world plus base, five link bodies, and the gripper mount.
 - `njnt == 6`
 - `nq == 6`
 - `ngeom == 6`
-- Body names are exactly `base`, `link1` through `link6`.
+- Body names are exactly `base`, `link1` through `link5`, and `gripper`.
 - Joint names begin with exactly `joint1` through `joint6`.
 - No gripper or tip geom exists.
 

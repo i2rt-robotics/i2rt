@@ -19,9 +19,9 @@ Two properties are asserted:
 big_yam scope notes:
   - big_yam mounts every gripper with a wrist-frame convention that differs from its URDF: all
     gripper configs give it ``quat "0 0.707107 0 -0.707107"`` versus the native ``"-0.5 0.5 0.5
-    -0.5"``. ``combine_arm_and_gripper_xml`` therefore rewrites big_yam's link6 (the mount)
-    orientation and joint6 axis, so those two frames are intentionally not compared to the URDF;
-    its five physical arm links/joints (and the link6 mount *origin*) still are.
+    -0.5"``. ``combine_arm_and_gripper_xml`` therefore rewrites big_yam's ``gripper`` body (the
+    mount) orientation and joint6 axis, so those two frames are intentionally not compared to the
+    URDF; its five physical arm links/joints (and the mount *origin*) still are.
   - big_yam's URDF/MJCF use axis signs opposite to the yam family, so the same command vector
     reaches a different physical pose; it is excluded from the cross-arm axis check.
 """
@@ -38,6 +38,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
+from i2rt.robot_models import available_arm_versions
 from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
 # Joint configurations to sweep. Each row is [joint1..joint6, gripper]; the 7th (gripper) value
@@ -53,7 +54,10 @@ YAM_ARM_MOTIONS = [
 ]
 
 ARMS = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.BIG_YAM]
-# Arms whose gripper mount preserves the native (URDF) wrist frame, so link6/joint6 stay
+# Every (arm, model version) shipped under robot_models/arm/<arm>/v<N>/. Discovered rather than
+# hardcoded so a new version dir is covered by this test without editing it.
+ARM_VERSIONS = [(arm, v) for arm in ARMS for v in available_arm_versions(arm.value)]
+# Arms whose gripper mount preserves the native (URDF) wrist frame, so the mount body/joint6 stay
 # URDF-comparable in the combined model. big_yam mounts grippers rotated (see module docstring).
 MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA}
 # Arms that share a joint-axis convention, so the same command reaches the same physical pose.
@@ -143,22 +147,23 @@ def _urdf_posed_frames(
 
 # ------------------------------------------------------------------- MJCF forward kinematics
 @lru_cache(maxsize=None)
-def _combined_model(arm: ArmType) -> mujoco.MjModel:
+def _combined_model(arm: ArmType, version: int = 1) -> mujoco.MjModel:
     """The shipped sim model: arm + linear_4310 gripper, exactly as ``SimRobot`` loads it."""
-    return mujoco.MjModel.from_xml_path(combine_arm_and_gripper_xml(arm, SIM_GRIPPER))
+    return mujoco.MjModel.from_xml_path(combine_arm_and_gripper_xml(arm, SIM_GRIPPER, version=version))
 
 
 def _mjcf_posed_frames(
-    arm: ArmType, pose: np.ndarray
+    arm: ArmType, pose: np.ndarray, version: int = 1
 ) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
     """MuJoCo FK at ``pose`` for the combined sim model.
 
     Mirrors ``SimRobot.command_joint_pos`` (set qpos, then ``mj_forward``) but sets the arm joints
     by name without the joint-limit clip, so the exact commanded configuration is evaluated. The
     gripper DOF is left at rest -- it does not affect any arm link or joint frame. Returns, keyed
-    by joint index n=1..6, the world 4x4 of body ``link{n}`` and joint ``joint{n}``'s world axis.
+    by joint index n=1..6, the world 4x4 of joint ``joint{n}``'s child body (``link{n}``, and
+    ``gripper`` for the terminal mount) and that joint's world axis.
     """
-    model = _combined_model(arm)
+    model = _combined_model(arm, version)
     data = mujoco.MjData(model)
     for n in range(1, N_ARM_JOINTS + 1):
         data.qpos[model.joint(f"joint{n}").qposadr[0]] = pose[n - 1]
@@ -167,20 +172,21 @@ def _mjcf_posed_frames(
     link_world: dict[int, np.ndarray] = {}
     axis_world: dict[int, np.ndarray] = {}
     for n in range(1, N_ARM_JOINTS + 1):
-        bid = model.body(f"link{n}").id
+        bid = model.body("gripper" if n == N_ARM_JOINTS else f"link{n}").id
         link_world[n] = _transform(data.xpos[bid].copy(), _wxyz_to_matrix(data.xquat[bid]))
         axis_world[n] = data.xaxis[model.joint(f"joint{n}").id].copy()
     return link_world, axis_world
 
 
 # --------------------------------------------------------------------------- tests
-@pytest.mark.parametrize("arm", ARMS, ids=lambda a: a.value)
+@pytest.mark.parametrize("arm_version", ARM_VERSIONS, ids=lambda p: f"{p[0].value}_v{p[1]}")
 @pytest.mark.parametrize("pose", YAM_ARM_MOTIONS, ids=[f"pose{i}" for i in range(len(YAM_ARM_MOTIONS))])
-def test_posed_frames_match_urdf(arm: ArmType, pose: np.ndarray) -> None:
+def test_posed_frames_match_urdf(arm_version: tuple[ArmType, int], pose: np.ndarray) -> None:
     """Sim-commanding an arm to each pose keeps its link/joint frames aligned with the URDF."""
-    urdf_path = os.path.splitext(arm.get_xml_path())[0] + ".urdf"
+    arm, version = arm_version
+    urdf_path = os.path.splitext(arm.get_xml_path(version))[0] + ".urdf"
     urdf_frames, urdf_axes = _urdf_posed_frames(urdf_path, pose[:N_ARM_JOINTS])
-    mjcf_frames, mjcf_axes = _mjcf_posed_frames(arm, pose)
+    mjcf_frames, mjcf_axes = _mjcf_posed_frames(arm, pose, version)
 
     # Joints/links carrying the arm's own kinematics (all six) vs only the five physical arm
     # joints when the gripper mount rewrites the wrist frame (big_yam).
@@ -198,7 +204,7 @@ def test_posed_frames_match_urdf(arm: ArmType, pose: np.ndarray) -> None:
     if arm not in MOUNT_ALIGNED_ARMS:
         dp6 = float(np.max(np.abs(urdf_frames[6][:3, 3] - mjcf_frames[6][:3, 3])))
         if dp6 > POS_TOL:
-            bad.append(f"link6 mount origin: dpos={dp6:.2e}")
+            bad.append(f"gripper mount origin: dpos={dp6:.2e}")
 
     assert not bad, f"{arm.value} {pose[:N_ARM_JOINTS]}: URDF/MJCF posed frames diverge -> " + "; ".join(bad)
 

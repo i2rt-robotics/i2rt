@@ -40,6 +40,14 @@ def make_robot(arm_type: ArmType, gripper_type: GripperType) -> Robot:
     return get_yam_robot(arm_type=arm_type, gripper_type=gripper_type, sim=True)
 
 
+def test_get_yam_robot_preserves_positional_gripper_argument() -> None:
+    """The legacy third positional argument remains the gripper type."""
+    robot = get_yam_robot("can0", ArmType.YAM, GripperType.NO_GRIPPER, sim=True)
+
+    assert robot.num_dofs() == 6
+    robot.close()
+
+
 # ---------------------------------------------------------------------------
 # All arm x gripper combos: smoke-test loading
 # ---------------------------------------------------------------------------

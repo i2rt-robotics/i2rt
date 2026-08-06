@@ -55,6 +55,8 @@ python .claude/skills/transform-onshape-urdf/scripts/view_urdf.py <path/to/model
 python .claude/skills/transform-onshape-urdf/scripts/apply_urdf_heading.py <path/to/model.urdf> --axis z --deg <N> [--apply]
 ```
 
+- `normalize` `--name` defaults to the URDF's parent dir name, skipping a `vN` version dir
+  (`arm/yam/v1/yam.urdf` -> `yam`). Pass it explicitly when the export sits somewhere unrelated.
 - `normalize` `--dry-run` prints the verification report and the resulting `base` + `joint1`,
   writing nothing. Always dry-run first.
 - `apply_urdf_heading` writes only with `--apply`; without it, it previews. Different YAM arms need
@@ -68,10 +70,16 @@ RPY convention (URDF): `R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`.
 1. **Keep only the actuated chain.** The real kinematic tree is the `dof_joint*` joints. Drop
    every other joint (`分组`/`紧固`/fastened duplicates) and every link not on that chain.
    Rename the survivors to canonical names by stripping a trailing `_<n>`
-   (`base_1`→`base`, `link2_1`→`link2`, `gripper_1`→`gripper`, `tip_right_1`→`tip_right`).
+   (`base_1`→`base`, `link2_1`→`link2`, `gripper_1`→`gripper`, `tip_right_1`→`tip_right`), **and
+   rename the base link to `base` whatever the export called it** (`ultra_base`→`base`). The base is
+   identified structurally as the parent of `dof_joint1`, never by name — an export that names it
+   after the product would otherwise slip past step 3's `child == "base"` guard (reported as
+   "synthetic root already removed") and be rejected by every downstream stage, all of which require
+   the name `base`.
 2. **Fix meshes.** Rewrite each reference to `assets/<file>`, preferring an exact
-   case-insensitive match on disk, else the suffix-stripped lowercase name
-   (`Gripper.stl`→`gripper.stl`, `link5_1.stl`→`link5.stl`).
+   case-insensitive match on disk, else the suffix-stripped lowercase name with step 1's link
+   renames applied to the stem (`Gripper.stl`→`gripper.stl`, `link5_1.stl`→`link5.stl`,
+   `ultra_base.stl`→`base.stl`) — a link and its mesh are always renamed together.
 3. **Remove the synthetic root, baking `R0`.** The synthetic root is the *parent of the joint whose
    child is `base`* (in a raw export that is `dof_joint0`, `root -> base`). Capture its rotation
    `R0 = Rz(yaw)Ry(pitch)Rx(roll)`, delete the `root` link and that joint, and left-multiply `R0`
@@ -136,6 +144,13 @@ the base faces the intended forward direction — the required heading checkpoin
 ## Assumptions / limits
 
 - ONShape naming conventions: the actuated chain uses `dof_joint*`; structural duplicates use
-  `分组`/`紧固`; per-instance suffixes are `_<n>`. Verified end-to-end on `yam_pro`.
+  `分组`/`紧固`; per-instance suffixes are `_<n>`; the base link is the parent of `dof_joint1` and may
+  be named anything. Verified end-to-end on `yam_pro` and `yam_ultra` v2.
 - The heading is a single rotation about one world axis (or an explicit `--rpy`). If a model needs a
   different base orientation, pass a different `--axis`/`--deg` and confirm by rendering.
+- **ONShape prints `R0` at 5 decimals** (`rpy="0 1.5708 ..."`, and `1.5708 - π/2 = 3.673e-6`), so a
+  plain `--deg` heading leaves a ~0.0002° tilt in the base that every downstream frame inherits.
+  Since the heading left-multiplies (`R_head @ R0`), you can absorb it: pass the intended heading
+  *composed with the correction* via `--rpy`. For `yam_ultra` v2 (`R0 = Ry(1.5708)`, heading z+180°)
+  that was `--rpy "0 -3.673205103379957e-06 3.141592653589793"` → the product is exactly
+  `Rz(π)·Ry(π/2)`, giving `base` rpy `0 1.57079632679 3.14159265359` and `joint1` xyz `0 0 0.0733`.

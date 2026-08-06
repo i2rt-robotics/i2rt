@@ -6,18 +6,20 @@ This is the URDF->MJCF half of the ONShape alignment pipeline (the URDF half liv
 URDF to the arm-only MJCF convention used by ``yam.xml``:
 
     world
-    └── base                       (body: inertial + base geom)
+    └── base                        (body: inertial + base geom)
         └── link1 / joint1          ...
             └── ... link5 / joint5
-                └── link6 / joint6  (empty end-effector mount; placeholder inertia, no geom)
+                └── gripper / joint6  (empty end-effector mount; placeholder inertia, no geom)
 
-Arm-only contract: exactly six joints ``joint1..joint6``; ``link6`` is the gripper mount frame
-(not a physical link); the URDF gripper/tip bodies and their meshes are excluded. Only
-``base.stl`` and ``link1.stl``..``link5.stl`` are declared.
+Arm-only contract: exactly six joints ``joint1..joint6``; the terminal body is ``gripper`` -- the
+end-effector mount frame, named after the URDF's ``joint6`` child link and not a physical link.
+The URDF gripper/tip bodies and their meshes are excluded. Only ``base.stl`` and
+``link1.stl``..``link5.stl`` are declared.
 
 After regenerating an arm MJCF, re-sync the per-arm gripper mount with
-``.claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <arm>.xml``: composition overwrites ``link6``'s pose/axis from
-each gripper config's ``last_joint_mount.<arm>`` block, so a stale copy misplaces the gripper.
+``.claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <arm>.xml --version N``: composition overwrites
+the ``gripper`` body's pose/axis from each gripper config's ``last_joint_mount.<arm>`` block, so a
+stale copy misplaces the gripper.
 
 Mapping (align-urdf-mjcf "Map URDF Semantics to MJCF"):
   - joint origin  -> child body ``pos`` + ``quat``
@@ -36,6 +38,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -179,7 +182,9 @@ def generate(urdf_path: str, model_name: str, dof: int = 6) -> tuple[str, list[t
 
     for i, (_, jd) in enumerate(chain, start=1):
         depth += 1
-        name = f"link{i}"
+        # The terminal body is the end-effector mount, not a physical link, so it takes the URDF's
+        # joint6 child link name -- keeping arm MJCF, URDF, and composed model in agreement.
+        name = f"link{i}" if i < dof else "gripper"
         out.append(f'{ind(depth)}<body name="{name}" pos="{jd["xyz"]}" quat="{_rpy_str_to_quat_str(jd["rpy"])}">')
         if i < dof:
             li, lv = links[jd["child"]]["inertial"], links[jd["child"]]["visual"]
@@ -198,6 +203,12 @@ def generate(urdf_path: str, model_name: str, dof: int = 6) -> tuple[str, list[t
     return "\n".join(out) + "\n", residuals
 
 
+def model_name_from_dir(model_dir: str) -> str:
+    """Model name from a model dir, skipping a version dir: ``arm/yam/v1`` -> ``yam``."""
+    parent, base = os.path.split(model_dir)
+    return os.path.basename(parent) if re.fullmatch(r"v\d+", base) else base
+
+
 def main(
     urdf: Annotated[str, tyro.conf.Positional],
     out: Annotated[str, tyro.conf.Positional],
@@ -209,11 +220,10 @@ def main(
     Args:
         urdf: path to the aligned arm URDF.
         out: path to write the generated MJCF.
-        model: mujoco model name (default: URDF's parent dir name).
+        model: mujoco model name (default: URDF's parent dir name, skipping a ``vN`` version dir).
         dof: number of actuated arm joints.
     """
-    import os
-    model_name = model or os.path.basename(os.path.dirname(os.path.abspath(urdf)))
+    model_name = model or model_name_from_dir(os.path.dirname(os.path.abspath(urdf)))
     xml, residuals = generate(urdf, model_name, dof)
     print("inertia reconstruction residuals (kg·m², expect ~0):")
     for n, r in residuals:

@@ -1,6 +1,7 @@
 import enum
 import logging
 import os
+import re
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache, partial
 from typing import Callable, Dict, List, Optional, Tuple
 
+import mujoco
 import numpy as np
 import yaml
 
@@ -38,13 +40,15 @@ class _GripperHWConfig:
 
 
 @lru_cache(maxsize=None)
-def _load_gripper_config(gripper_type_value: str, arm_type_value: str) -> _GripperHWConfig:
+def _load_gripper_config(gripper_type_value: str, arm_type_value: str, arm_version: int = 1) -> _GripperHWConfig:
     """Load gripper hardware config from the YAML file for the given gripper type.
 
     Args:
         gripper_type_value: The gripper type string (e.g. "linear_4310").
         arm_type_value: The arm type string (e.g. "yam", "big_yam"). Used to
             select the correct per-arm mounting transform.
+        arm_version: The arm's model version. Selects ``last_joint_mount.<arm>.v<N>``.
+            Only the mount transform is version-scoped; every other field is not.
     """
     config_path = os.path.join(_CONFIG_DIR, f"{gripper_type_value}.yml")
     logger.info(f"Loading gripper config from {config_path} (arm={arm_type_value})")
@@ -66,7 +70,20 @@ def _load_gripper_config(gripper_type_value: str, arm_type_value: str) -> _Gripp
                 f"No mount transform for arm type {arm_type_value!r} in "
                 f"{gripper_type_value}.yml. Available: {list(j_mount_raw.keys())}"
             )
-        j_mount = j_mount_raw[arm_type_value]
+        arm_mount = j_mount_raw[arm_type_value]
+        if "pos" in arm_mount:
+            # Legacy un-versioned per-arm block
+            j_mount = arm_mount
+        else:
+            # Per-version format: the mount frame can differ between arm hardware revisions
+            version_key = f"v{arm_version}"
+            if version_key not in arm_mount:
+                raise ValueError(
+                    f"No mount transform for arm {arm_type_value!r} version {arm_version} "
+                    f"({version_key!r}) in {gripper_type_value}.yml. "
+                    f"Available versions: {list(arm_mount.keys())}"
+                )
+            j_mount = arm_mount[version_key]
 
     gripper_limits = raw.get("gripper_limits")
     if gripper_limits is not None:
@@ -111,10 +128,27 @@ class _ArmHWConfig:
     coulomb_friction: np.ndarray  # per-joint Coulomb friction magnitude (Nm), one per arm joint (6 elements)
 
 
+_ARM_CONFIG_RE = re.compile(r"^(?P<arm>.+)_v(?P<version>\d+)\.yml$")
+
+
+def _available_arm_config_versions(arm: str) -> List[int]:
+    """Config versions shipped for ``arm``, ascending."""
+    return sorted(
+        int(m.group("version"))
+        for name in os.listdir(_CONFIG_DIR)
+        if (m := _ARM_CONFIG_RE.match(name)) and m.group("arm") == arm
+    )
+
+
 @lru_cache(maxsize=None)
-def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
-    """Load arm hardware config from the YAML file for the given arm type."""
-    config_path = os.path.join(_CONFIG_DIR, f"{arm_type.value}.yml")
+def _load_arm_config(arm_type: "ArmType", version: int = 1) -> _ArmHWConfig:
+    """Load arm hardware config from the YAML file for the given arm type and model version."""
+    config_path = os.path.join(_CONFIG_DIR, f"{arm_type.value}_v{version}.yml")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(
+            f"No config for arm {arm_type.value!r} version {version}: {config_path} does not exist. "
+            f"Available versions for {arm_type.value!r}: {_available_arm_config_versions(arm_type.value)}"
+        )
     logger.info(f"Loading arm config from {config_path}")
     with open(config_path) as f:
         raw = yaml.safe_load(f)
@@ -150,17 +184,35 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
 
 
 from i2rt.robot_models import (
-    ARM_BIG_YAM_XML_PATH,
-    ARM_YAM_PRO_XML_PATH,
-    ARM_YAM_ULTRA_XML_PATH,
-    ARM_YAM_XML_PATH,
     GRIPPER_CRANK_4310_PATH,
     GRIPPER_FLEXIBLE_4310_PATH,
     GRIPPER_LINEAR_3507_PATH,
     GRIPPER_LINEAR_4310_PATH,
     GRIPPER_NO_GRIPPER_PATH,
     GRIPPER_TEACHING_HANDLE_PATH,
+    get_arm_xml_path,
 )
+
+
+def _floats(text: str) -> np.ndarray:
+    """Parse a whitespace-separated MJCF attribute (``pos``, ``quat``, ...) into an array."""
+    return np.array([float(v) for v in text.split()])
+
+
+def _fmt(values: np.ndarray) -> str:
+    """Format an array back into an MJCF attribute, keeping full double precision."""
+    return " ".join(f"{v:.17g}" for v in values)
+
+
+def _compose_pose(
+    outer_pos: np.ndarray, outer_quat: np.ndarray, inner_pos: np.ndarray, inner_quat: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Re-express an inner pose, given relative to a frame, in that frame's own parent."""
+    rotated = np.zeros(3)
+    mujoco.mju_rotVecQuat(rotated, inner_pos, outer_quat)
+    quat = np.zeros(4)
+    mujoco.mju_mulQuat(quat, outer_quat, inner_quat)
+    return outer_pos + rotated, quat
 
 
 def _find_deepest_body(element: ET.Element) -> ET.Element:
@@ -168,7 +220,7 @@ def _find_deepest_body(element: ET.Element) -> ET.Element:
 
     Walks into the first child ``<body>`` at each level until no more child
     bodies exist, then returns that leaf body.  This is used to locate the
-    tip of the arm chain where the gripper should be appended.
+    arm's terminal mount body, into which the gripper is merged.
     """
     current = element
     while True:
@@ -183,14 +235,19 @@ def combine_arm_and_gripper_xml(
     gripper_type: "GripperType",
     ee_mass: Optional[float] = None,
     ee_inertia: Optional[np.ndarray] = None,
+    *,
+    version: int = 1,
 ) -> str:
     """Combine arm and gripper XML files into a single XML string.
 
-    Appends the ``<body name="gripper">`` subtree from the gripper XML as a
-    child of the deepest body in the arm's kinematic chain.  The last body
-    in the arm chain is located dynamically via ``_find_deepest_body``, and
-    its ``pos``, ``quat``, and first joint's ``axis`` are set from the
-    gripper type's per-arm YAML config.
+    The arm's terminal body -- named ``gripper``, matching the URDF's ``joint6``
+    child -- is the end-effector mount.  It is located dynamically via
+    ``_find_deepest_body``; its ``pos``, ``quat``, and ``joint6``'s ``axis`` are
+    set from the gripper type's per-arm YAML config, and the selected gripper
+    model's own ``<body name="gripper">`` is *merged into* it rather than nested
+    inside it (MuJoCo body names must be unique).  The gripper's children are
+    transplanted under a ``<frame>`` carrying that body's ``pos``/``quat``, which
+    applies exactly the transform the nested body used to.
 
     Args:
         arm_type: ArmType enum value. Determines arm XML path and selects the
@@ -200,24 +257,26 @@ def combine_arm_and_gripper_xml(
         ee_mass: Optional end-effector mass (kg) to override in gripper's inertial.
         ee_inertia: Optional end-effector inertia array. Expected as a flat array of
             10 elements: [ipos(3), quat(4), diaginertia(3)].
+        version: Arm model version (the ``v<N>`` dir under ``robot_models/arm/<arm>/``).
+            Also selects the ``last_joint_mount.<arm>.v<N>`` mount block. Defaults to 1.
 
     Returns:
         Path to the combined XML file written to /tmp/.
     """
-    arm_path = arm_type.get_xml_path()
+    arm_path = arm_type.get_xml_path(version)
     gripper_path = gripper_type.get_xml_path()
 
     arm_tree = ET.parse(arm_path)
     arm_root = arm_tree.getroot()
 
     # Set last-joint mounting geometry from gripper config (per-arm)
-    cfg = _load_gripper_config(gripper_type.value, arm_type.value)
+    cfg = _load_gripper_config(gripper_type.value, arm_type.value, version)
     worldbody = arm_root.find("worldbody")
-    if worldbody is not None:
-        last_link = _find_deepest_body(worldbody)
-        last_link.set("pos", cfg.mount_pos)
-        last_link.set("quat", cfg.mount_quat)
-        last_joint = last_link.find("joint")
+    mount_body = _find_deepest_body(worldbody) if worldbody is not None else None
+    if mount_body is not None:
+        mount_body.set("pos", cfg.mount_pos)
+        mount_body.set("quat", cfg.mount_quat)
+        last_joint = mount_body.find("joint")
         if last_joint is not None:
             last_joint.set("axis", cfg.mount_axis)
 
@@ -272,29 +331,38 @@ def combine_arm_and_gripper_xml(
                         arm_asset.append(elem)
                         existing.add(key)
 
-        # Attach gripper body to the arm.
-        # If the arm still has a legacy <body name="gripper"> placeholder, replace it.
-        # Otherwise append the gripper body as a child of the deepest arm body.
-        if grip_body is not None:
-            existing_gripper = arm_root.find(".//body[@name='gripper']")
-            if existing_gripper is not None:
-                # Legacy path: replace the placeholder
-                for parent in arm_root.iter():
-                    children = list(parent)
-                    for idx, child in enumerate(children):
-                        if child.tag == "body" and child.get("name") == "gripper":
-                            parent.remove(child)
-                            parent.insert(idx, deepcopy(grip_body))
-                            break
-                    else:
-                        continue
-                    break
-            else:
-                # New path: append gripper body to the deepest body in the arm chain
-                worldbody = arm_root.find("worldbody")
-                if worldbody is not None:
-                    tip_body = _find_deepest_body(worldbody)
-                    tip_body.append(deepcopy(grip_body))
+        # Merge the gripper into the arm's mount body. Both are named "gripper" (the arm's
+        # mount mirrors the URDF's joint6 child), and MuJoCo body names must be unique, so the
+        # gripper's children move into the mount body under a <frame> holding the gripper
+        # body's own pos/quat -- the transform it previously supplied as a nested body.
+        if grip_body is not None and mount_body is not None:
+            grip_pos = grip_body.get("pos", "0 0 0")
+            grip_quat = grip_body.get("quat", "1 0 0 0")
+            frame = ET.Element("frame", {"pos": grip_pos, "quat": grip_quat})
+            # MuJoCo does not apply an enclosing <frame> to an <inertial>, so that one element is
+            # composed into the mount frame by hand below; everything else (geoms, sites, tip
+            # bodies) is placed by the frame.
+            frame.extend(deepcopy(child) for child in grip_body if child.tag != "inertial")
+            mount_body.append(frame)
+
+            grip_inertial = grip_body.find("inertial")
+            if grip_inertial is not None:
+                # A body has at most one inertial: the gripper's real one, re-expressed in the
+                # mount frame, replaces the mount's placeholder (mass=1e-6, which exists only so
+                # the arm-only MJCF compiles).
+                placeholder = mount_body.find("inertial")
+                if placeholder is not None:
+                    mount_body.remove(placeholder)
+                merged = deepcopy(grip_inertial)
+                pos, quat = _compose_pose(
+                    _floats(grip_pos),
+                    _floats(grip_quat),
+                    _floats(grip_inertial.get("pos", "0 0 0")),
+                    _floats(grip_inertial.get("quat", "1 0 0 0")),
+                )
+                merged.set("pos", _fmt(pos))
+                merged.set("quat", _fmt(quat))
+                mount_body.insert(0, merged)
 
         # merge optional top-level sections (equality, contact) from gripper
         if grip_root is not None:
@@ -308,29 +376,29 @@ def combine_arm_and_gripper_xml(
                 for child in grip_section:
                     arm_section.append(deepcopy(child))
 
-    # find resulting gripper body and apply end-effector overrides (mass/inertia)
-    if ee_mass is not None or ee_inertia is not None:
-        res_body = arm_root.find(".//body[@name='gripper']")
-        if res_body is not None:
-            inertial = res_body.find("inertial")
-            if inertial is None:
-                inertial = ET.SubElement(res_body, "inertial")
+    # apply end-effector overrides (mass/inertia) to the merged gripper body
+    if (ee_mass is not None or ee_inertia is not None) and mount_body is not None:
+        # ipos/quat are read as the merged gripper body's own (i.e. the mount) frame, matching
+        # how the URDF expresses its ``gripper`` link inertial.
+        inertial = mount_body.find("inertial")
+        if inertial is None:
+            inertial = ET.SubElement(mount_body, "inertial")
 
-            if ee_mass is not None:
-                inertial.set("mass", str(float(ee_mass)))
+        if ee_mass is not None:
+            inertial.set("mass", str(float(ee_mass)))
 
-            if ee_inertia is not None:
-                arr = np.asarray(ee_inertia).ravel()
-                ipos = " ".join(str(float(x)) for x in arr[:3])
-                inertial.set("ipos", ipos)
-                quat = " ".join(str(float(x)) for x in arr[3:7])
-                inertial.set("quat", quat)
-                diagin = " ".join(str(float(x)) for x in arr[-3:])
-                inertial.set("diaginertia", diagin)
+        if ee_inertia is not None:
+            arr = np.asarray(ee_inertia).ravel()
+            ipos = " ".join(str(float(x)) for x in arr[:3])
+            inertial.set("ipos", ipos)
+            quat = " ".join(str(float(x)) for x in arr[3:7])
+            inertial.set("quat", quat)
+            diagin = " ".join(str(float(x)) for x in arr[-3:])
+            inertial.set("diaginertia", diagin)
 
     # write combined xml to /tmp/ and return filepath
     out_path = tempfile.NamedTemporaryFile(
-        suffix=".xml", prefix=f"i2rt_{arm_type.value}_{gripper_type.value}_", delete=False, dir="/tmp"
+        suffix=".xml", prefix=f"i2rt_{arm_type.value}_v{version}_{gripper_type.value}_", delete=False, dir="/tmp"
     ).name
     arm_tree.write(out_path, encoding="utf-8", xml_declaration=True)
     return out_path
@@ -356,18 +424,11 @@ class ArmType(enum.Enum):
     def available_arms(cls) -> List[str]:
         return [arm.value for arm in cls]
 
-    def get_xml_path(self) -> str:
-        _xml_map = {
-            ArmType.YAM: ARM_YAM_XML_PATH,
-            ArmType.YAM_PRO: ARM_YAM_PRO_XML_PATH,
-            ArmType.YAM_ULTRA: ARM_YAM_ULTRA_XML_PATH,
-            ArmType.BIG_YAM: ARM_BIG_YAM_XML_PATH,
-        }
+    def get_xml_path(self, version: int = 1) -> str:
+        """Path to this arm's MJCF at model ``version`` (default 1)."""
         if self == ArmType.NO_ARM:
             raise ValueError("NO_ARM has no XML path; use the gripper XML directly.")
-        if self not in _xml_map:
-            raise ValueError(f"Unknown arm type: {self}")
-        return _xml_map[self]
+        return get_arm_xml_path(self.value, version)
 
 
 class GripperType(enum.Enum):

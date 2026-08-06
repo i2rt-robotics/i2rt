@@ -1,12 +1,25 @@
-# YAM Ultra Arm Physical Properties
+# YAM Ultra Arm Physical Properties (v2)
 
-This document records the physical and kinematic properties of the six-DOF YAM Ultra arm from [`yam_ultra.urdf`](yam_ultra.urdf). The corresponding arm-only MuJoCo model is [`yam_ultra.xml`](yam_ultra.xml).
+This document records the physical and kinematic properties of the six-DOF YAM Ultra arm, hardware revision **v2**, from [`yam_ultra.urdf`](yam_ultra.urdf). The corresponding arm-only MuJoCo model is [`yam_ultra.xml`](yam_ultra.xml). The previous revision is documented in [`../v1/README.md`](../v1/README.md).
+
+## Revision v2 versus v1
+
+v2 is **not** a kinematic revision. Every home-pose link frame, joint origin, joint axis, and joint range is bit-identical to v1, so the joint, home-frame, DH, and screw-axis tables below are unchanged from v1. Only two links' inertial data differ:
+
+| Property | v1 | v2 |
+| --- | ---: | ---: |
+| `link3` mass | 0.982553 kg | 1.06053 kg |
+| `link4` mass | 0.462165 kg | 0.46079 kg |
+| Physical arm mass | 4.520578 kg | 4.59718 kg |
+
+Both links' inertia tensors change with their masses; their COM positions do not. Every other link's mass, COM, and inertia is unchanged.
+
+One further difference falls outside the physical properties recorded here: `joint4` is driven by a DM4340 in v2 (a DM4310 in v1). Motor types and controller gains live in [`i2rt/robots/config/yam_ultra_v2.yml`](../../../../robots/config/yam_ultra_v2.yml), not in these model files.
 
 ## Scope and conventions
 
 - The physical arm consists of `base` and `link1` through `link5`, connected by `joint1` through `joint6`.
-- The URDF names the child of `joint6` `gripper`. The arm-only MJCF represents that same attachment frame as `link6`; it is not a physical arm link.
-- The URDF names these joints `dof_joint1` through `dof_joint6`; this document uses the normalized `joint1` through `joint6` names from the MJCF [`yam_ultra.xml`](yam_ultra.xml).
+- The child of `joint6` is named `gripper` in both the URDF and the arm-only MJCF. It is the end-effector mount frame, not a physical arm link: the MJCF body carries only a placeholder inertial, and the selected gripper model is merged into it at runtime.
 - Gripper, finger, tip, tool, and top bodies are excluded.
 - SI units are used: metres, kilograms, radians, and kg·m².
 - Home pose means all six arm joint coordinates are zero.
@@ -21,7 +34,7 @@ This document records the physical and kinematic properties of the six-DOF YAM U
 | --- | ---: |
 | Arm DOF | 6 |
 | Physical arm bodies | 6 |
-| Physical arm mass, excluding gripper and tips | 4.520578 kg |
+| Physical arm mass, excluding gripper and tips | 4.59718 kg |
 | Sum of parent-to-child translation norms | 0.8128308576 m |
 
 ## Link mass and inertial frames
@@ -33,12 +46,12 @@ The COM position and inertial-frame RPY are relative to the corresponding link f
 | `base` | 0.940115 | `0 0 0.0274792` | `0 π/2 π` |
 | `link1` | 0.101218 | `-0.0233636 -0.00172503 -0.00727828` | `0 0 0` |
 | `link2` | 1.63122 | `0.000134495 -0.0321253 0.129165` | `0 0 0` |
-| `link3` | 0.982553 | `-0.0556042 0.0357986 -0.135083` | `0 0 0` |
-| `link4` | 0.462165 | `-0.0548959 -0.0350242 -0.0575534` | `0 0 0` |
+| `link3` | 1.06053 | `-0.0556042 0.0357986 -0.135083` | `0 0 0` |
+| `link4` | 0.46079 | `-0.0548959 -0.0350242 -0.0575534` | `0 0 0` |
 | `link5` | 0.403307 | `0.0375847 0 -0.00717397` | `0 0 0` |
-| `link6` mount | — | — | — |
+| `gripper` mount | — | — | — |
 
-The `link6` MJCF placeholder uses mass `1e-6 kg` and diagonal inertia `1e-9 1e-9 1e-9 kg·m²` only to satisfy MuJoCo. These are simulation artifacts and are not included in the physical arm mass.
+The `gripper` mount body in the MJCF uses mass `1e-6 kg` and diagonal inertia `1e-9 1e-9 1e-9 kg·m²` only to satisfy MuJoCo. These are simulation artifacts and are not included in the physical arm mass.
 
 ## Link inertia
 
@@ -55,8 +68,8 @@ I = [[Ixx, Ixy, Ixz],
 | `base` | 0.0016196 | 0.000815619 | 0.00184612 | 0 | 0 | 0 |
 | `link1` | 0.000114689 | 4.76603e-05 | 0.000125996 | 0 | 0 | 0 |
 | `link2` | 0.0162876 | 0.0162103 | 0.000888393 | 0 | 0 | 0 |
-| `link3` | 0.00758945 | 0.00763097 | 0.000937606 | 0 | -0.00064069 | 0 |
-| `link4` | 0.000473594 | 0.000764022 | 0.000604492 | 0 | -0.000238801 | 0 |
+| `link3` | 0.00819179 | 0.0082366 | 0.00101202 | 0 | -0.000691539 | 0 |
+| `link4` | 0.000472184 | 0.000761748 | 0.000602693 | 0 | -0.00023809 | 0 |
 | `link5` | 0.000184284 | 0.000219791 | 0.000181053 | 0 | 0 | 0 |
 
 ## Joint frames, axes, ranges, and link lengths
@@ -70,7 +83,7 @@ The origin is the joint frame relative to its parent link. At zero joint displac
 | `joint3` | `link2 → link3` | `0 -0.0678 0.264` | `0 0 0` | `0 1 0` | `[0, π]` | `[0, 180]` | 0.2725671293 |
 | `joint4` | `link3 → link4` | `-0.0600003 0.0678 -0.244999` | `0 0 0` | `0 1 0` | `[-1.69297, π/2]` | `[-97, 90]` | 0.2611922395 |
 | `joint5` | `link4 → link5` | `-0.0403003 -0.0338507 -0.0703851` | `0 0 0` | `1 0 0` | `[-π/2, π/2]` | `[-90, 90]` | 0.0878865540 |
-| `joint6` | `link5 → link6 mount` | `0.0404996 0 -0.0419481` | `0 0 0` | `0 0 -1` | `[-2π/3, 2π/3]` | `[-120, 120]` | 0.0583083244 |
+| `joint6` | `link5 → gripper` | `0.0404996 0 -0.0419481` | `0 0 0` | `0 0 -1` | `[-2π/3, 2π/3]` | `[-120, 120]` | 0.0583083244 |
 
 ## Global link and joint frames at home
 
@@ -84,7 +97,7 @@ The base frame is the world/TF root. Each `jointN` frame coincides with its corr
 | `link3 / joint3` | `-0.244 0.0349499999999 0.11879959157` | `0 π/2 π` | `0 -1 0` |
 | `link4 / joint4` | `0.000999000000524 -0.03285 0.178799891569` | `0 π/2 π` | `0 -1 0` |
 | `link5 / joint5` | `0.0713841000007 0.00100070000002 0.219100191569` | `0 π/2 π` | `0 0 -1` |
-| `link6 mount / joint6` | `0.113332200001 0.00100046014203 0.178600591568` | `0 π/2 π` | `1 0 0` |
+| `gripper / joint6` | `0.113332200001 0.00100046014203 0.178600591568` | `0 π/2 π` | `1 0 0` |
 
 Several home-frame orientations are very close to the RPY pitch singularity at `±π/2`. Equivalent roll/yaw pairs may therefore look different while representing the same rotation; use rotation matrices or the model quaternions for numerical comparisons.
 
@@ -99,7 +112,7 @@ T(i-1, i) = Rot_z(θᵢ) · Trans_z(dᵢ) · Trans_x(aᵢ) · Rot_x(αᵢ)
 
 `θᵢ` is the revolute joint variable; the table lists its **home offset** (value at
 zero displacement — add the joint coordinate to it). Frame `{0}` is the `base`
-frame (`Z₀` on joint axis 1) and frame `{6}` is the `link6` mount frame (the
+frame (`Z₀` on joint axis 1) and frame `{6}` is the `gripper` mount frame (the
 end-effector frame `M` used below). Joints 2–4 have parallel axes, so the
 `aᵢ`/`dᵢ` spanning them are not unique; origins there are placed by perpendicular
 projection from the preceding frame, giving the values shown.
@@ -123,7 +136,7 @@ T(θ) = e^([S₁]θ₁) · e^([S₂]θ₂) ··· e^([S₆]θ₆) · M
 
 where each `Sᵢ = (ωᵢ, vᵢ)` with `ωᵢ` the unit joint axis and `vᵢ = -ωᵢ × qᵢ`
 (`qᵢ` a point on the axis), all at the home configuration. The end-effector frame
-is the `link6` mount frame; the space frame is the `base` frame.
+is the `gripper` mount frame; the space frame is the `base` frame.
 
 | Joint | ωᵢ (unit) | vᵢ (m) |
 | --- | --- | --- |
