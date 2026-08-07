@@ -7,7 +7,7 @@ are then available: mirror (VIS), IK drag, and per-joint sliders.
 Usage:
     python examples/control_with_viser/control_with_viser.py --sim
     python examples/control_with_viser/control_with_viser.py --arm big_yam --gripper linear_4310 --sim
-    python examples/control_with_viser/control_with_viser.py --arm yam_ultra --version 1 --sim
+    python examples/control_with_viser/control_with_viser.py --arm yam_ultra_2 --sim
     python examples/control_with_viser/control_with_viser.py --channel can0
     python examples/control_with_viser/control_with_viser.py --channel can0 --record
 """
@@ -28,7 +28,6 @@ from i2rt.utils.viser_control_interface import ViserControlInterface
 
 def main(
     arm: str = "yam",
-    version: int = 1,
     gripper: str = "linear_4310",
     channel: str = "can0",
     sim: bool = False,
@@ -41,8 +40,7 @@ def main(
     """Viser control interface for i2rt robots.
 
     Args:
-        arm: arm variant (yam, yam_pro, yam_ultra, big_yam).
-        version: arm hardware revision (the v<N> model/config version).
+        arm: arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam).
         gripper: gripper variant.
         channel: CAN channel.
         sim: Use SimRobot.
@@ -63,7 +61,6 @@ def main(
     robot = get_yam_robot(
         channel=channel,
         arm_type=arm_type,
-        version=version,
         gripper_type=gripper_type,
         sim=sim,
         use_coulomb_friction=friction,

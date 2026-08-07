@@ -1,0 +1,74 @@
+<!-- crank_4310 gripper carrying the Intel RealSense D405 on its bracket, as mounted on the yam v1 arm.
+     Camera geometry and placement come from the ONShape export pkg_20250612, whose rigid
+     gripper+camera assembly is composed into single geoms on the gripper body. The export expresses
+     that assembly in its own `part_76_1` frame, which shares this file's `gripper` origin but not its
+     axes: p_gripper = Rx(+90 deg) * p_part_76_1. `part_76_1` is *not* the arm flange frame -- it is the
+     flange turned Rz(-90 deg), since the crank_4310 root already sits at quat (0.5, 0.5, -0.5, -0.5)
+     relative to the arm mount.
+
+     The camera parts carry no usable mass (2.53e-05 / 1.16e-06 / 3.93e-05 kg from a density-less CAD
+     export, together 0.014% of the gripper), so the gripper inertial is left exactly as in
+     crank_4310.xml and the camera adds visual geometry only.
+
+     The `camera` body is the optical frame (+Z along the optical axis, ROS/OpenCV convention). It is
+     placed at the calibrated wrist-camera extrinsic rather than the CAD reference point -- the CAD
+     frame advanced 1.000 mm along its own optical axis. Its numbers below are in this file's `gripper`
+     root frame, which is the crank_4310 mount frame and not the flange; composed onto the arm they
+     give the flange -> camera extrinsic tabulated in station/yam_station_crank_4310_d405/README.md,
+     which is authoritative for it: pos [-0.08, 0.0017, -0.066], quat_wxyz [0.299, 0.641, 0.641,
+     0.299], the optical axis canted 50 deg off the flange -Z.
+
+     Only camera_bracket_for_D405_crank_4310_.stl is new; D405_with_depth_.stl is byte-identical
+     to the copy under arm/yam/v1, and Cable_holder.stl is the same solid as the linear_4310 variant's
+     (re-tessellated in the export, so the repo mesh is reused with a solved placement).
+
+     Colours follow linear_4310_d405.xml rather than the export, which paints the bracket and the
+     cable holder with one shared default material. -->
+<mujoco model="crank_4310_d405">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="gripper" file="gripper.stl"/>
+    <mesh name="tip_left" file="tip_left.stl"/>
+    <mesh name="tip_right" file="tip_right.stl"/>
+    <mesh name="camera_bracket_for_D405_crank_4310_" file="d405/camera_bracket_for_D405_crank_4310_.stl"/>
+    <mesh name="Cable_holder" file="d405/Cable_holder.stl"/>
+    <mesh name="D405_with_depth_" file="d405/D405_with_depth_.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="gripper" pos="0 0 0" quat="0.5 0.5 -0.5 -0.5">
+      <inertial pos="0 -0.027 0" mass="0.45" diaginertia="0.0005 0.0004 0.0003"/>
+      <geom pos="0 0.110597 -0.164101" quat="1 0 0 0" type="mesh" rgba="1 0.6 0 1" mesh="gripper" contype="0" conaffinity="0"/>
+      <!-- Intel RealSense D405 on its bracket, rigidly fastened to the gripper. -->
+      <geom pos="-0.0353000156 -0.0504999844 0.0503998438" quat="0.707106781 -2.59734824e-06 0 0.707106781" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="camera_bracket_for_D405_crank_4310_" contype="0" conaffinity="0"/>
+      <geom pos="-0.0277004774 -0.0581586026 0.17612101" quat="0.153045262 -0.690346235 0.690345673 0.153042726" type="mesh" rgba="0.647059 0.647059 0.647059 1" mesh="Cable_holder" contype="0" conaffinity="0"/>
+      <geom pos="-0.0107000691 -0.0660205952 0.0797288734" quat="1.09768443e-06 2.35399277e-06 -0.34202201 -0.939691941" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="D405_with_depth_" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="0 0 0" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="1 0 0 1"/>
+      <site name="grasp_site" pos="0 -0.1347 0" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="0 1 0 1"/>
+      <body name="tip_left" pos="-0.037 -0.0605 0.0392" quat="1 0 0 0">
+        <inertial pos="0.03 -0.04 -0.039" mass="0.075" diaginertia="6e-5 6e-5 3e-5"/>
+        <joint name="joint7" pos="0 0 0" type="slide" axis="1 0 0" range="0 0.039574"/>
+        <geom pos="0.03495 0.171097 -0.203301" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_left"/>
+      </body>
+      <body name="tip_right" pos="0.037 -0.0605 -0.0392" quat="1 0 0 0">
+        <inertial pos="-0.03 -0.04 0.039" mass="0.075" diaginertia="6e-5 6e-5 3e-5"/>
+        <joint name="joint8" pos="0 0 0" type="slide" axis="-1 0 0" range="0 0.039574"/>
+        <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
+      </body>
+      <body name="camera" pos="-0.0017 -0.066021 0.079729" quat="0 0 0.93968809 -0.3420326">
+        <inertial pos="0 0 0" quat="1 0 0 0" mass="1e-09" diaginertia="4e-14 4e-14 4e-14"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <joint joint1="joint7" joint2="joint8" polycoef="0 1 0 0 0"/>
+  </equality>
+
+  <contact>
+    <exclude body1="gripper" body2="tip_left"/>
+    <exclude body1="gripper" body2="tip_right"/>
+    <exclude body1="tip_left" body2="tip_right"/>
+  </contact>
+</mujoco>

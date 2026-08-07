@@ -38,8 +38,7 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripp
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm` (gripper-only; cannot combine with `--gripper no_gripper`) |
-| `--version` | `1` | Arm hardware revision — selects `robot_models/arm/<arm>/v<N>/` and `config/<arm>_v<N>.yml` |
+| `--arm` | `yam` | Arm type: `yam`, `yam_pro`, `yam_ultra`, `yam_ultra_2`, `big_yam`, `no_arm` (gripper-only; cannot combine with `--gripper no_gripper`) |
 | `--gripper` | `linear_4310` | Gripper type: `linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper` |
 | `--channel` | `can0` | CAN interface name (real hardware only) |
 | `--sim` | off | Use simulation instead of real hardware |

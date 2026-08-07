@@ -17,6 +17,7 @@ YAM_ARMS = [
     ArmType.YAM,
     ArmType.YAM_PRO,
     ArmType.YAM_ULTRA,
+    ArmType.YAM_ULTRA_2,
     ArmType.BIG_YAM,
 ]
 

@@ -47,8 +47,7 @@ Directly control each joint angle (in degrees) and the gripper position using in
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--arm` | `yam` | Arm variant (`yam`, `yam_pro`, `yam_ultra`, `big_yam`) |
-| `--version` | `1` | Arm hardware revision — selects `robot_models/arm/<arm>/v<N>/` and `config/<arm>_v<N>.yml` |
+| `--arm` | `yam` | Arm variant (`yam`, `yam_pro`, `yam_ultra`, `yam_ultra_2`, `big_yam`) |
 | `--gripper` | `linear_4310` | Gripper type (`linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `no_gripper`, `yam_teaching_handle`) |
 | `--channel` | `can0` | CAN interface name (ignored in sim mode) |
 | `--sim` | off | Use simulated robot instead of real hardware |

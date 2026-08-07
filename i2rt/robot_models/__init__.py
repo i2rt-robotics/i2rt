@@ -29,6 +29,19 @@ def available_arm_versions(arm: str) -> List[int]:
     )
 
 
+def available_arm_families() -> List[str]:
+    """Arm families with at least one shipped model, ascending.
+
+    Same valve as ``available_arm_versions``, one level up: a family dir counts only once some
+    ``v<N>/`` under it holds ``<arm>.xml``, so a raw CAD export staged ahead of the alignment
+    pipeline is not yet a family. Scans the filesystem rather than any in-code registry, so a
+    brand-new family is visible to callers that keep the registry and the models in sync.
+    """
+    if not os.path.isdir(_ARM_ROOT):
+        return []
+    return sorted(name for name in os.listdir(_ARM_ROOT) if available_arm_versions(name))
+
+
 def get_arm_xml_path(arm: str, version: int = 1) -> str:
     """Return the arm-only MJCF path for ``arm`` at model ``version``.
 

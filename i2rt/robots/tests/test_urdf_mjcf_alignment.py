@@ -33,13 +33,12 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
-from i2rt.robot_models import available_arm_versions
-from i2rt.robots.utils import ArmType, _load_arm_config
+from i2rt.robot_models import available_arm_families, available_arm_versions, get_arm_xml_path
+from i2rt.robots.utils import _ARM_VARIANTS, ArmType, _load_arm_config
 
-ARMS = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.BIG_YAM]
-# Every (arm, model version) shipped under robot_models/arm/<arm>/v<N>/. Discovered rather than
-# hardcoded so a new version dir is covered by these tests without editing them.
-ARM_VERSIONS = [(arm, v) for arm in ARMS for v in available_arm_versions(arm.value)]
+# Every shipped arm variant. A hardware revision is its own variant, so this covers every
+# (family, version) pair; test_arm_variant_registry keeps the enum and the on-disk models in sync.
+ARMS = [arm for arm in ArmType if arm != ArmType.NO_ARM]
 
 # Tolerances. The yam family's MJCFs are generated from their URDFs so they agree to ~1e-15;
 # big_yam's MJCF is hand-maintained and agrees to ~1e-6 on geometry / exactly on mass+range.
@@ -189,8 +188,8 @@ def _mjcf_body_inertial(body_el: ET.Element) -> tuple[float, np.ndarray, np.ndar
     return mass, com, _inertia_in_link_frame(rot, diag)
 
 
-def _load_arm_model(arm: ArmType, version: int = 1) -> _ArmModel:
-    xml_path = arm.get_xml_path(version)
+def _load_arm_model(arm: ArmType) -> _ArmModel:
+    xml_path = arm.get_xml_path()
     # The URDF sits beside the MJCF in the same version dir, with the same basename.
     urdf_path = os.path.splitext(xml_path)[0] + ".urdf"
     robot = ET.parse(urdf_path).getroot()
@@ -259,9 +258,9 @@ def _mjcf_joint(mjcf: ET.Element, joint_name: str) -> tuple[str, ET.Element]:
     raise AssertionError(f"MJCF has no joint {joint_name!r}")
 
 
-@pytest.fixture(params=ARM_VERSIONS, ids=lambda p: f"{p[0].value}_v{p[1]}")
+@pytest.fixture(params=ARMS, ids=lambda arm: arm.value)
 def model(request: pytest.FixtureRequest) -> _ArmModel:
-    return _load_arm_model(*request.param)
+    return _load_arm_model(request.param)
 
 
 # --------------------------------------------------------------------------- tests
@@ -331,16 +330,16 @@ def test_link_inertias_aligned(model: _ArmModel) -> None:
 
 
 def test_arm_version_resolution() -> None:
-    """version defaults to 1, resolves into the v1 dir, and errors legibly when absent."""
-    assert ArmType.YAM.get_xml_path() == ArmType.YAM.get_xml_path(1)
-    assert ArmType.YAM.get_xml_path(1).endswith(os.path.join("arm", "yam", "v1", "yam.xml"))
+    """The on-disk resolver maps (family, version) into the v<N> dir and errors legibly when absent."""
+    assert get_arm_xml_path("yam", 1).endswith(os.path.join("arm", "yam", "v1", "yam.xml"))
     assert available_arm_versions("yam") == [1]
+    assert available_arm_versions("yam_ultra") == [1, 2]
     assert available_arm_versions("not_an_arm") == []
 
     # A v<N> dir without <arm>.xml is an in-progress import (e.g. a raw CAD export dropped in
-    # before the alignment pipeline runs), not a shipped version. Reporting it would parametrize
-    # every test in this file onto a model that cannot be loaded.
-    arm_dir = os.path.dirname(os.path.dirname(ArmType.YAM.get_xml_path(1)))
+    # before the alignment pipeline runs), not a shipped version. Reporting it would make
+    # test_arm_variant_registry demand an ArmType member for a model that cannot be loaded.
+    arm_dir = os.path.dirname(os.path.dirname(get_arm_xml_path("yam", 1)))
     scratch = os.path.join(arm_dir, "v98765")
     os.makedirs(os.path.join(scratch, "assets"))
     try:
@@ -348,11 +347,71 @@ def test_arm_version_resolution() -> None:
     finally:
         shutil.rmtree(scratch)
 
+    # The same valve one level up. test_arm_variant_registry seeds its on-disk set from
+    # available_arm_families(), so a family dir holding nothing but a staged import must not
+    # yet demand an ArmType member either.
+    assert "yam" in available_arm_families()
+    assert "not_an_arm" not in available_arm_families()
+    staged_family = os.path.join(os.path.dirname(arm_dir), "yam_staged98765")
+    os.makedirs(os.path.join(staged_family, "v1", "assets"))
+    try:
+        assert "yam_staged98765" not in available_arm_families()
+    finally:
+        shutil.rmtree(staged_family)
+
     # A missing version must name the arm, the version, and what is actually available --
     # a bare FileNotFoundError on a composed path is not diagnosable in the field.
-    for absent in (lambda: ArmType.YAM.get_xml_path(99), lambda: _load_arm_config(ArmType.YAM, 99)):
+    with pytest.raises(FileNotFoundError, match=r"version 99.*Available versions.*\[1\]"):
+        get_arm_xml_path("yam", 99)
+
+
+def test_arm_config_missing_version_errors_legibly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A variant pointing at an unshipped config revision says which arm, which version, what exists."""
+    monkeypatch.setitem(_ARM_VARIANTS, ArmType.YAM.value, ("yam", 99))
+    _load_arm_config.cache_clear()
+    try:
         with pytest.raises(FileNotFoundError, match=r"version 99.*Available versions.*\[1\]"):
+            _load_arm_config(ArmType.YAM)
+    finally:
+        _load_arm_config.cache_clear()
+
+
+def test_unregistered_arm_variant_errors_legibly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A member with no _ARM_VARIANTS entry names the variant and both halves of the registration.
+
+    Half-registering is the natural mistake -- ArmType and _ARM_VARIANTS are two hand-maintained
+    lists that must agree -- and this direction fires inside test_arm_variant_registry's set
+    comprehension, so its own message never prints. The raised error has to stand alone.
+    """
+    monkeypatch.delitem(_ARM_VARIANTS, ArmType.YAM.value)
+    for absent in (lambda: ArmType.YAM.family, lambda: ArmType.YAM.version, ArmType.YAM.get_xml_path):
+        with pytest.raises(ValueError, match=r"'yam' has no _ARM_VARIANTS entry.*ArmType member"):
             absent()
 
-    with pytest.raises(ValueError, match="NO_ARM"):
-        ArmType.NO_ARM.get_xml_path(1)
+
+def test_arm_variant_registry() -> None:
+    """Every shipped model is reachable as an ArmType, and every ArmType resolves to real files.
+
+    ArmType is the registry now that arms carry no separate version argument, so a new
+    ``robot_models/arm/<family>/v<N>/`` dir is invisible -- and untested -- until a member is
+    added for it. This is the check that catches the omission. ``on_disk`` is therefore seeded
+    from the filesystem (``available_arm_families``), never from ``_ARM_VARIANTS``: seeding it
+    from the registry would only ever look under families that are already registered, and a
+    whole new family would slip through.
+    """
+    on_disk = {(family, version) for family in available_arm_families() for version in available_arm_versions(family)}
+    registered = {(arm.family, arm.version) for arm in ARMS}
+    assert registered == on_disk, (
+        f"ArmType and robot_models/arm disagree: unregistered on disk {sorted(on_disk - registered)}, "
+        f"registered without a model {sorted(registered - on_disk)}"
+    )
+
+    for arm in ARMS:
+        assert os.path.isfile(arm.get_xml_path()), f"{arm.value}: no MJCF"
+        # _load_arm_config raises FileNotFoundError naming the arm if the YAML is absent.
+        _load_arm_config(arm)
+
+    # NO_ARM is a gripper-only robot: it has no model family, revision, or MJCF to resolve.
+    for absent in (lambda: ArmType.NO_ARM.family, lambda: ArmType.NO_ARM.version, ArmType.NO_ARM.get_xml_path):
+        with pytest.raises(ValueError, match="NO_ARM"):
+            absent()

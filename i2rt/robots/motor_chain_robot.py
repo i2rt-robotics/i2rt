@@ -715,9 +715,7 @@ class _CliArgs:
     """Drive a YAM-family arm over CAN."""
 
     arm: str = "yam"
-    """Arm variant (yam, yam_pro, yam_ultra, big_yam)."""
-    version: int = 1
-    """Arm hardware revision (the v<N> model/config version)."""
+    """Arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam)."""
     gripper: str = "linear_4310"
     """Gripper variant."""
     channel: str = "can0"
@@ -742,7 +740,7 @@ if __name__ == "__main__":
     gripper_type = GripperType.from_string_name(args.gripper)
 
     print(f"Initializing robot with arm_type: {arm_type}, gripper_type: {gripper_type}")
-    robot = get_yam_robot(args.channel, arm_type=arm_type, version=args.version, gripper_type=gripper_type)
+    robot = get_yam_robot(args.channel, arm_type=arm_type, gripper_type=gripper_type)
 
     try:
         if args.record:

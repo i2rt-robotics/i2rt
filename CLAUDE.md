@@ -63,9 +63,17 @@ robot instance comes together.
 
 ### Config-driven, runtime-composed models
 
-A robot = an **arm** + a **gripper**, each independently selected. The arm additionally carries a
-**hardware revision**, chosen with the `version: int = 1` argument on `get_yam_robot`,
-`combine_arm_and_gripper_xml`, `ArmType.get_xml_path`, and `_load_arm_config` (CLI flag: `--version`):
+A robot = an **arm** + a **gripper**, each independently selected. A **hardware revision is its own
+arm variant** — `ArmType.YAM_ULTRA_2` (`yam_ultra_2`) is revision 2 of `yam_ultra` — so `ArmType` alone
+identifies an arm across the robot-construction API (`get_yam_robot`, `combine_arm_and_gripper_xml`,
+`ArmType.get_xml_path`, `_load_arm_config`) and the four robot CLIs (`motor_chain_robot.py` plus the three
+`examples/` entry points): none of those take a `version` argument or a `--version` flag. A revision is
+still passed explicitly *below* that line, where it is load-bearing and must not be "cleaned up" — the path
+resolver `get_arm_xml_path(arm, version)` and the offline pipeline script `sync_gripper_mounts.py --version N`
+(both described below). `ArmType.family` / `ArmType.version` unpack a variant into the on-disk
+`(family, v<N>)` pair that the config and model loaders resolve paths from. Registering a revision is a
+**two-place edit** in [utils.py](i2rt/robots/utils.py): the `ArmType` member **and** its `(family, revision)`
+entry in the `_ARM_VARIANTS` map. The two enums are the entry points:
 
 - `ArmType` / `GripperType` enums live in [utils.py](i2rt/robots/utils.py) and map to:
   - a **hardware YAML** in [i2rt/robots/config/](i2rt/robots/config/) — motor IDs, directions, kp/kd,
@@ -89,8 +97,8 @@ A robot = an **arm** + a **gripper**, each independently selected. The arm addit
   **not** apply the frame transform to it, so that element is composed into the mount frame explicitly and
   replaces the mount's `mass=1e-6` placeholder.
 
-Arm variants: `yam`, `yam_pro`, `yam_ultra`, `big_yam` — each shipping revisions `v1..vN` (only `v1`
-today). Grippers: `crank_4310`, `linear_3507`, `linear_4310`,
+Arm variants: `yam`, `yam_pro`, `yam_ultra`, `yam_ultra_2`, `big_yam` (`yam_ultra_2` is the only
+shipped revision beyond v1). Grippers: `crank_4310`, `linear_3507`, `linear_4310`,
 `flexible_4310`, plus the non-gripper `yam_teaching_handle` and `no_gripper`. `ArmType.NO_ARM` gives a
 gripper-only robot.
 
@@ -112,9 +120,9 @@ lives in a separate internal repo, not here.
 ### robot_models: URDF is the source of truth
 
 Arm models are **versioned by hardware revision**: each version dir (`i2rt/robot_models/arm/<arm>/v<N>/`) has
-`<arm>.urdf`, `<arm>.xml` (MJCF), an `assets/` mesh dir, and a `README.md`. Everything ships as `v1` today; the
-file basenames are *not* version-suffixed, so `<mujoco model="yam">` and the `assets/` relative mesh paths are
-identical across versions. Resolve a path with `get_arm_xml_path(arm, version)` from
+`<arm>.urdf`, `<arm>.xml` (MJCF), an `assets/` mesh dir, and a `README.md`. The file basenames are *not*
+version-suffixed, so `<mujoco model="yam">` and the `assets/` relative mesh paths are identical across
+versions. Prefer `ArmType.get_xml_path()`; the underlying resolver is `get_arm_xml_path(arm, version)` in
 [i2rt/robot_models/__init__.py](i2rt/robot_models/__init__.py) — the `ARM_*_XML_PATH` constants remain as v1
 aliases for downstream users. **The URDF is the kinematic/dynamic source of truth; the MJCF is generated from it.** The
 per-arm README tabulates masses, COMs, inertia tensors, joint frames/axes/ranges, link lengths, home-pose

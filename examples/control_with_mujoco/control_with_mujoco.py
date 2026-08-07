@@ -15,7 +15,7 @@ collision.
 Usage:
     python examples/control_with_mujoco/control_with_mujoco.py --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripper linear_4310 --sim
-    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra --version 1 --sim
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra_2 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0 --record
@@ -234,7 +234,6 @@ def _apply_command(robot: Any, cmd: tuple) -> None:
 
 def _robot_worker(
     arm_value: str,
-    arm_version: int,
     gripper_value: str,
     channel: str,
     sim: bool,
@@ -255,7 +254,6 @@ def _robot_worker(
     robot = get_yam_robot(
         channel=channel,
         arm_type=arm,
-        version=arm_version,
         gripper_type=gripper,
         sim=sim,
         use_coulomb_friction=use_coulomb_friction,
@@ -413,9 +411,7 @@ class _CliArgs:
     """MuJoCo control interface for i2rt robots."""
 
     arm: str = "yam"
-    """Arm variant (yam, yam_pro, yam_ultra, big_yam, no_arm)."""
-    version: int = 1
-    """Arm hardware revision (the v<N> model/config version)."""
+    """Arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam, no_arm)."""
     gripper: str = "linear_4310"
     """Gripper variant."""
     channel: str = "can0"
@@ -469,7 +465,6 @@ def main() -> None:
         name="robot_worker",
         args=(
             args.arm,
-            args.version,
             args.gripper,
             args.channel,
             args.sim,

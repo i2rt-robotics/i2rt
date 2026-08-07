@@ -49,20 +49,42 @@ sh scripts/reset_all_can.sh
 
 ## YAM Arm
 
+### Arm variants
+
+Every arm is six-DOF. Pick one with `--arm` on any CLI, or `arm_type=` in Python. A hardware
+revision is its own variant — `yam_ultra_2` is revision 2 of the YAM Ultra.
+
+| Arm | `--arm` value | Arm mass | Chain length | Notes |
+|-----|---------------|---------:|-------------:|-------|
+| YAM | `yam` | 4.292 kg | 0.807 m | [Model docs](i2rt/robot_models/arm/yam/v1/README.md) |
+| YAM Pro | `yam_pro` | 4.349 kg | 0.798 m | [Model docs](i2rt/robot_models/arm/yam_pro/v1/README.md) |
+| YAM Ultra | `yam_ultra` | 4.521 kg | 0.813 m | [Model docs](i2rt/robot_models/arm/yam_ultra/v1/README.md) |
+| YAM Ultra 2 | `yam_ultra_2` | 4.597 kg | 0.813 m | Revision 2 — kinematically identical to `yam_ultra`; revised link3/link4 inertials and a DM4340 on joint 4. [Model docs](i2rt/robot_models/arm/yam_ultra/v2/README.md) |
+| Big YAM | `big_yam` | 5.307 kg | 1.060 m | [Model docs](i2rt/robot_models/arm/big_yam/v1/README.md) |
+| *(none)* | `no_arm` | — | — | Gripper-only robot |
+
+"Arm mass" excludes the gripper and tips. "Chain length" is the sum of the parent-to-child
+joint-origin translation norms — a measure of the kinematic chain, not of reach. Each arm's
+model README tabulates full masses, COMs, inertias, joint frames, DH parameters, and screw axes.
+
 ### Zero-gravity mode
 
 ```bash
-python i2rt/robots/motor_chain_robot.py --channel can0 --gripper linear_4310
+python i2rt/robots/motor_chain_robot.py --channel can0 --arm yam --gripper linear_4310
 ```
 
 ### Python API
 
 ```python
 from i2rt.robots.get_robot import get_yam_robot
-from i2rt.robots.utils import GripperType
+from i2rt.robots.utils import ArmType, GripperType
 import numpy as np
 
-robot = get_yam_robot(channel="can0", gripper_type=GripperType.LINEAR_4310)
+robot = get_yam_robot(
+    channel="can0",
+    arm_type=ArmType.YAM,
+    gripper_type=GripperType.LINEAR_4310,
+)
 
 # Read joint positions (radians)
 q = robot.get_joint_pos()   # shape: (6,)
@@ -104,7 +126,9 @@ python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 | `crank_4310` | DM4310 | Zero-linkage crank — minimises gripper width |
 | `linear_3507` | DM3507 | Lightweight linear; start closed or run calibration |
 | `linear_4310` | DM4310 | Standard linear; slightly more force than 3507 |
+| `flexible_4310` | DM4310 | Linear with flexible soft tips for compliant grasps |
 | `yam_teaching_handle` | — | Leader arm handle with trigger + 2 buttons. |
+| `no_gripper` | — | Bare terminal mount; no gripper motor on the chain |
 
 The linear grippers require calibration because their motor travels more than 2π radians over the full stroke — either start with the gripper fully closed, or run the calibration routine.
 
@@ -130,6 +154,9 @@ client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
 | Record & replay trajectory | `examples/record_replay_trajectory/` |
 | Single motor PD control | `examples/single_motor_position_pd_control/` |
 | MuJoCo control interface | `examples/control_with_mujoco/` |
+| Viser (browser) control interface | `examples/control_with_viser/` |
+| Drive Flow Base from Viser | `examples/drive_flow_base_viser/` |
+| Plot Flow Base telemetry in Rerun | `examples/plot_flow_base_rerun/` |
 
 ## Advanced: Motor Configuration
 

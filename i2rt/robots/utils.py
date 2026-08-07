@@ -40,16 +40,17 @@ class _GripperHWConfig:
 
 
 @lru_cache(maxsize=None)
-def _load_gripper_config(gripper_type_value: str, arm_type_value: str, arm_version: int = 1) -> _GripperHWConfig:
+def _load_gripper_config(gripper_type_value: str, arm_type: "ArmType") -> _GripperHWConfig:
     """Load gripper hardware config from the YAML file for the given gripper type.
 
     Args:
         gripper_type_value: The gripper type string (e.g. "linear_4310").
-        arm_type_value: The arm type string (e.g. "yam", "big_yam"). Used to
-            select the correct per-arm mounting transform.
-        arm_version: The arm's model version. Selects ``last_joint_mount.<arm>.v<N>``.
-            Only the mount transform is version-scoped; every other field is not.
+        arm_type: The arm the gripper mounts on. Its family selects the per-arm mounting
+            transform and its version selects ``last_joint_mount.<arm>.v<N>``. Only the
+            mount transform is version-scoped; every other field is not.
     """
+    arm_type_value = arm_type.family
+    arm_version = arm_type.version
     config_path = os.path.join(_CONFIG_DIR, f"{gripper_type_value}.yml")
     logger.info(f"Loading gripper config from {config_path} (arm={arm_type_value})")
     with open(config_path) as f:
@@ -141,13 +142,13 @@ def _available_arm_config_versions(arm: str) -> List[int]:
 
 
 @lru_cache(maxsize=None)
-def _load_arm_config(arm_type: "ArmType", version: int = 1) -> _ArmHWConfig:
-    """Load arm hardware config from the YAML file for the given arm type and model version."""
-    config_path = os.path.join(_CONFIG_DIR, f"{arm_type.value}_v{version}.yml")
+def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
+    """Load arm hardware config from the YAML file for the given arm variant."""
+    config_path = os.path.join(_CONFIG_DIR, f"{arm_type.family}_v{arm_type.version}.yml")
     if not os.path.isfile(config_path):
         raise FileNotFoundError(
-            f"No config for arm {arm_type.value!r} version {version}: {config_path} does not exist. "
-            f"Available versions for {arm_type.value!r}: {_available_arm_config_versions(arm_type.value)}"
+            f"No config for arm {arm_type.family!r} version {arm_type.version}: {config_path} does not exist. "
+            f"Available versions for {arm_type.family!r}: {_available_arm_config_versions(arm_type.family)}"
         )
     logger.info(f"Loading arm config from {config_path}")
     with open(config_path) as f:
@@ -235,8 +236,6 @@ def combine_arm_and_gripper_xml(
     gripper_type: "GripperType",
     ee_mass: Optional[float] = None,
     ee_inertia: Optional[np.ndarray] = None,
-    *,
-    version: int = 1,
 ) -> str:
     """Combine arm and gripper XML files into a single XML string.
 
@@ -257,20 +256,18 @@ def combine_arm_and_gripper_xml(
         ee_mass: Optional end-effector mass (kg) to override in gripper's inertial.
         ee_inertia: Optional end-effector inertia array. Expected as a flat array of
             10 elements: [ipos(3), quat(4), diaginertia(3)].
-        version: Arm model version (the ``v<N>`` dir under ``robot_models/arm/<arm>/``).
-            Also selects the ``last_joint_mount.<arm>.v<N>`` mount block. Defaults to 1.
 
     Returns:
         Path to the combined XML file written to /tmp/.
     """
-    arm_path = arm_type.get_xml_path(version)
+    arm_path = arm_type.get_xml_path()
     gripper_path = gripper_type.get_xml_path()
 
     arm_tree = ET.parse(arm_path)
     arm_root = arm_tree.getroot()
 
     # Set last-joint mounting geometry from gripper config (per-arm)
-    cfg = _load_gripper_config(gripper_type.value, arm_type.value, version)
+    cfg = _load_gripper_config(gripper_type.value, arm_type)
     worldbody = arm_root.find("worldbody")
     mount_body = _find_deepest_body(worldbody) if worldbody is not None else None
     if mount_body is not None:
@@ -398,16 +395,30 @@ def combine_arm_and_gripper_xml(
 
     # write combined xml to /tmp/ and return filepath
     out_path = tempfile.NamedTemporaryFile(
-        suffix=".xml", prefix=f"i2rt_{arm_type.value}_v{version}_{gripper_type.value}_", delete=False, dir="/tmp"
+        suffix=".xml", prefix=f"i2rt_{arm_type.value}_{gripper_type.value}_", delete=False, dir="/tmp"
     ).name
     arm_tree.write(out_path, encoding="utf-8", xml_declaration=True)
     return out_path
+
+
+# Arm variant -> (model/config family, hardware revision). The family is the on-disk name --
+# robot_models/arm/<family>/v<N>/, config/<family>_v<N>.yml, last_joint_mount.<family>.v<N> --
+# and a bare variant name is revision 1. A new hardware revision ships as its own variant
+# (e.g. "yam_ultra_2"), registered here once its model dir and config exist.
+_ARM_VARIANTS: Dict[str, Tuple[str, int]] = {
+    "yam": ("yam", 1),
+    "yam_pro": ("yam_pro", 1),
+    "yam_ultra": ("yam_ultra", 1),
+    "yam_ultra_2": ("yam_ultra", 2),
+    "big_yam": ("big_yam", 1),
+}
 
 
 class ArmType(enum.Enum):
     YAM = "yam"
     YAM_PRO = "yam_pro"
     YAM_ULTRA = "yam_ultra"
+    YAM_ULTRA_2 = "yam_ultra_2"
     BIG_YAM = "big_yam"
     NO_ARM = "no_arm"
 
@@ -424,11 +435,42 @@ class ArmType(enum.Enum):
     def available_arms(cls) -> List[str]:
         return [arm.value for arm in cls]
 
-    def get_xml_path(self, version: int = 1) -> str:
-        """Path to this arm's MJCF at model ``version`` (default 1)."""
+    def _variant(self) -> Tuple[str, int]:
+        """This member's ``(family, revision)`` pair, or a message naming the missing half.
+
+        A variant lives in two hand-maintained places -- the enum member and the _ARM_VARIANTS
+        entry -- so a half-registration is the likely mistake; a bare KeyError would not say which
+        half is missing, and it fires inside test_arm_variant_registry's set comprehension where
+        that test's own diagnostic never gets to print.
+        """
+        try:
+            return _ARM_VARIANTS[self.value]
+        except KeyError:
+            raise ValueError(
+                f"Arm variant {self.value!r} has no _ARM_VARIANTS entry. Registering a variant takes "
+                f"two edits in i2rt/robots/utils.py: the ArmType member and its (family, revision) "
+                f"pair in _ARM_VARIANTS. Registered: {sorted(_ARM_VARIANTS)}"
+            ) from None
+
+    @property
+    def family(self) -> str:
+        """On-disk model/config family (``yam_ultra_2`` -> ``yam_ultra``)."""
+        if self == ArmType.NO_ARM:
+            raise ValueError("NO_ARM has no model family; it is a gripper-only robot.")
+        return self._variant()[0]
+
+    @property
+    def version(self) -> int:
+        """Hardware revision within the family (``yam_ultra_2`` -> 2)."""
+        if self == ArmType.NO_ARM:
+            raise ValueError("NO_ARM has no hardware revision; it is a gripper-only robot.")
+        return self._variant()[1]
+
+    def get_xml_path(self) -> str:
+        """Path to this arm variant's MJCF."""
         if self == ArmType.NO_ARM:
             raise ValueError("NO_ARM has no XML path; use the gripper XML directly.")
-        return get_arm_xml_path(self.value, version)
+        return get_arm_xml_path(self.family, self.version)
 
 
 class GripperType(enum.Enum):
@@ -455,11 +497,11 @@ class GripperType(enum.Enum):
         return [gripper.value for gripper in GripperType]
 
     def get_gripper_limits(self, arm_type: "ArmType") -> Optional[tuple[float, float]]:
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         return cfg.gripper_limits
 
     def get_gripper_needs_calibration(self, arm_type: "ArmType") -> bool:
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         return cfg.needs_calibration
 
     def get_xml_path(self) -> str:
@@ -476,15 +518,15 @@ class GripperType(enum.Enum):
         return _xml_map[self]
 
     def get_motor_kp_kd(self, arm_type: "ArmType") -> tuple[float, float]:
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         return cfg.motor_kp, cfg.motor_kd
 
     def get_motor_type(self, arm_type: "ArmType") -> str:
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         return cfg.motor_type
 
     def get_motor_direction(self, arm_type: "ArmType") -> int:
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         return cfg.motor_direction
 
     def get_gripper_limiter_params(self, arm_type: "ArmType") -> tuple[float, float, float, callable]:
@@ -494,7 +536,7 @@ class GripperType(enum.Enum):
         sign: float,
         gripper_force_torque_map: callable,
         """
-        cfg = _load_gripper_config(self.value, arm_type.value)
+        cfg = _load_gripper_config(self.value, arm_type)
         lim = cfg.limiter_params
         if lim is None:
             return -1.0, -1.0, -1.0, None

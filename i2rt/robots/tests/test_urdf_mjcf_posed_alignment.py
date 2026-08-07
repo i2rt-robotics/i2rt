@@ -38,7 +38,6 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
-from i2rt.robot_models import available_arm_versions
 from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
 # Joint configurations to sweep. Each row is [joint1..joint6, gripper]; the 7th (gripper) value
@@ -53,15 +52,13 @@ YAM_ARM_MOTIONS = [
     np.array([0.12, 0.0, 0.74, 1.58, -1.57, 2.07, 0]),
 ]
 
-ARMS = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.BIG_YAM]
-# Every (arm, model version) shipped under robot_models/arm/<arm>/v<N>/. Discovered rather than
-# hardcoded so a new version dir is covered by this test without editing it.
-ARM_VERSIONS = [(arm, v) for arm in ARMS for v in available_arm_versions(arm.value)]
+# Every shipped arm variant; a hardware revision is its own variant.
+ARMS = [arm for arm in ArmType if arm != ArmType.NO_ARM]
 # Arms whose gripper mount preserves the native (URDF) wrist frame, so the mount body/joint6 stay
 # URDF-comparable in the combined model. big_yam mounts grippers rotated (see module docstring).
-MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA}
+MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2}
 # Arms that share a joint-axis convention, so the same command reaches the same physical pose.
-CROSS_ARM_FAMILY = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA]
+CROSS_ARM_FAMILY = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2]
 
 N_ARM_JOINTS = 6
 # Every gripper is mounted with linear_4310, matching the default sim/hardware end-effector.
@@ -147,14 +144,12 @@ def _urdf_posed_frames(
 
 # ------------------------------------------------------------------- MJCF forward kinematics
 @lru_cache(maxsize=None)
-def _combined_model(arm: ArmType, version: int = 1) -> mujoco.MjModel:
+def _combined_model(arm: ArmType) -> mujoco.MjModel:
     """The shipped sim model: arm + linear_4310 gripper, exactly as ``SimRobot`` loads it."""
-    return mujoco.MjModel.from_xml_path(combine_arm_and_gripper_xml(arm, SIM_GRIPPER, version=version))
+    return mujoco.MjModel.from_xml_path(combine_arm_and_gripper_xml(arm, SIM_GRIPPER))
 
 
-def _mjcf_posed_frames(
-    arm: ArmType, pose: np.ndarray, version: int = 1
-) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
+def _mjcf_posed_frames(arm: ArmType, pose: np.ndarray) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
     """MuJoCo FK at ``pose`` for the combined sim model.
 
     Mirrors ``SimRobot.command_joint_pos`` (set qpos, then ``mj_forward``) but sets the arm joints
@@ -163,7 +158,7 @@ def _mjcf_posed_frames(
     by joint index n=1..6, the world 4x4 of joint ``joint{n}``'s child body (``link{n}``, and
     ``gripper`` for the terminal mount) and that joint's world axis.
     """
-    model = _combined_model(arm, version)
+    model = _combined_model(arm)
     data = mujoco.MjData(model)
     for n in range(1, N_ARM_JOINTS + 1):
         data.qpos[model.joint(f"joint{n}").qposadr[0]] = pose[n - 1]
@@ -179,14 +174,13 @@ def _mjcf_posed_frames(
 
 
 # --------------------------------------------------------------------------- tests
-@pytest.mark.parametrize("arm_version", ARM_VERSIONS, ids=lambda p: f"{p[0].value}_v{p[1]}")
+@pytest.mark.parametrize("arm", ARMS, ids=lambda arm: arm.value)
 @pytest.mark.parametrize("pose", YAM_ARM_MOTIONS, ids=[f"pose{i}" for i in range(len(YAM_ARM_MOTIONS))])
-def test_posed_frames_match_urdf(arm_version: tuple[ArmType, int], pose: np.ndarray) -> None:
+def test_posed_frames_match_urdf(arm: ArmType, pose: np.ndarray) -> None:
     """Sim-commanding an arm to each pose keeps its link/joint frames aligned with the URDF."""
-    arm, version = arm_version
-    urdf_path = os.path.splitext(arm.get_xml_path(version))[0] + ".urdf"
+    urdf_path = os.path.splitext(arm.get_xml_path())[0] + ".urdf"
     urdf_frames, urdf_axes = _urdf_posed_frames(urdf_path, pose[:N_ARM_JOINTS])
-    mjcf_frames, mjcf_axes = _mjcf_posed_frames(arm, pose, version)
+    mjcf_frames, mjcf_axes = _mjcf_posed_frames(arm, pose)
 
     # Joints/links carrying the arm's own kinematics (all six) vs only the five physical arm
     # joints when the gripper mount rewrites the wrist frame (big_yam).
