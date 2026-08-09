@@ -65,8 +65,8 @@ class _RemoteReader:
     def get_odometry(self) -> dict:
         return self._client.get_odometry({}).result()
 
-    def get_wheel_speeds(self) -> dict:
-        return self._client.get_wheel_speeds({}).result()
+    def get_wheel_states(self) -> dict:
+        return self._client.get_wheel_states({}).result()
 
     def close(self) -> None:
         close = getattr(self._client, "close", None)
@@ -77,7 +77,7 @@ class _RemoteReader:
 def make_backend(args: Args) -> object:
     """Read-only telemetry source. A local Vehicle over CAN when --host is unset (it holds zero
     velocity, so it never drives itself), otherwise a passive reader to the remote controller.
-    Both expose get_odometry / get_wheel_speeds / close."""
+    Both expose get_odometry / get_wheel_states / close."""
     if args.host is None:
         from i2rt.flow_base.flow_base_controller import Vehicle
 
@@ -186,9 +186,9 @@ def main(args: Args) -> None:
             z = float(pos["translation"][2])
             theta = float(pos["rotation"])
             vw, vb = odo["velocity"]["world"], odo["velocity"]["body"]
-            wheels = backend.get_wheel_speeds()
-            steer = np.asarray(wheels["steer"], dtype=float)
-            drive = np.asarray(wheels["drive"], dtype=float)
+            wheels = backend.get_wheel_states()
+            steer = np.asarray(wheels["steer"]["vel"], dtype=float)
+            drive = np.asarray(wheels["drive"]["vel"], dtype=float)
 
             now = time.time()
             dt = now - last

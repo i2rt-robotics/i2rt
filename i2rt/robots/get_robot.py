@@ -62,6 +62,7 @@ def _get_gripper_only_robot(
     channel: str = "can0",
     gripper_type: GripperType = GripperType.LINEAR_4310,
     sim: bool = False,
+    enable_auto_recovery: bool = False,
 ) -> "Robot":
     """Create a gripper-only robot (no arm).
 
@@ -69,6 +70,8 @@ def _get_gripper_only_robot(
         channel: CAN interface name (e.g. "can0"). Ignored in sim mode.
         gripper_type: Which gripper to load. Must not be NO_GRIPPER.
         sim: If True, return a SimRobot instead of connecting to real hardware.
+        enable_auto_recovery: If True, the motor chain tries to clean+re-enable errored motors in its
+            control loop instead of failing fast. Defaults to False (fail-fast).
     """
     if gripper_type == GripperType.NO_GRIPPER:
         raise ValueError("gripper_type cannot be NO_GRIPPER when arm_type is NO_ARM")
@@ -108,6 +111,7 @@ def _get_gripper_only_robot(
         motor_chain_name="gripper_only",
         receive_mode=ReceiveMode.p16,
         start_thread=True,
+        enable_auto_recovery=enable_auto_recovery,
     )
 
     return MotorChainRobot(
@@ -140,12 +144,15 @@ def get_yam_robot(
     sim: bool = False,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
+    enable_auto_recovery: bool = False,
+    use_coulomb_friction: bool = False,
 ) -> "Robot":
     """Create a YAM-family robot (real or sim).
 
     Args:
         channel: CAN interface name (e.g. "can0"). Ignored in sim mode.
-        arm_type: Which arm variant to use. Use ``ArmType.NO_ARM`` for gripper-only.
+        arm_type: Which arm variant to use. A hardware revision is its own variant
+            (e.g. ``ArmType.YAM_ULTRA_2``). Use ``ArmType.NO_ARM`` for gripper-only.
         gripper_type: Which gripper (or NO_GRIPPER / YAM_TEACHING_HANDLE).
         zero_gravity_mode: Start in gravity-compensation mode.
         ee_mass: Optional end-effector mass override (kg) for MuJoCo inertial.
@@ -156,10 +163,17 @@ def get_yam_robot(
         gripper_kp: Optional gripper kp override. Defaults to gripper_type's default.
         gripper_kd: Optional gripper kd override. Defaults to gripper_type's default.
         sim: If True, return a SimRobot instead of connecting to real hardware.
+        enable_auto_recovery: If True, the motor chain tries to clean+re-enable errored motors in its
+            control loop instead of failing fast. Defaults to False (fail-fast).
+        use_coulomb_friction: If True, add the per-joint Coulomb friction feedforward (from the arm
+            config) during gravity compensation. Defaults to False. Only affects real hardware; ignored
+            in sim mode (SimRobot has no friction feedforward).
     """
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
-        return _get_gripper_only_robot(channel=channel, gripper_type=gripper_type, sim=sim)
+        return _get_gripper_only_robot(
+            channel=channel, gripper_type=gripper_type, sim=sim, enable_auto_recovery=enable_auto_recovery
+        )
 
     with_gripper = gripper_type not in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER)
     with_teaching_handle = gripper_type == GripperType.YAM_TEACHING_HANDLE
@@ -245,6 +259,7 @@ def get_yam_robot(
         start_thread=False,
         get_same_bus_device_driver=get_encoder_chain if with_teaching_handle else None,
         use_buffered_reader=False,
+        enable_auto_recovery=enable_auto_recovery,
     )
     motor_states = motor_chain.read_states()
     logging.debug(f"motor_states: {motor_states}")
@@ -275,6 +290,7 @@ def get_yam_robot(
         kd=kd,
         grav_comp_kd=grav_comp_kd,
         coulomb_friction=coulomb_friction,
+        use_coulomb_friction=use_coulomb_friction,
         zero_gravity_mode=zero_gravity_mode,
         joint_state_saver_factory=joint_state_saver_factory,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,

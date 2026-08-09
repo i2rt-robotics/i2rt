@@ -21,7 +21,7 @@ def test_fk(kinematics_yam: Kinematics) -> None:
     translation = pose[:3, 3]
 
     start_rot = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
-    start_trans = np.array([0.11333, 0.00359, 0.1723])
+    start_trans = np.array([0.1105973, 0.0000010, 0.1735018])
     np.testing.assert_allclose(rotation, start_rot, atol=1e-5)
     np.testing.assert_allclose(translation, start_trans, atol=1e-5)
 

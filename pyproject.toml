@@ -10,7 +10,10 @@ requires-python = ">=3.10"
 dynamic = ["description"]
 dependencies = [
     "click<8.2.0",
+    # crcmod-plus is a maintained fork that installs into the `crcmod` namespace, so code still does `import crcmod`.
+    "crcmod-plus>=2.3.1",
     "dm-env==1.6",
+    "mcap-ros2-support>=0.5.5",
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",
@@ -23,7 +26,7 @@ dependencies = [
     "rerun-sdk>=0.32.2",
     "ruckig==0.15.3",
     "threadpoolctl==3.6.0",
-    "tyro==0.9.26",
+    "tyro>=1.0.0",
     "viser>=0.2.0",
     # USB-to-GPIO converter for the linear-rail brake + limit switches on x86/non-Pi hosts.
     "pyserial>=3.5",
@@ -40,6 +43,12 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+
+[tool.uv]
+# ruckig 0.15.3 publishes only an sdist, so it is compiled from source on a fresh
+# install (e.g. CI). Its build fails under scikit-build-core >= 0.10, which rejects the
+# package's deprecated `cmake.targets`. Pin the build backend below that so it builds.
+build-constraint-dependencies = ["scikit-build-core<0.10"]
 
 [tool.flit.module]
 name = "i2rt"

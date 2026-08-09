@@ -8,7 +8,7 @@
   </asset>
 
   <worldbody>
-    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
+    <body name="gripper" pos="0.000700400000971018 -2.45648799996445e-07 0.00214809999902899" quat="2.000000000002e-06 -5.55111512312578e-17 1.99999999997424e-06 -0.999999999996">
       <inertial pos="0 0 0" mass="0.455645" diaginertia="0.0003 0.0003 0.0002"/>
       <geom type="mesh" quat="0 0.707107 0.707107 0" rgba="0.74902 0.74902 0.74902 1" mesh="flexible_base" contype="0" conaffinity="0"/>
       <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>

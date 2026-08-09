@@ -55,6 +55,8 @@ htmlcov/
 *.cache
 *.pid
 *.lock
+# Track the uv lockfile so `uv-sync --locked` is reproducible on a fresh clone.
+!uv.lock
 
 # Ignore Mujoco-related compiled binaries if applicable
 mjkey.txt
@@ -90,5 +92,4 @@ i2rt.egg-info/
 # Ignore temporary scripts or generated files
 scripts/temp_*/
 
-CLAUDE.md
 *.mjb

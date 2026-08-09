@@ -17,6 +17,7 @@ YAM_ARMS = [
     ArmType.YAM,
     ArmType.YAM_PRO,
     ArmType.YAM_ULTRA,
+    ArmType.YAM_ULTRA_2,
     ArmType.BIG_YAM,
 ]
 
@@ -38,6 +39,14 @@ YAM_GRIPPERS = [
 def make_robot(arm_type: ArmType, gripper_type: GripperType) -> Robot:
     """Create a SimRobot for the given arm/gripper pair."""
     return get_yam_robot(arm_type=arm_type, gripper_type=gripper_type, sim=True)
+
+
+def test_get_yam_robot_preserves_positional_gripper_argument() -> None:
+    """The legacy third positional argument remains the gripper type."""
+    robot = get_yam_robot("can0", ArmType.YAM, GripperType.NO_GRIPPER, sim=True)
+
+    assert robot.num_dofs() == 6
+    robot.close()
 
 
 # ---------------------------------------------------------------------------

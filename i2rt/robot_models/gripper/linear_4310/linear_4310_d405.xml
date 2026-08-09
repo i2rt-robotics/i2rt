@@ -1,0 +1,65 @@
+<!-- linear_4310 gripper carrying the Intel RealSense D405 on its bracket, as mounted on the yam v1 arm.
+     Geometry and placement come from arm/yam/v1/yam_linear_4310_d405.urdf: its fixed-joint chain below
+     `gripper` is composed into single geoms on the gripper body, and the joint7/joint8 fingers carry
+     that URDF's frames, ranges and inertials. The URDF's camera parts carry no usable mass
+     (2.33e-05 / 1.16e-06 / 3.93e-05 / 5.71e-06 kg from a density-less CAD export, together 0.013% of
+     the gripper), so the gripper inertial is left exactly as in linear_4310.xml and the camera adds
+     visual geometry only.
+
+     This file's `gripper` root is the arm flange, so flange -> camera is the `camera` body below:
+     pos [-0.07, 0, -0.077], quat_wxyz [0.153, 0.69, 0.69, 0.153], the optical axis canted 25 deg off
+     the flange -Z. That is the extrinsic tabulated in
+     station/yam_station_linear_4310_d405/README.md, which is authoritative for it.
+
+     joint7/joint8 follow the linear_4310 convention: q=0 is closed, positive opens -- the pad gap at
+     `grasp_site` is 0.06 mm at q=0 and 93.96 mm at q=0.04695. -->
+<mujoco model="linear_4310_d405">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="gripper" file="gripper.stl"/>
+    <mesh name="tip_left" file="tip_left.stl"/>
+    <mesh name="tip_right" file="tip_right.stl"/>
+    <mesh name="camera_bracket_for_D405_linear_4310_" file="d405/camera_bracket_for_D405_linear_4310_.stl"/>
+    <mesh name="Cable_holder" file="d405/Cable_holder.stl"/>
+    <mesh name="D405_with_depth_" file="d405/D405_with_depth_.stl"/>
+    <mesh name="Part_2" file="d405/Part_2.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="gripper" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="-3.57066e-05 0.000249371 -0.0293133" quat="0.667981 0.744113 -0.00433092 0.00882801" mass="0.553219" diaginertia="0.000409686 0.000369758 0.000324415"/>
+      <geom pos="-0.014 -0.0463995 0.0731" quat="1 0 0 0" type="mesh" rgba="0.109804 0.286275 0.0117647 1" mesh="gripper" contype="0" conaffinity="0"/>
+      <!-- Intel RealSense D405 on its bracket, rigidly fastened to the gripper. -->
+      <geom pos="-0.0237499999998 0.026 -0.0450000872386" quat="0.707105482511 0 -0.707108079859 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="camera_bracket_for_D405_linear_4310_" contype="0" conaffinity="0"/>
+      <geom pos="-0.0237499999998 0.026 -0.0450000872386" quat="0.707105482511 0 -0.707108079859 0" type="mesh" rgba="0.647059 0.647059 0.647059 1" mesh="Cable_holder" contype="0" conaffinity="0"/>
+      <geom pos="-0.0704349787482 0.00899992343196 -0.0770059620768" quat="0.690344657757 -0.153049839965 -0.153047304185 0.690345219926" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="D405_with_depth_" contype="0" conaffinity="0"/>
+      <geom pos="-0.0704349787482 0.00899992343196 -0.0770059620768" quat="0.690344657757 -0.153049839965 -0.153047304185 0.690345219926" type="mesh" rgba="0.498039 0.498039 0.498039 1" mesh="Part_2" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
+      <site name="grasp_site" pos="0 0 -0.1347" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
+      <body name="tip_left" pos="-0.0239931 0.0445119 -0.0566829" quat="1 0 0 0">
+        <inertial pos="0.014584 -0.042586 -0.0228318" quat="0.657721 -0.57927 0.480962 -0.0229274" mass="0.069657" diaginertia="2.79862e-05 5.94605e-05 6.18569e-05"/>
+        <joint name="joint7" pos="0 0 0" type="slide" axis="0 -1 0" range="0 0.04695"/>
+        <geom pos="0.00999321 -0.0914614 0.129783" quat="1 0 0 0" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_left"/>
+      </body>
+      <body name="tip_right" pos="0.0239931 -0.0445119 -0.0566829" quat="1 0 0 0">
+        <inertial pos="-0.014584 0.042586 -0.0228318" quat="0.480962 0.0229274 0.657721 0.57927" mass="0.069657" diaginertia="2.79862e-05 5.94605e-05 6.18569e-05"/>
+        <joint name="joint8" pos="0 0 0" type="slide" axis="0 1 0" range="0 0.04695"/>
+        <geom pos="-0.0379932 -0.00133753 0.129783" quat="1 0 0 0" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_right"/>
+      </body>
+      <body name="camera" pos="-0.07043497875 -7.656797949e-08 -0.07700592902" quat="0.153050756 0.690344455 0.690345017 0.15304822">
+        <inertial pos="0 0 0" quat="1 0 0 0" mass="1e-09" diaginertia="4e-14 4e-14 4e-14"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <joint joint1="joint7" joint2="joint8" polycoef="0 1 0 0 0"/>
+  </equality>
+
+  <contact>
+    <exclude body1="gripper" body2="tip_left"/>
+    <exclude body1="gripper" body2="tip_right"/>
+    <exclude body1="tip_left" body2="tip_right"/>
+  </contact>
+</mujoco>

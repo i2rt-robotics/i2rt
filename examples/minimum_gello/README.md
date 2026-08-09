@@ -46,7 +46,7 @@ Press **button 0** on the teaching handle to synchronize. Press again to desync.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--arm` | `yam` | Arm type (`yam`, `yam_pro`, `yam_ultra`, `big_yam`, `no_arm`) |
+| `--arm` | `yam` | Arm type (`yam`, `yam_pro`, `yam_ultra`, `yam_ultra_2`, `big_yam`, `no_arm`) |
 | `--gripper` | `yam_teaching_handle` | Gripper type (`crank_4310`, `linear_3507`, `linear_4310`, `flexible_4310`, `yam_teaching_handle`, `no_gripper`) |
 | `--mode` | `follower` | Operation mode (`follower`, `leader`, `visualizer_local`, `visualizer_remote`) |
 | `--sim` | `False` | Use SimRobot instead of real hardware |
