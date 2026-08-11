@@ -145,8 +145,10 @@ def test_combined_xml_loads_in_mujoco(arm_type: ArmType, gripper_type: GripperTy
 # ---------------------------------------------------------------------------
 
 
-def _get_ee_site_axes(arm_type: ArmType, gripper_type: GripperType) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load combined model at qpos=0 and return grasp_site (x, y, z) world axes."""
+def _get_ee_site_pose(
+    arm_type: ArmType, gripper_type: GripperType
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load the combined model at qpos=0 and return grasp-site position and world axes."""
     xml_path = combine_arm_and_gripper_xml(arm_type, gripper_type)
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
@@ -160,42 +162,49 @@ def _get_ee_site_axes(arm_type: ArmType, gripper_type: GripperType) -> tuple[np.
     assert site_id >= 0, f"No grasp_site or tcp_site in {arm_type.value}+{gripper_type.value}"
 
     xmat = data.site_xmat[site_id].reshape(3, 3)
-    return xmat[:, 0], xmat[:, 1], xmat[:, 2]
+    return data.site_xpos[site_id].copy(), xmat[:, 0], xmat[:, 1], xmat[:, 2]
 
 
 @pytest.mark.parametrize("arm_type", YAM_ARMS)
 @pytest.mark.parametrize("gripper_type", YAM_GRIPPERS)
 def test_grasp_site_frame_at_zero_pose(arm_type: ArmType, gripper_type: GripperType) -> None:
-    """At qpos=0 the EE site frame must be: X down, Y left, Z front.
+    """At qpos=0 each EE site must follow its declared tool-frame convention.
 
-    Concretely:
-      - X axis ≈ world [0, 0, -1]  (pointing down)
-      - Y axis is horizontal        (z-component ≈ 0)
-      - Z axis is horizontal        (z-component ≈ 0, pointing front)
+    The replacement linear_4310 uses UMI-compatible axes: X up, Y right, Z front.
+    Other gripper models retain the legacy convention: X down, with horizontal
+    Y and Z axes.
     """
-    x_axis, y_axis, z_axis = _get_ee_site_axes(arm_type, gripper_type)
+    _, x_axis, y_axis, z_axis = _get_ee_site_pose(arm_type, gripper_type)
     label = f"{arm_type.value}+{gripper_type.value}"
 
-    # X should point down (world -Z)
-    np.testing.assert_allclose(
-        x_axis,
-        [0, 0, -1],
-        atol=1e-3,
-        err_msg=f"{label}: X axis should point down [0,0,-1], got {x_axis}",
-    )
-    # Z (front) should be horizontal
-    assert abs(z_axis[2]) < 1e-3, f"{label}: Z axis should be horizontal (front), z-component={z_axis[2]:.6f}"
-    # Y (left) should be horizontal
-    assert abs(y_axis[2]) < 1e-3, f"{label}: Y axis should be horizontal (left), z-component={y_axis[2]:.6f}"
+    if gripper_type == GripperType.LINEAR_4310:
+        np.testing.assert_allclose(x_axis, [0, 0, 1], atol=1e-3, err_msg=f"{label}: X must point up")
+        np.testing.assert_allclose(y_axis, [0, -1, 0], atol=1e-3, err_msg=f"{label}: Y must point right")
+        np.testing.assert_allclose(z_axis, [1, 0, 0], atol=1e-3, err_msg=f"{label}: Z must point front")
+    else:
+        np.testing.assert_allclose(
+            x_axis,
+            [0, 0, -1],
+            atol=1e-3,
+            err_msg=f"{label}: X axis should point down [0,0,-1], got {x_axis}",
+        )
+        assert abs(z_axis[2]) < 1e-3, f"{label}: Z axis should be horizontal (front), z-component={z_axis[2]:.6f}"
+        assert abs(y_axis[2]) < 1e-3, f"{label}: Y axis should be horizontal (left), z-component={y_axis[2]:.6f}"
+
+
+def test_yam_linear_4310_grasp_site_position_at_zero_pose() -> None:
+    """The replacement grasp point is 220 mm from the joint-6 mount along local -Z."""
+    position, _, _, _ = _get_ee_site_pose(ArmType.YAM, GripperType.LINEAR_4310)
+    np.testing.assert_allclose(position, [0.330597263, 0.000001793, 0.173502620], atol=1e-8)
 
 
 @pytest.mark.parametrize("arm_type", YAM_ARMS)
 def test_grasp_site_consistent_across_grippers(arm_type: ArmType) -> None:
-    """All grippers on the same arm must produce the same EE site orientation at zero pose."""
+    """Legacy grippers on the same arm must retain a consistent EE orientation."""
     reference = None
     ref_gripper = None
-    for gripper_type in YAM_GRIPPERS:
-        x, y, z = _get_ee_site_axes(arm_type, gripper_type)
+    for gripper_type in (gripper for gripper in YAM_GRIPPERS if gripper != GripperType.LINEAR_4310):
+        _, x, y, z = _get_ee_site_pose(arm_type, gripper_type)
         axes = np.column_stack([x, y, z])
         if reference is None:
             reference = axes

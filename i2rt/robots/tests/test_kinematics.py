@@ -11,6 +11,12 @@ def kinematics_yam() -> Kinematics:
     return Kinematics(combined_path, "grasp_site")
 
 
+@pytest.fixture
+def kinematics_yam_linear_4310() -> Kinematics:
+    combined_path = combine_arm_and_gripper_xml(ArmType.YAM, GripperType.LINEAR_4310)
+    return Kinematics(combined_path, "grasp_site")
+
+
 def test_fk(kinematics_yam: Kinematics) -> None:
     q = np.zeros(6)
     pose = kinematics_yam.fk(q)
@@ -43,3 +49,27 @@ def test_cycle(kinematics_yam: Kinematics) -> None:
         assert success, f"IK failed for target pose {pose}, init_q: {q_init_for_ik}"
         pose_reconstructed = kinematics_yam.fk(q_ik)
         np.testing.assert_allclose(pose, pose_reconstructed, atol=1e-4)
+
+
+def test_linear_4310_replacement_grasp_site_fk(kinematics_yam_linear_4310: Kinematics) -> None:
+    pose = kinematics_yam_linear_4310.fk(np.zeros(8))
+    expected = np.array(
+        [
+            [-0.000003673, 0.000003673, 1.0, 0.330597263],
+            [0.000005307, -1.0, 0.000003673, 0.000001793],
+            [1.0, 0.000005307, 0.000003673, 0.173502620],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    np.testing.assert_allclose(pose, expected, atol=1e-8)
+
+
+def test_linear_4310_replacement_grasp_site_ik(kinematics_yam_linear_4310: Kinematics) -> None:
+    target_joints = np.array([0.15, 0.7, 1.0, -0.3, 0.2, -0.25, 0.0, 0.0])
+    target_pose = kinematics_yam_linear_4310.fk(target_joints)
+    initial_joints = target_joints + np.array([0.02, -0.02, 0.02, -0.02, 0.02, -0.02, 0.0, 0.0])
+
+    success, solution = kinematics_yam_linear_4310.ik(target_pose, "grasp_site", init_q=initial_joints)
+
+    assert success
+    np.testing.assert_allclose(kinematics_yam_linear_4310.fk(solution), target_pose, atol=1e-4)
