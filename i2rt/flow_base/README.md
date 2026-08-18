@@ -71,7 +71,7 @@ The exposed RJ45 network interface is preconfigured with static IP `172.6.2.20`.
 - The base has motion control limits with maximum acceleration constraints
 - When you release the joystick (sending 0 command), the base won't stop immediately due to physics
 - Always ensure the remote is awake when running API experiments - Left2 can override unexpected code behavior
-- Speed and acceleration settings can be adjusted in [flow_base_controller](flow_base_controller.py#L742-L743)
+- Speed and acceleration settings can be adjusted in [flow_base_controller](flow_base_controller.py#L912-L913)
 
 ⚠️ **Warning**: Setting overly aggressive speed or acceleration parameters can cause system instability.
 
@@ -232,6 +232,7 @@ hard caps `1.0 / 1.0 / π / 1.0` (values outside `(0, cap]` raise `ValueError`).
 - Use remote Left2 to override API commands in emergencies
 - Use remote Left1 to clear odometry during testing
 - Linear rail limit switches provide hardware safety stops
+- Steering motors are checked while moving; a stalled or non-responding one ramps the base to a stop and exits (see [Runtime steering-motor check](#runtime-steering-motor-check))
 
 ## External Control
 
@@ -282,7 +283,7 @@ x86 host --[USB 115200 8N1]--> bestep USB-to-16ch GPIO converter (ZT-DPI/SY),
 
 ### 1. Motor IDs & Parameters
 
-Each of the four casters has two Damiao (DM) motors — a **steering** motor (DM4310V) and a **drive** motor (DMH6215, or DM4310V on some units). The eight motors use CAN IDs **1–8**; the ID → caster mapping is the *Chain order* table in [API Control](#api-control) (steering = odd IDs 1/3/5/7, drive = even IDs 2/4/6/8). Identify each motor's caster and number from the physical layout:
+Each of the four casters has two Damiao (DM) motors — a **steering** motor and a **drive** motor. Whatever the drive motor's part number on a given unit, the controller builds it as `DM_FLOW_WHEEL`, so its firmware registers must hold the same π / 30 / 10 as the steering motors; see the table below. The eight motors use CAN IDs **1–8**; the ID → caster mapping is the *Chain order* table in [API Control](#api-control) (steering = odd IDs 1/3/5/7, drive = even IDs 2/4/6/8). Identify each motor's caster and number from the physical layout:
 
 <p align="center">
   <img src="assets/motor_numbering.jpg" alt="Caster numbering viewed from below; the arrow marks the forward direction" width="49%">
@@ -291,15 +292,95 @@ Each of the four casters has two Damiao (DM) motors — a **steering** motor (DM
 
 Configuration rules:
 - **Master ID = CAN ID + 16** (DM protocol), so IDs 1–8 map to Master IDs 17–24.
-- All motors run in **speed (velocity) mode**.
-- Target per-motor register limits:
+- All motors run in **speed (velocity) mode** (`CTRL_MODE` = 3).
+- Target per-motor register values:
 
-  | Motor | Model | `p_max` | `v_max` | `torque_max` |
-  |-------|-------|---------|---------|--------------|
-  | Steering | DM4310V | π (≈3.1416) rad | 30 rad/s | 10 Nm |
-  | Drive | DMH6215 | 12.5 rad | 45 rad/s | 10 Nm |
+  | Register | Steering (1/3/5/7, DM4310V) | Drive (2/4/6/8, DM_FLOW_WHEEL) | Rail (9, DM8009) | Checked at startup |
+  |----------|------------------------------|--------------------------------|------------------|--------------------|
+  | `CTRL_MODE` | 3 (speed) | 3 (speed) | 3 (speed) | ✅ **yes — repaired and saved** |
+  | `PMAX` / `VMAX` / `TMAX` | π (≈3.1415926) rad / 30 rad/s / 10 Nm | π (≈3.1415926) rad / 30 rad/s / 10 Nm | 12.5 rad / 45 rad/s / 54 Nm | ✅ **yes — read-only.** A wrong `PMAX`/`VMAX` on a steering motor blocks the launch; everything else — the same registers on a drive or rail motor, and `TMAX` on any motor — logs an ERROR and the base starts |
 
-IDs, control mode, and these limits are set with the **Damiao motor host tool** (上位机); this repository does not ship the interactive ID-config CLI. The low-level CAN register helpers live in [`motor_config_tool/utils.py`](../motor_config_tool/utils.py) (and [`set_timeout.py`](../motor_config_tool/set_timeout.py)) if you need to script register writes.
+  > ⚠️ **The rail motor is a different type and holds different numbers.** The check derives every
+  > expectation per motor from `MotorType.get_motor_constants`, so it compares motor 9 against
+  > `DM8009`'s 12.5 / 45 / 54 and never against the π / 30 / 10 the base motors want. Surveying a
+  > fleet by hand, do the same: diffing motor 9 against the steering column reports a triple mismatch
+  > on a perfectly healthy rail.
+
+  `PMAX`/`VMAX`/`TMAX` are not free parameters on any motor — they must equal
+  `MotorType.get_motor_constants(<type>)` in [`motor_drivers/utils.py`](../motor_drivers/utils.py),
+  because that is what `dm_driver` *decodes their feedback with* — position through `PMAX`, velocity
+  through `VMAX`, torque through `TMAX` — and a firmware register that disagrees rescales every reading
+  with no error anywhere. They do **not** encode the commands: the only encode path that uses them is
+  the MIT branch of `set_control`, and both Flow Base chains are built with `ControlMode.VEL`, whose
+  frame carries a raw float32 rad/s and no scaling at all. Both Flow Base motor types resolve to
+  the same π / 30 / 10, and both were **confirmed on hardware** (2026-08-14, motors 1 and 2 of
+  `can_flowbase`), which is what settles the drive-motor question this table used to carry a warning
+  about. The rail column is **confirmed on hardware** too (2026-08-14, motor 9 of `can_flowbase`):
+  motor 9 is a `DM8009` and holds 12.5 / 45 / 54 with `CTRL_MODE` already 3, so the startup check finds
+  nothing to repair there either.
+
+  The loop gains (`KP_ASR`/`KI_ASR`, `KP_APR`/`KI_APR`) are deliberately **not** listed here. No check
+  reads or writes them, the bases run on whatever their motors hold, and the values this table used to
+  give did not match either of the two motors that have since been read — so a target column nothing
+  verifies was worse than no column at all. Read the current values with
+  `dm_motor_registers.py read-all` if you need them.
+
+  The startup check **reads** the three scaling registers and never writes them: their correct value
+  describes the physical motor rather than being a number the software gets to pick, and a guess written
+  to Flash is how a mis-scaled base becomes a permanently mis-scaled one. Fix a mismatch by hand with
+  `dm_motor_registers.py write` followed by `save`. The severity split follows the blast radius of the
+  *register*, not just of the motor: on a steering motor `PMAX` is the wheel angle the swerve kinematics
+  are rebuilt from and `VMAX` is the velocity the odometry integrates, the caster-flip brake trips on and
+  the caster fault check judges, so either one aborts the launch. The same two on a drive or rail motor
+  only mis-scale the reported translational odometry, and `TMAX` mis-scales only `MotorInfo.eff` — a
+  number `get_wheel_states` and the rail state publish and nothing in the loop reads — so those are
+  logged and the base starts.
+
+  > ⚠️ **`DMH6215MIT` is a different motor.** It is the one `get_motor_constants` entry at
+  > 12.5 / 45 / 10, and an earlier version of this table quoted those numbers for the drive motors. A
+  > bench read has since confirmed the drive motors really do hold π / 30 / 10, so those numbers were a
+  > documentation error rather than a hardware one — but a motor reading 12.5 / 45 has been configured
+  > as the wrong type, and every distance the base reports is mis-scaled until it is fixed. Confirm with
+  > `python i2rt/motor_config_tool/dm_motor_registers.py read-all --motor-id 2 --channel can0`.
+
+IDs are set with the **Damiao motor host tool** (上位机); this repository does not ship the interactive
+ID-config CLI. Every other register here can be read and written with
+[`motor_config_tool/dm_motor_registers.py`](../motor_config_tool/dm_motor_registers.py) — see
+[`dm_motor_registers.md`](../motor_config_tool/dm_motor_registers.md) for the register reference and the
+operating procedures. Register access needs an **idle bus**, so stop the base controller first.
+
+#### Startup motor-configuration check
+
+`flow_base_controller` checks **every** motor's control mode and feedback scaling on each launch, before
+it opens the motor chain — there is no later opportunity, because `DMChainCanInterface` claims the bus for
+its control loop as soon as it is constructed. See [`motor_config_check.py`](motor_config_check.py). Six
+register reads per motor, roughly 0.5 s for a healthy eight-motor bus.
+
+The control-mode half exists because a wrong `CTRL_MODE` fails in a way that points at the wrong
+component: `_motor_on` enables a motor over the raw-id frame, which is answered in any mode, so the chain
+builds cleanly and it is the first speed-mode command that goes unanswered — surfacing as
+`Motor interface is not running ... check the E stop or the motor connection`.
+
+- **A motor not in speed mode is warned about, written, verified with an independent read-back, and then
+  saved to Flash** — so it is fixed permanently and the next launch finds nothing to do. This applies to
+  steering, drive and rail motors alike: the chain commands all of them with `ControlMode.VEL`.
+- **`PMAX`/`VMAX`/`TMAX` are compared and reported, never written.** A steering motor whose `PMAX` or
+  `VMAX` disagrees aborts the launch — those two decode the angle and the rate the base steers and
+  navigates on. Everything else logs an ERROR and the base starts: those registers on a drive or rail
+  motor, and `TMAX` on any motor, which only scales the torque the base reports. See the table above.
+- **Nothing is written unless every motor answered.** A silent motor, or a bus another process is using,
+  aborts the launch without touching anything. Likewise nothing is written if a steering motor's `PMAX`
+  or `VMAX` is mis-scaled: a bus whose scaling the base will not move on is not one to commit Flash
+  writes on. A mismatch that does not block — a drive or rail motor's, or any `TMAX` — never suppressed
+  the control-mode repair, and still does not.
+- After a repair, **power-cycle that motor** if the base still reports `Motor interface is not running` —
+  the mode change may need a reboot to take effect.
+- `--no-verify-motor-config` skips the check entirely (it logs a warning saying so). Use it only for
+  bench work with motors missing or a busy bus.
+
+This is the only place the scaling registers are checked, and that is deliberate: a firmware register
+cannot change while the base is driving, so reading it once at startup is both exact and sufficient,
+where inferring a mismatch from motion would need thresholds and a moving base to work with.
 
 **Verify** every motor answers on the bus (reads only — motors briefly energize, no motion command is sent):
 ```bash
@@ -316,7 +397,9 @@ Every drive motor must spin the same way for a given base motion. The "forward" 
   <img src="assets/drive_motor_direction.jpg" alt="Drive-wheel forward rotation direction" width="55%">
 </p>
 
-If a wheel is wired or mounted backwards, the base will creep or veer during the forward check in [§5](#5-functional-verification) — reinstall the motor/wheel or flip its direction. The controller also sanity-checks drive direction on startup.
+If a wheel is wired or mounted backwards, the base will creep or veer during the forward check in [§5](#5-functional-verification) — reinstall the motor/wheel or flip its direction.
+
+> **Software cannot check this for you.** A reversed motor is corrected by flipping its `motor_direction`, which the driver applies to the outgoing command *and* the incoming feedback alike — so a wrong direction constant leaves the software frame perfectly self-consistent while the wheel turns the wrong way. The same is true of a wrong steering zero. Only §5, run with your own eyes, catches these.
 
 ### 3. Steering-Zero Calibration
 
@@ -337,6 +420,8 @@ If a wheel is wired or mounted backwards, the base will creep or veer during the
    python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 7
    ```
    Running `set_zero.py` with no `--motor_id` zeroes motors 1–7 (drive motors included) — pass `--motor_id` explicitly to zero the steering motors only.
+
+> ⚠️ **Get this right by hand — no software check will catch a mistake here.** A wrong steering zero is invisible to the [runtime steering-motor check](#runtime-steering-motor-check) by construction; verify it with §5 below.
 
 ### 4. Kinematics Parameters
 
@@ -375,6 +460,40 @@ client.close()
 
 Adjust the vector in the snippet for each row; hold ~5–10 s, then command zero. For continuous manual control instead, use gamepad teleop (see §6).
 
+#### Runtime steering-motor check
+
+While the base is moving, `flow_base_controller` watches the four **steering** motors (IDs 1/3/5/7) and, on a confirmed fault, ramps the base to a stop through the trajectory generator and exits with status 2. See [`caster_steering_check.py`](caster_steering_check.py).
+
+This exists because the base is steered open-loop in position: the controller commands a steer *rate*, and the wheels only reach the right heading because the caster law drives that rate to zero. Nothing compared a measured steering angle against the model, so a steering motor that stalled, jammed or stopped accepting commands raised no error at all — the base simply veered, and the odometry, derived from the same feedback, agreed with it.
+
+Three things are checked. The first two are judged against the *commanded* body twist, never against measured odometry; the third needs no command reference at all, which is the point of it.
+
+| Check | Trips when | Catches |
+|-------|-----------|---------|
+| **Steer-rate execution** | commanded and measured steer velocity disagree by more than `max(1.0 rad/s, 50%)` for 0.5 s | stall, jam, torque saturation, wrong `CTRL_MODE`, a faulted or disabled driver |
+| **Heading convergence** | the measured angle stays >30° from the angle the kinematics demand, for 6 caster time constants (0.5–3 s) | a fork being back-driven under load, a caster that cannot reach its demanded heading |
+| **Runaway backstop** | a steering motor reports more than 12.56 rad/s for 1 s — no command reference at all | a motor spinning away, *including* under a bug in the command path itself, which would blind the two checks above |
+
+The backstop shares its threshold with the controller's caster-flip brake on purpose, so there is one number rather than two that can drift apart. A legitimate flip crosses that threshold for under 0.1 s; what separates it from a runaway is the 1 s of *continuous* violation, not the threshold. The brake suspends the other two checks each time it fires — it rewrites the trajectory-generator target they are judged against — but deliberately not the backstop, which reads raw measured velocity and so has no command reference to be disturbed.
+
+> ⚠️ **What this cannot detect.** A **wrong steering zero**, a wrong `STEERING_OFFSET`/`STEERING_DIRECTION`, and a **coupling slipping downstream of the encoder** are invisible to it — permanently, not for want of tuning. `motor_offset` and `motor_direction` are applied symmetrically to the outgoing command and the incoming feedback, and the controller rebuilds its kinematics from the *reported* angle every cycle, so the reported angle converges to the expected one no matter where the wheel is physically pointing. The software frame stays perfectly self-consistent while the wheel points somewhere else. A **mis-scaled `PMAX`/`VMAX` register** hides for a closely related reason — the kinematics are rebuilt from the reported angle, so a position scale factor only slows convergence and no check here sees an error — which is why it is read directly at startup instead; see [Startup motor-configuration check](#startup-motor-configuration-check). **This does not replace the steering-zero calibration in [§3](#3-steering-zero-calibration) or the manual procedure in §5 above**, which remain the only way to catch those.
+
+Two more limits worth knowing: a motor stalled while *already* at the correct angle is not reported (there is nothing to track, and the caster is pointing correctly — it becomes visible the moment the commanded direction changes); and a fault that comes and goes is caught late or not at all, because a single conforming sample clears the timer. That bias is deliberate — a spurious stop at speed is worse than a delayed one.
+
+**On a trip** the log names the caster and its CAN id, prints a per-caster table of measured vs expected, and writes the last two seconds of steering data to `/tmp/caster-fault-<pid>.csv`. Then the base decelerates at the configured `max_accel` (~1.3 s from 1 m/s) rather than dropping to zero velocity, which at speed would be a skid stop on a base that already has one caster misbehaving. The ramp is bounded by a deadline derived from that caller's own `max_vel / max_accel`, so it fits whatever limits were configured; the log says which of the three endings happened — a clean deceleration, the deadline expiring, or the motor chain dying mid-ramp — because only the first is a controlled stop.
+
+> ⚠️ **The casters have no parking brake.** Once the controller exits, nothing holds the base — on a slope it will roll.
+
+If **three or more casters trip at once**, the fault is reported as systemic rather than as several simultaneous mechanical failures. Four mechanically independent casters rarely fail together, so look for what they share — an edit to the kinematic constants `h_x`/`h_y`/`b_x` or to `AXIS_SIGN`, a bug in the command path, one open power or E-stop leg feeding the whole chain, or motors left out of `CTRL_MODE` 3. The register read-back is the cheapest first look:
+
+```bash
+python i2rt/motor_config_tool/dm_motor_registers.py read-all --motor-id 1 --channel can0
+```
+
+`--no-check-caster-steering` disables the check entirely (it logs a warning saying so). Use it only for bench work, for the same reasons as `--no-verify-motor-config`.
+
+Programs that build a `Vehicle` directly rather than running `flow_base_controller` as a script get the ramp-to-stop but keep running: the control loop exits while the chain stays alive, so `running()` still returns True and the program looks healthy while ignoring every command. Poll `vehicle.caster_fault()` to notice — both `examples/` entry points now do, and are worth copying.
+
 ### 6. Gamepad & Controller Run Test
 
 Final check with the real controller:
@@ -397,3 +516,5 @@ The controller should initialize all motors, respond smoothly to input, and move
 - **Inaccurate odometry**: Expected with wheel-based systems, especially during aggressive movements
 - **Linear rail not homing**: Check GPIO connections and limit switches. Ensure brake is released. On x86, confirm the USB-GPIO converter is on the path given by `--device` (default `/dev/ttyUSB0`) and that `pyserial` is installed
 - **Linear rail stuck at limit**: Check limit switch state. Use `get_linear_rail_state()` to verify switch status
+- **`CASTER STEERING FAULT` and the controller exits (status 2)**: a steering motor is not doing what it was told. The message names the caster and its CAN id — check that motor for a mechanical jam, an open power/E-stop leg, and `CTRL_MODE = 3`; the per-caster table and `/tmp/caster-fault-<pid>.csv` show what it was doing. If **three or more** casters are named the fault is reported as systemic — suspect something shared (the command path, the kinematic constants, one power/E-stop leg, `CTRL_MODE`) rather than that many simultaneous mechanical faults. If the wheels are visibly misaligned but the table looks clean, that is a calibration fault the check cannot see — go to [§3](#3-steering-zero-calibration) and §5. `--no-check-caster-steering` disables the check for bench work
+- **Controller hangs on Ctrl+C, or the next launch says another instance is running**: fixed — the base controller now stops and closes the CAN chain on exit. If you still see it, a stale `/tmp/base-controller.pid` from an older build may be left over; a hung instance also keeps driving the bus, which makes the next launch's control-mode check fail with "motor did not answer"

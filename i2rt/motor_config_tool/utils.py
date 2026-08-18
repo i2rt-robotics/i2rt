@@ -42,7 +42,7 @@ class RawCanInterface:
             f"fail to communicate with the motor {id} on {self.name} at can channel {self.bus.channel_info}"
         )
 
-    def try_receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.009) -> can.Message:
+    def try_receive_message(self, motor_id: Optional[int] = None, timeout: float = 0.009) -> Optional[can.Message]:
         """Try to receive a message from the CAN bus.
 
         Args:
@@ -127,6 +127,33 @@ register_addr_map = {
 
 register_info_map = {"control_mode": {1: "MIT", 2: "pos_speed", 3: "speed", 4: "torque_pos"}}
 
+# The legacy names above, mapped onto the canonical names in `dm_motor_registers._DM_TABLE`. That module
+# owns the authoritative register table (all 45 of them, with read-only marked); the three helpers below
+# are a thin compatibility shim over it, kept because `set_timeout.py` and downstream users call them by
+# these names. New code should use `dm_motor_registers` directly.
+#
+# The import of that module is function-local in each helper: `dm_motor_registers` imports
+# `RawCanInterface` and the byte helpers from *this* module, so importing it here at the top would be
+# circular. Function-local keeps the dependency one-directional at import time -- this module never
+# depends on it while being initialised, so neither import order can observe a half-built module.
+_LEGACY_REGISTER_ALIASES = {
+    "KT_value": "KT_Value",
+    "OT_value": "OT_Value",
+    "master_id": "MST_ID",
+    "id": "ESC_ID",
+    "timeout": "TIMEOUT",
+    "inertia": "Inertia",
+    "sw_ver": "sw_ver",
+    "flux": "Flux",
+    "gear_ratio": "Gr",
+    "gear_eff": "GREF",
+}
+
+# Transport failures worth another attempt. A usage error -- a value of the wrong type, or a write to a
+# read-only register -- is deliberately not in here, so it surfaces immediately instead of being retried
+# three times and then reported as a communication failure.
+_RETRYABLE = (RuntimeError, can.CanError, OSError, AssertionError)
+
 
 def get_special_message_response(can_interface: RawCanInterface, motor_id: int, reg_name: str) -> Any:
     """Get the current value of a register from a motor.
@@ -140,16 +167,14 @@ def get_special_message_response(can_interface: RawCanInterface, motor_id: int, 
         Any: The value read from the register.
     """
     assert reg_name in register_addr_map, f"reg_name {reg_name} not in register_addr_map"
-    reg_id, convert_func = register_addr_map[reg_name]
+    from i2rt.motor_config_tool.dm_motor_registers import read_register
+
     for _ in range(3):
         try:
-            message = can_interface._send_message_get_response(
-                0x7FF, [motor_id, 0x00, 0x33, reg_id, 0x00, 0x00, 0x00, 0x00], max_retry=20
-            )
-            return convert_func(message.data)
-        except Exception as e:
+            return read_register(can_interface, motor_id, _LEGACY_REGISTER_ALIASES[reg_name])
+        except _RETRYABLE:
             can_interface.try_receive_message(motor_id)
-    raise Exception(f"Failed to read {reg_name} of motor {motor_id} after 3 retries")
+    raise RuntimeError(f"Failed to read {reg_name} of motor {motor_id} after 3 retries")
 
 
 def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_name: str, data: Any) -> Any:
@@ -163,22 +188,19 @@ def write_special_message(can_interface: RawCanInterface, motor_id: int, reg_nam
 
     Returns:
         Any: The value read from the register after writing.
+
+    Raises:
+        ValueError: If the register is read-only.
     """
     assert reg_name in register_addr_map, f"reg_name {reg_name} not in register_addr_map"
-    reg_id, convert_func = register_addr_map[reg_name]
-    if convert_func is bytes_to_uint32:
-        byte_list = uint32_to_bytes(data)
-    elif convert_func is bytes_to_float32:
-        byte_list = float32_to_bytes(data)
+    from i2rt.motor_config_tool.dm_motor_registers import write_register
+
     for _ in range(3):
         try:
-            message = can_interface._send_message_get_response(
-                0x7FF, [motor_id, 0x00, 0x55, reg_id] + list(byte_list), max_retry=20
-            )
-            result = convert_func(message.data)
-            return result
-        except Exception as e:
+            return write_register(can_interface, motor_id, _LEGACY_REGISTER_ALIASES[reg_name], data)
+        except _RETRYABLE:
             can_interface.try_receive_message(motor_id)
+    raise RuntimeError(f"Failed to write {reg_name} of motor {motor_id} after 3 retries")
 
 
 def save_to_memory(can_interface: RawCanInterface, motor_id: int, reg_name: str) -> can.Message:
@@ -191,10 +213,11 @@ def save_to_memory(can_interface: RawCanInterface, motor_id: int, reg_name: str)
 
     Returns:
         can.Message: The response message from the motor.
+
+    Raises:
+        ValueError: If the register is read-only.
     """
     assert reg_name in register_addr_map, f"reg_name {reg_name} not in register_addr_map"
-    reg_id, _ = register_addr_map[reg_name]
-    message = can_interface._send_message_get_response(
-        0x7FF, [motor_id, 0x00, 0xAA, reg_id, 0x00, 0x00, 0x00, 0x00], max_retry=20
-    )
-    return message
+    from i2rt.motor_config_tool.dm_motor_registers import save_register_to_flash
+
+    return save_register_to_flash(can_interface, motor_id, _LEGACY_REGISTER_ALIASES[reg_name])
