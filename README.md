@@ -186,6 +186,30 @@ python i2rt/motor_config_tool/set_zero.py --channel can0 --motor_id 1
 
 Run for each motor ID (1–6 for a standard YAM).
 
+### Motor registers
+
+Read and write a motor's configuration registers (IDs, control mode, protection thresholds, MIT
+scaling, loop gains) over CAN. Full register table and safety notes:
+[dm_motor_registers.md](i2rt/motor_config_tool/dm_motor_registers.md).
+
+```bash
+# List every register the tool knows about (no CAN bus needed)
+python i2rt/motor_config_tool/dm_motor_registers.py list-registers
+
+# Read one register, or dump them all
+python i2rt/motor_config_tool/dm_motor_registers.py read sw_ver --motor-id 1 --channel can0
+python i2rt/motor_config_tool/dm_motor_registers.py read-all --motor-id 1 --channel can0
+
+# Change a value: write puts it in RAM, save commits it to Flash
+python i2rt/motor_config_tool/dm_motor_registers.py write MAX_SPD --value 30.0 --motor-id 1
+python i2rt/motor_config_tool/dm_motor_registers.py save MAX_SPD --motor-id 1
+```
+
+> ⚠️ Stop any program using the bus first, and only ever `save` a register you have just successfully
+> written — saving an unwritten register has been observed to revert *other* unsaved registers to their
+> stored values. Changing `ESC_ID`, `MST_ID`, `CTRL_MODE`, `can_br`, `TIMEOUT`, `PMAX`, `VMAX` or `TMAX`
+> asks for confirmation on the console first.
+
 ## Contributing
 
 Pull requests welcome. Open an issue to request examples or report bugs.

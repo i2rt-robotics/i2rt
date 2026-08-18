@@ -1,8 +1,12 @@
 import argparse
 import time
 
-from utils import RawCanInterface, get_special_message_response, save_to_memory, write_special_message
-
+from i2rt.motor_config_tool.utils import (
+    RawCanInterface,
+    get_special_message_response,
+    save_to_memory,
+    write_special_message,
+)
 from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface
 
 args = argparse.ArgumentParser()

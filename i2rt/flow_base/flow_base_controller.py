@@ -23,6 +23,8 @@ from dm_env.specs import Array
 from ruckig import ControlInterface, InputParameter, OutputParameter, Result, Ruckig
 from threadpoolctl import threadpool_limits
 
+from i2rt.flow_base import caster_steering_check
+from i2rt.flow_base.motor_config_check import verify_base_motor_registers
 from i2rt.motor_drivers.dm_driver import ControlMode, DMChainCanInterface
 
 # Configure logging
@@ -91,6 +93,22 @@ def create_pid_file(name: str) -> None:
 CONTROL_FREQ = 200  # Default control loop frequency (Hz); override per-instance via control_freq
 NUM_CASTERS = 4
 
+# Settle windows for the shutdown sequence in Vehicle.close(). The motor chain's own loop polls 8-9
+# motors at ~250 Hz, so one full pass is ~4-7 ms: these are roughly ten passes and four passes.
+CHAIN_FLUSH_S = 0.05
+CHAIN_DRAIN_S = 0.02
+
+# Ramp-down after a caster fault. The deadline is derived per vehicle from max(max_vel / max_accel),
+# the time a full-speed axis needs to reach zero at its configured deceleration, times STOP_MARGIN --
+# so it bounds a *healthy* ramp for whatever limits the caller chose, while still guaranteeing the base
+# cannot keep moving if the OTG will not converge. A fixed cap could not do both: 2.0 s suits __main__'s
+# max_accel of (0.8, 0.8, 3.0), but the default Vehicle max_accel of (0.25, 0.25, 0.79) needs exactly
+# 2.0 s from 0.5 m/s, so the cap bit at the moment the ramp was finishing and set_neutral took the last
+# sliver of speed -- the abrupt drop _brake_to_stop exists to avoid. STOP_TIMEOUT_S remains the floor.
+STOP_VEL_EPS = 0.01
+STOP_TIMEOUT_S = 2.0
+STOP_MARGIN = 1.5
+
 # Caster
 b_x = -0.020
 b_y = -0.0  # Lateral caster offset (m)
@@ -104,6 +122,20 @@ N_s_r2_w = N_s * N_r2 * N_w
 TWO_PI = 2 * math.pi
 
 
+def _check_motor_config(channel: str, motor_list: List[List[Any]], enabled: bool) -> None:
+    """Verify the motors' control mode and scaling before the chain claims the bus, unless turned off."""
+    if enabled:
+        verify_base_motor_registers(channel, motor_list)
+        return
+    logger.warning(
+        "motor configuration verification is DISABLED (verify_motor_config=False) on %s. A motor that is "
+        'not in speed mode will not answer, and the base will report "Motor interface is not running" as '
+        "though the E stop or the wiring were at fault; and a motor whose PMAX/VMAX/TMAX disagree with "
+        "MotorType.get_motor_constants will silently mis-scale every reading it sends.",
+        channel,
+    )
+
+
 class VehicleMotorController:
     def __init__(
         self,
@@ -112,11 +144,12 @@ class VehicleMotorController:
         channel_name_or_motor_interface: str | DMChainCanInterface = "can_flow_base",
         num_casters: int = 4,
         homing_check_callback: Optional[callable] = None,
+        verify_motor_config: bool = True,
     ):
         self.num_casters = num_casters
         if isinstance(channel_name_or_motor_interface, str):
             self.motor_interface = self._initialize_motor_chain(
-                channel_name_or_motor_interface, steering_offset, steering_direction
+                channel_name_or_motor_interface, steering_offset, steering_direction, verify_motor_config
             )
         else:
             self.motor_interface = channel_name_or_motor_interface
@@ -135,13 +168,19 @@ class VehicleMotorController:
         print(f"dm chain can interface: {self.motor_interface} initialized")
 
     def _initialize_motor_chain(
-        self, channel: str, steering_offset: List[float], steering_direction: List[int]
+        self,
+        channel: str,
+        steering_offset: List[float],
+        steering_direction: List[int],
+        verify_motor_config: bool = True,
     ) -> DMChainCanInterface:
         motor_list = []
         motor_offsets = []
 
         motor_directions = []
-        for caster_idx in range(4):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
+        for caster_idx in range(
+            4
+        ):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
             motor_offsets.append(steering_offset[caster_idx])
             motor_offsets.append(0)  # drive motor no need to set offset
             motor_directions.append(steering_direction[caster_idx])
@@ -152,6 +191,10 @@ class VehicleMotorController:
             drive_motor_id = caster_idx * 2
             motor_list.append([steering_motor_id, "DM4310V"])
             motor_list.append([drive_motor_id, "DM_FLOW_WHEEL"])
+
+        # Before DMChainCanInterface takes the bus: it opens the socket, enables every motor and starts
+        # its reader thread before returning, and register access needs an idle bus.
+        _check_motor_config(channel, motor_list, verify_motor_config)
 
         motor_interface = DMChainCanInterface(
             motor_list,
@@ -256,11 +299,27 @@ class Vehicle(Robot):
         channel: str | DMChainCanInterface = "can_flow_base",
         auto_start: bool = True,
         control_freq: float = CONTROL_FREQ,
+        verify_motor_config: bool = True,
+        check_caster_steering: bool = True,
     ):
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
+        # Neither limit survives a non-positive component, and this is the only place either can be
+        # checked -- both are assigned once here and never again. A zero max_accel makes the ramp-down
+        # budget below inf, which silently drops one of the three bounds _brake_to_stop promises and
+        # makes wait_for_stop's join timeout inf (OverflowError). A negative max_vel or max_accel is
+        # rejected by Ruckig on its *first* update(), killing the control thread with an unhandled
+        # RuckigError -- and a negative max_vel additionally inverts the np.clip of incoming commands,
+        # which numpy resolves silently to a_max. --max-linear/--max-angular reach here from a CLI.
+        if not np.all(self.max_accel > 0) or not np.all(self.max_vel > 0):
+            raise ValueError(f"max_vel and max_accel must be positive on every axis, got {max_vel} and {max_accel}")
         self.control_freq = control_freq
         self.control_period = 1.0 / control_freq
+        # Only a chain we opened ourselves is ours to shut down in close(); a caller who handed us a
+        # live DMChainCanInterface still owns it and may keep using it afterwards. LinearRailVehicle
+        # builds its own chain and passes the object down, so it re-asserts this after super().__init__.
+        self._owns_motor_chain = isinstance(channel, str)
+        self._closed = False
 
         # Use PID file to enforce single instance
         create_pid_file("base-controller")
@@ -270,7 +329,9 @@ class Vehicle(Robot):
         steering_direction = STEERING_DIRECTION
         self.num_casters = len(steering_offset)
 
-        self.caster_module_controller = VehicleMotorController(steering_offset, steering_direction, channel)
+        self.caster_module_controller = VehicleMotorController(
+            steering_offset, steering_direction, channel, verify_motor_config=verify_motor_config
+        )
 
         # Joint space
         num_motors = 2 * NUM_CASTERS
@@ -310,6 +371,26 @@ class Vehicle(Robot):
         self.otg_res = Result.Working
         self.otg_inp.max_velocity = self.max_vel
         self.otg_inp.max_acceleration = self.max_accel
+
+        # Runtime steering-motor check. The fault is latched by the control thread and published to
+        # the main thread only once the base has been ramped to a stop -- see caster_fault().
+        self._caster_monitor = (
+            caster_steering_check.CasterSteeringMonitor(h_x, h_y, b_x, self.control_period)
+            if check_caster_steering
+            else None
+        )
+        if self._caster_monitor is None:
+            logger.warning(
+                "runtime caster steering check is DISABLED (check_caster_steering=False). A steering "
+                "motor that stalls, jams or stops accepting commands will not be noticed: the base "
+                "will simply veer, and the odometry -- derived from the same feedback -- will agree "
+                "with it."
+            )
+        self._caster_fault: Optional[caster_steering_check.CasterFault] = None
+        self._caster_fault_ready = threading.Event()
+        self._stop_deadline = math.inf
+        # How long a healthy ramp may take at *this* caller's limits; see STOP_TIMEOUT_S.
+        self._stop_budget = max(STOP_TIMEOUT_S, STOP_MARGIN * float(np.max(self.max_vel / self.max_accel)))
 
         # Control loop
         self.command_queue = queue.Queue(1)
@@ -425,6 +506,12 @@ class Vehicle(Robot):
             last_step_time = curr_time
             if step_time > 0.01:  # 10 ms
                 logger.warning(f"Step time {1000 * step_time:.3f} ms in {self.__class__.__name__} control_loop")
+                # Deliberately no hold-off for the steering check here. This is a fixed-threshold
+                # *performance* warning, unrelated to control_period, and a 10-20 ms cycle is still
+                # perfectly usable: dt is measured, so the check's filters and integrations stay
+                # correct. The monitor applies its own dt gate for the case that actually matters --
+                # a stall long enough to make dt untrustworthy. Holding off here as well disarmed the
+                # check on every slow cycle, which on a loaded machine means permanently.
 
             # Update state (integrate odometry against the measured loop period)
             self.update_state(step_time)
@@ -438,42 +525,59 @@ class Vehicle(Robot):
                 ]
             )
 
-            # Check for new command
-            if not self.command_queue.empty():
-                command = self.command_queue.get()
-                last_command_time = time.time()
-                target = command["target"]
+            if self._caster_fault is not None:
+                # A steering fault is latched: ignore every input and ride the OTG down to a stop.
+                # The command-timeout branch below must not run here -- it forces current_velocity and
+                # would hold pose instead of ramping velocity to zero.
+                if self._brake_to_stop():
+                    break
+            else:
+                # Check for new command
+                if not self.command_queue.empty():
+                    command = self.command_queue.get()
+                    last_command_time = time.time()
+                    target = command["target"]
 
-                # Velocity command
-                if command["type"] == CommandType.VELOCITY:
-                    if command["frame"] == FrameType.LOCAL:
-                        target = R.T @ target
-                    self.otg_inp.control_interface = ControlInterface.Velocity
-                    self.otg_inp.target_velocity = np.clip(target, -self.max_vel, self.max_vel)
+                    # Velocity command
+                    if command["type"] == CommandType.VELOCITY:
+                        if command["frame"] == FrameType.LOCAL:
+                            target = R.T @ target
+                        self.otg_inp.control_interface = ControlInterface.Velocity
+                        self.otg_inp.target_velocity = np.clip(target, -self.max_vel, self.max_vel)
 
-                # Position command
-                elif command["type"] == CommandType.POSITION:
-                    self.otg_inp.control_interface = ControlInterface.Position
-                    self.otg_inp.target_position = target
-                    self.otg_inp.target_velocity = np.zeros_like(self.dx)
+                    # Position command
+                    elif command["type"] == CommandType.POSITION:
+                        self.otg_inp.control_interface = ControlInterface.Position
+                        self.otg_inp.target_position = target
+                        self.otg_inp.target_velocity = np.zeros_like(self.dx)
 
-                self.otg_res = Result.Working
-                disable_motors = False
-            # Maintain current pose if command stream is disrupted
-            if time.time() - last_command_time > 2.5 * POLICY_CONTROL_PERIOD:
-                self.otg_inp.target_position = self.otg_out.new_position
-                self.otg_inp.target_velocity = np.zeros_like(self.dx)
-                self.otg_inp.current_velocity = self.dx  # Set this to prevent lurch when command stream resumes
-                self.otg_res = Result.Working
-                disable_motors = True
-
-            # Slow down base during caster flip
-            # Note: At low speeds, this section can be disabled for smoother movement
-            if np.max(np.abs(self.dq[::2])) > 12.56:  # Steer joint speed > 720 deg/s
-                if self.otg_inp.control_interface == ControlInterface.Position:
+                    self.otg_res = Result.Working
+                    disable_motors = False
+                # Maintain current pose if command stream is disrupted
+                if time.time() - last_command_time > 2.5 * POLICY_CONTROL_PERIOD:
                     self.otg_inp.target_position = self.otg_out.new_position
-                elif self.otg_inp.control_interface == ControlInterface.Velocity:
                     self.otg_inp.target_velocity = np.zeros_like(self.dx)
+                    self.otg_inp.current_velocity = self.dx  # Set this to prevent lurch when command stream resumes
+                    self.otg_res = Result.Working
+                    disable_motors = True
+                    if self._caster_monitor is not None:
+                        self._caster_monitor.hold_off("command-stream timeout")
+
+                # Slow down base during caster flip
+                # Note: At low speeds, this section can be disabled for smoother movement
+                # The threshold is the monitor's own RUNAWAY_RATE, and sharing it is not incidental:
+                # this branch holds the monitor off on every cycle it fires, so the two numbers have to
+                # move together or the runaway backstop silently gains or loses coverage.
+                # CasterSteeringMonitor.hold_off explains why the runaway row survives that hold-off.
+                if np.max(np.abs(self.dq[::2])) > caster_steering_check.RUNAWAY_RATE:  # > 720 deg/s
+                    if self.otg_inp.control_interface == ControlInterface.Position:
+                        self.otg_inp.target_position = self.otg_out.new_position
+                    elif self.otg_inp.control_interface == ControlInterface.Velocity:
+                        self.otg_inp.target_velocity = np.zeros_like(self.dx)
+                    if self._caster_monitor is not None:
+                        # Rewriting the OTG target mid-manoeuvre is a discontinuity in the very
+                        # reference the check is judging the casters against.
+                        self._caster_monitor.hold_off("caster-flip brake")
 
             # Update OTG
             if self.otg_res == Result.Working:
@@ -500,6 +604,89 @@ class Vehicle(Robot):
                     "drive_vel": np.asarray(dq_d[1:][::2], order="C"),
                 }
                 self.caster_module_controller.set_velocities(vel_dict)
+
+                # Checked here and nowhere else: this is the only point where the measured joint
+                # state, the commanded twist and the joint commands derived from it are all from the
+                # same instant. Running it on another thread would sample them at different ones.
+                if self._caster_monitor is not None and self._caster_fault is None:
+                    fault = self._caster_monitor.update(AXIS_SIGN * dx_d_local, self.q[::2], dq_d[::2], self.dq[::2])
+                    if fault is not None:
+                        self._caster_fault = fault
+                        self._stop_deadline = time.monotonic() + self._stop_budget
+                        logger.error("%s", fault.render())
+
+    def _brake_to_stop(self) -> bool:
+        """Ride the OTG down to a stop after a caster fault. True once the base has stopped.
+
+        Decelerating through the OTG at the configured ``max_accel`` rather than dropping the
+        velocity command to zero: at speed the latter is a traction-limited skid stop, on a base that
+        by definition already has one caster misbehaving. The three healthy casters keep steering
+        correctly throughout, so the stop stays controlled.
+
+        Bounded three ways -- the base actually stopping, ``self._stop_budget``, and the chain dying
+        under us -- because a wedged OTG must not turn a fault into a base that never stops. Which of
+        the three ended it is logged, because only the first is a controlled stop: the other two finish
+        on ``set_neutral``, which is the abrupt drop this method exists to avoid.
+        """
+        self.otg_inp.control_interface = ControlInterface.Velocity
+        self.otg_inp.target_velocity = np.zeros_like(self.dx)
+        self.otg_res = Result.Working
+        while not self.command_queue.empty():
+            self.command_queue.get()  # a late remote command must not re-accelerate us
+        moving = float(np.max(np.abs(self.otg_out.new_velocity))) > STOP_VEL_EPS
+        if moving and time.monotonic() < self._stop_deadline and self.running():
+            return False
+        if not moving:
+            logger.info("caster fault ramp-down complete: the base decelerated through the trajectory generator")
+        elif not self.running():
+            logger.error(
+                "caster fault ramp-down cut short after %.2f s: the motor chain stopped running mid-ramp, so the "
+                "base was still moving at %.3f and no further command can reach it.",
+                self._stop_budget,
+                float(np.max(np.abs(self.otg_out.new_velocity))),
+            )
+        else:
+            logger.warning(
+                "caster fault ramp-down hit its %.2f s deadline while still moving at %.3f: the trajectory "
+                "generator did not converge, so the remaining speed is being taken by set_neutral rather than "
+                "by a controlled deceleration.",
+                self._stop_budget,
+                float(np.max(np.abs(self.otg_out.new_velocity))),
+            )
+        self.caster_module_controller.set_neutral()
+        # Publish only now: __main__ polls at 50 Hz, and seeing the fault at detection time would
+        # have it tear down the chain mid-ramp, at speed.
+        self._caster_fault_ready.set()
+        self.control_loop_running = False
+        return True
+
+    def caster_fault(self) -> Optional[caster_steering_check.CasterFault]:
+        """The latched steering fault, or None. Poll this like ``running()``.
+
+        Non-None only once the control loop has finished ramping the base to a stop, so a caller can
+        treat it as "safe to shut down now" rather than "a fault was just detected".
+        """
+        return self._caster_fault if self._caster_fault_ready.is_set() else None
+
+    def wait_for_stop(self, timeout: float | None = None) -> None:
+        """Block until the control loop has finished its fault ramp-down and exited.
+
+        Defaults to this vehicle's own ramp budget plus a margin, so a caller configured with a gentle
+        ``max_accel`` is not left thinking the loop hung when it is still legitimately decelerating.
+        """
+        if timeout is None:
+            timeout = self._stop_budget + 0.5
+        thread = self.control_loop_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=timeout)
+
+    def caster_history_csv(self) -> Optional[str]:
+        """The last couple of seconds of per-caster steering data, or None if the check is off.
+
+        Call after the base has stopped -- it walks a couple of hundred rows and has no business on
+        the control thread.
+        """
+        return None if self._caster_monitor is None else self._caster_monitor.history_csv()
 
     def _enqueue_command(self, command_type: CommandType, target: Any, frame: Optional[FrameType] = None) -> None:
         if self.command_queue.full():
@@ -590,15 +777,61 @@ class Vehicle(Robot):
         return self.caster_module_controller.motor_interface.running
 
     def close(self) -> None:
-        """Clean up resources: stop control loop and set motors to neutral."""
+        """Stop the control loop, neutralize the motors, then release the CAN chain.
+
+        Releasing the chain is not housekeeping -- without it this process cannot exit.
+        ``DMChainCanInterface`` runs a **non-daemon** thread and nothing else in this package ever
+        stops it, and CPython joins non-daemon threads *before* running ``atexit``. So the interpreter
+        hangs on the way out: ``remove_pid_file`` never runs, ``/tmp/base-controller.pid`` survives,
+        and ``create_pid_file`` refuses the next launch -- while the orphaned thread keeps driving the
+        bus at 250 Hz, which also makes the next launch's control-mode check fail with "motor did not
+        answer", pointing at the wrong component exactly as motor_config_check.py exists to prevent.
+
+        The ordering is load-bearing: the 200 Hz control loop has to stop first or it overwrites the
+        neutral command on its next iteration, and the neutral command needs time to actually reach
+        the wire, because ``set_commands`` only swaps a list in memory and the chain thread is what
+        sends it. A chain stopped early therefore leaves the wheels turning at the last commanded
+        velocity until the motors' own ``TIMEOUT`` failsafe cuts them -- which is 8 s where it is set,
+        and *never* where it is not: ``set_timeout.py`` writes ``TIMEOUT`` to 0 (disabled) unless it is
+        passed ``--timeout``, so whether anything motor-side covers a mistake here is a per-station
+        property nothing in this repo can promise. Read it with ``dm_motor_registers.py read TIMEOUT``.
+        """
+        if self._closed:
+            return
+        self._closed = True
         try:
             if self.control_loop_running:
                 self.stop_control()
             if hasattr(self, "caster_module_controller"):
                 self.caster_module_controller.set_neutral()
-            logger.info("Vehicle closed successfully")
         except Exception as e:
             logger.error(f"Vehicle close error: {e}")
+        finally:
+            # In the finally: a failure to neutralize is exactly when leaving a live thread driving
+            # the bus is least acceptable.
+            self._release_motor_chain()
+        logger.info("Vehicle closed successfully")
+
+    def _release_motor_chain(self) -> None:
+        """Let the neutral command reach the motors, then stop and close the chain we opened."""
+        if not self._owns_motor_chain or not hasattr(self, "caster_module_controller"):
+            return
+        chain = self.caster_module_controller.motor_interface
+        # Guarded step by step: a CAN failure while flushing must not skip stopping the thread.
+        try:
+            if chain.running:
+                time.sleep(CHAIN_FLUSH_S)
+        except Exception as e:
+            logger.error(f"Vehicle close: flushing the neutral command failed: {e}")
+        try:
+            chain.running = False
+            time.sleep(CHAIN_DRAIN_S)  # let the in-flight CAN round trip finish before the socket goes
+        except Exception as e:
+            logger.error(f"Vehicle close: stopping the motor chain failed: {e}")
+        try:
+            chain.close()
+        except Exception as e:
+            logger.error(f"Vehicle close: closing the motor chain failed: {e}")
 
 
 class LinearRailVehicle(Vehicle):
@@ -617,6 +850,8 @@ class LinearRailVehicle(Vehicle):
         control_freq: float = CONTROL_FREQ,
         total_stroke_m: float = 1.0,
         usb_gpio_device: Optional[str] = None,
+        verify_motor_config: bool = True,
+        check_caster_steering: bool = True,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -641,7 +876,20 @@ class LinearRailVehicle(Vehicle):
             usb_gpio_device: Serial device path for the USB-GPIO converter on x86 (e.g.
                 "/dev/ttyUSB0"). Ignored on a Raspberry Pi (native GPIO). When None, the
                 backend keeps its default (/dev/ttyUSB0 or the I2RT_USB_GPIO_PORT env var).
+            verify_motor_config: Before the motor chain claims the bus, check that every motor is in speed
+                mode, repairing and persisting any that is not, and that every motor's PMAX/VMAX/TMAX
+                match the constants the driver decodes their feedback with. See
+                i2rt/flow_base/motor_config_check.py.
+            check_caster_steering: While the base is moving, check that each steering motor is executing
+                its commanded velocity, is reaching the heading the kinematics demand, and is not running
+                away. On a confirmed fault the base is ramped to a stop and caster_fault() is published.
+                See i2rt/flow_base/caster_steering_check.py.
         """
+        # Take the single-instance lock before opening CAN. Vehicle.__init__ also calls this, but only
+        # from super().__init__() below -- by which point this constructor has already energized every
+        # motor and released the rail brake. create_pid_file is idempotent for the same PID.
+        create_pid_file("base-controller")
+
         # Create base motor list (8 motors: 4 casters * 2 motors each)
         motor_list = []
         motor_offsets = []
@@ -650,7 +898,9 @@ class LinearRailVehicle(Vehicle):
         steering_offset = STEERING_OFFSET
         steering_direction = STEERING_DIRECTION
 
-        for caster_idx in range(4):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
+        for caster_idx in range(
+            4
+        ):  # chain order: 0=rear-left(1,2) 1=front-left(3,4) 2=front-right(5,6) 3=rear-right(7,8)
             motor_offsets.append(steering_offset[caster_idx])
             motor_offsets.append(0)  # drive motor no need to set offset
             motor_directions.append(steering_direction[caster_idx])
@@ -668,6 +918,10 @@ class LinearRailVehicle(Vehicle):
             motor_offsets.append(0.0)
             motor_directions.append(1)
 
+        # Before the chain takes the bus; see _check_motor_config's call site in _initialize_motor_chain,
+        # which this path bypasses because it builds and hands down the chain itself.
+        _check_motor_config(channel, motor_list, verify_motor_config)
+
         # Create unified motor chain
         unified_motor_chain = DMChainCanInterface(
             motor_list=motor_list,
@@ -680,57 +934,89 @@ class LinearRailVehicle(Vehicle):
             enable_auto_recovery=False,  # fail-fast on motor error (ROB-1449); base does not self-heal
         )
 
-        # Initialize brake GPIO only if linear rail is enabled
-        if enable_linear_rail:
-            from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio, set_usb_gpio_device
+        # From here to the end of __init__ the chain is live and nothing else will ever stop it: its
+        # reader thread is non-daemon, DMChainCanInterface.start_thread discards the handle so it can
+        # never be joined, and a constructor that raises never binds the object whose close() would
+        # release it. CPython joins non-daemon threads *before* atexit, so an unguarded raise here hangs
+        # the interpreter on the way out and strands /tmp/base-controller.pid -- exactly the failure
+        # Vehicle.close() exists to prevent. BaseException, not Exception: Ctrl-C during rail homing is
+        # the likeliest way to land here.
+        try:
+            # Initialize brake GPIO only if linear rail is enabled
+            if enable_linear_rail:
+                from i2rt.flow_base.linear_rail_controller import initialize_brake_gpio, set_usb_gpio_device
 
-            if usb_gpio_device is not None:
-                set_usb_gpio_device(usb_gpio_device)  # no-op on Raspberry Pi
-            initialize_brake_gpio()
+                if usb_gpio_device is not None:
+                    set_usb_gpio_device(usb_gpio_device)  # no-op on Raspberry Pi
+                # Raises on anything but a RuntimeError -- a SerialException when --device names the
+                # wrong port on x86 is the common one.
+                initialize_brake_gpio()
 
-        # Initialize vehicle base with the unified motor chain using super().__init__()
-        super().__init__(
-            max_vel=vehicle_max_vel,
-            max_accel=vehicle_max_accel,
-            channel=unified_motor_chain,  # Pass the unified motor chain
-            auto_start=auto_start,
-            control_freq=control_freq,
-        )
-
-        # Initialize linear rail only if enabled
-        self.linear_rail = None
-        if enable_linear_rail:
-            from i2rt.flow_base.linear_rail_controller import (
-                LinearRailController,
-                SingleMotorControlInterface,
+            # Initialize vehicle base with the unified motor chain using super().__init__()
+            super().__init__(
+                max_vel=vehicle_max_vel,
+                max_accel=vehicle_max_accel,
+                channel=unified_motor_chain,  # Pass the unified motor chain
+                auto_start=auto_start,
+                control_freq=control_freq,
+                # Forwarded, unlike verify_motor_config: that one is deliberately not, because this
+                # constructor already ran the pre-chain register check itself and the base-class path
+                # would only repeat it. This check runs at runtime, so it has to be passed down.
+                check_caster_steering=check_caster_steering,
             )
+            # We built unified_motor_chain above, so we own it -- but Vehicle only saw a chain *object*
+            # handed in, which it correctly reads as someone else's. Re-assert it, or close() leaves the
+            # chain's non-daemon thread running and the process cannot exit.
+            self._owns_motor_chain = True
+        except BaseException:
+            # No self.close() to call: super().__init__() may not have run, so caster_module_controller
+            # and _closed need not exist. Stop the thread directly.
+            unified_motor_chain.running = False
+            unified_motor_chain.close()
+            raise
 
-            # Create single motor control interface for the linear rail (9th motor, index 8)
-            single_motor_interface = SingleMotorControlInterface.from_multi_motor_chain(
-                unified_motor_chain, target_motor_idx=8
-            )
-
-            # Initialize linear rail controller (without auto_home to initialize GPIO first)
-            self.linear_rail = LinearRailController(
-                single_motor_control_interface=single_motor_interface,
-                rail_speed=lift_max_vel,
-                auto_home=False,  # Don't auto home yet, initialize GPIO first
-                homing_timeout=homing_timeout,
-                total_stroke_m=total_stroke_m,
-            )
-
-            # Initialize GPIO early, before starting homing
-            self.linear_rail.initialize_gpio()
-
-            # Now start homing if requested
-            if auto_home:
-                self.linear_rail._initialize_linear_rail()
-
-            # Set homing check callback for VehicleMotorController to prevent overwriting homing velocity
-            if hasattr(self, "caster_module_controller"):
-                self.caster_module_controller.homing_check_callback = lambda: (
-                    self.linear_rail.is_homing() if self.linear_rail else False
+        # Past super().__init__(), close() is available and is the right way to unwind: it stops the
+        # control loop and neutralizes the base motors before releasing the chain. That matters here
+        # because homing drives the rail, and set_timeout.py leaves the motors' TIMEOUT failsafe
+        # disabled, so a chain stopped without neutralizing leaves it moving.
+        try:
+            # Initialize linear rail only if enabled
+            self.linear_rail = None
+            if enable_linear_rail:
+                from i2rt.flow_base.linear_rail_controller import (
+                    LinearRailController,
+                    SingleMotorControlInterface,
                 )
+
+                # Create single motor control interface for the linear rail (9th motor, index 8)
+                single_motor_interface = SingleMotorControlInterface.from_multi_motor_chain(
+                    unified_motor_chain, target_motor_idx=8
+                )
+
+                # Initialize linear rail controller (without auto_home to initialize GPIO first)
+                self.linear_rail = LinearRailController(
+                    single_motor_control_interface=single_motor_interface,
+                    rail_speed=lift_max_vel,
+                    auto_home=False,  # Don't auto home yet, initialize GPIO first
+                    homing_timeout=homing_timeout,
+                    total_stroke_m=total_stroke_m,
+                )
+
+                # Initialize GPIO early, before starting homing
+                self.linear_rail.initialize_gpio()
+
+                # Now start homing if requested
+                if auto_home:
+                    self.linear_rail._initialize_linear_rail()
+
+                # Set homing check callback for VehicleMotorController to prevent overwriting homing velocity
+                if hasattr(self, "caster_module_controller"):
+                    self.caster_module_controller.homing_check_callback = lambda: (
+                        self.linear_rail.is_homing() if self.linear_rail else False
+                    )
+        except BaseException:
+            self.close()
+            raise
 
     def set_target_velocity(self, velocity: Any, frame: str = "local") -> None:
         """Set target velocity for both base and linear rail.
@@ -813,9 +1099,18 @@ class LinearRailVehicle(Vehicle):
             logger.error(f"Failed to set linear rail velocity: {e}", exc_info=True)
 
     def close(self) -> None:
-        """Clean up resources: stop linear rail and engage brake."""
-        if hasattr(self, "linear_rail"):
-            self.linear_rail.cleanup()
+        """Stop the linear rail and engage its brake, then close the base.
+
+        The rail is stopped *before* super().close() releases the chain, so its stop command still
+        has a live chain thread to carry it. ``linear_rail`` is None when the rail is disabled, which
+        is the default -- test the value, not just the attribute, or close() raises before the base
+        motors are ever neutralized.
+        """
+        if getattr(self, "linear_rail", None) is not None:
+            try:
+                self.linear_rail.cleanup()
+            except Exception as e:
+                logger.error(f"Linear rail cleanup failed during close: {e}")
         super().close()
 
 
@@ -842,6 +1137,10 @@ if __name__ == "__main__":
         """Control loop frequency in Hz."""
         device: Optional[str] = None
         """Serial device for the USB-GPIO converter; REQUIRED with --linear-rail on x86. Ignored on a Raspberry Pi (native GPIO)."""
+        verify_motor_config: bool = True
+        """Check every motor's control mode and PMAX/VMAX/TMAX before opening the chain. A wrong control mode is written and saved to Flash; wrong scaling is only reported, and blocks the launch on a steering motor."""
+        check_caster_steering: bool = True
+        """While moving, check the four steering motors are executing their commands. On a fault the base ramps to a stop and this exits 2. Cannot detect a wrong steering zero or STEERING_DIRECTION -- see the flow_base README."""
 
     args = tyro.cli(Args)
 
@@ -880,6 +1179,8 @@ if __name__ == "__main__":
         enable_linear_rail=args.linear_rail,  # Disabled by default, enable with --linear-rail
         control_freq=args.control_freq,
         usb_gpio_device=args.device,  # serial port for the USB-GPIO converter (x86)
+        verify_motor_config=args.verify_motor_config,
+        check_caster_steering=args.check_caster_steering,
     )
 
     # Register cleanup function to ensure brake is engaged on exit
@@ -1013,6 +1314,12 @@ if __name__ == "__main__":
                 print("Motor interface is not running, exiting...")
                 print("Please check the E stop or the motor connection. ")
                 break
+            caster_fault = vehicle.caster_fault()
+            if caster_fault is not None:
+                # Non-None only after the control loop has ramped the base to a stop, so there is
+                # nothing left to wind down here beyond joining that thread.
+                vehicle.wait_for_stop()
+                break
             if gamepad_command_override:
                 # Gamepad sticks are normalized [-1, 1] -> scale to physical units
                 cmd = np.append(cmd_4d[:3] * max_vel, cmd_4d[3] * lift_max_vel_ms)
@@ -1070,3 +1377,17 @@ if __name__ == "__main__":
             logger.error(f"Error during close: {e}")
         if args.gamepad:
             pygame.quit()
+
+    # After the finally: the base is stopped and the chain is closed before the operator is told why.
+    caster_fault = vehicle.caster_fault()
+    if caster_fault is not None:
+        history_path = Path(f"/tmp/caster-fault-{os.getpid()}.csv")
+        history = vehicle.caster_history_csv()
+        if history is not None:
+            try:
+                history_path.write_text(history, encoding="utf-8")
+                print(f"Wrote the last seconds of steering data to {history_path}")
+            except OSError as e:
+                logger.error(f"Could not write the caster fault history: {e}")
+        print(caster_fault.render(), file=sys.stderr)
+        sys.exit(2)
