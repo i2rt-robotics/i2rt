@@ -135,7 +135,9 @@ REG_MEANING: dict[int, str] = {
     17: "Phase (stator) resistance (Ω)",
     18: "Phase (stator) inductance (H)",
     19: "Rotor flux linkage (Wb)",
-    20: "Gear reduction ratio — 7 on a DM3507, 10 on a DM4310, 40 on a DM4340",
+    20: "Gear reduction ratio — the part number's last two digits: 7 on a DM3507, 9 on a DM8009, "
+    "10 on a DM4310, 40 on a DM4340, 48 on a DM6248. Read-only, so it is the one register that "
+    "identifies a motor; verify_motor_types in i2rt/motor_drivers/motor_check.py compares it",
     21: "Max position; the ±range used to encode position in MIT mode (rad). Must match POSITION_MAX in "
     "MotorType.get_motor_constants (i2rt/motor_drivers/utils.py) or every command and reading is rescaled",
     22: "Max velocity; the range used to encode velocity in MIT mode (rad/s). Must match VELOCITY_MAX in "
@@ -486,7 +488,7 @@ def _format_register_table(values: dict[int, str] | None = None) -> str:
 # Transport failures worth retrying or reporting per register; a usage error (bad value, read-only
 # register) is not in here, so it surfaces immediately instead of being disguised as a comms problem.
 # Public because it is part of the contract for callers outside this module that drive the register
-# functions themselves -- see i2rt/flow_base/motor_config_check.py.
+# functions themselves -- see i2rt/motor_drivers/motor_check.py.
 BUS_ERRORS = (RuntimeError, can.CanError, OSError, AssertionError)
 
 

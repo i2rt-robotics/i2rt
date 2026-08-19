@@ -204,6 +204,70 @@ class MotorType:
         else:
             raise ValueError(f"Motor type '{motor_type}' not recognized.")
 
+    @classmethod
+    def get_gear_ratio(cls, motor_type: str) -> float:
+        """The gear reduction ratio this motor type's ``Gr`` register (address 20) must report.
+
+        Raises:
+            ValueError: if no ratio is recorded for this type. A missing entry is a gap in
+                ``_GEAR_RATIO``, not a fault in the hardware, so it is deliberately not reported as
+                "unknown" for the caller to skip over -- see ``i2rt/motor_drivers/motor_check.py``.
+                Mirrors ``get_motor_constants``, which also raises on a type it does not know.
+        """
+        try:
+            return _GEAR_RATIO[motor_type]
+        except KeyError:
+            raise ValueError(
+                f"No gear ratio recorded for motor type '{motor_type}'. Add it to _GEAR_RATIO in "
+                f"i2rt/motor_drivers/utils.py, taking the value from the motor's own Gr register "
+                f"(dm_motor_registers.py read Gr --motor-id <id>) rather than from the part number. "
+                f"Recorded: {sorted(_GEAR_RATIO)}"
+            ) from None
+
+    @classmethod
+    def known_gear_ratios(cls) -> dict[str, float]:
+        """Every motor type with a recorded gear ratio, as a copy.
+
+        Exists for the two callers that need the whole mapping rather than one lookup: the reverse
+        direction (which type does a ``Gr`` reading correspond to?), which is what makes a mismatch
+        message name the motor that is actually installed, and the test that asserts every motor
+        type in a shipped config has an entry here.
+        """
+        return dict(_GEAR_RATIO)
+
+
+# Gear reduction ratio each motor type reports in its `Gr` register (address 20). Read-only in
+# firmware and a property of the physical gearbox, which is what makes it the one register that
+# identifies a motor: PMAX/VMAX/TMAX are writable, so they can be wrong on a correct motor *and*
+# right on a wrong one. Consumed by verify_motor_types in i2rt/motor_drivers/motor_check.py, which
+# refuses to build a chain on a mismatch. Arms and the Flow Base both opt into it
+# (check_motor_types=True); nothing else does.
+#
+# The DM part number ends in its gear ratio -- 4310 -> 10, 4340 -> 40, 3507 -> 7 -- and *not* the
+# tempting "8009 -> 80:1", which a bench reading of 9 is what settles. Provenance is per entry below;
+# only DM4310 / DM4340 / DM3507 rest on the manual alone, and all three agree with the rule.
+#
+# Only the types the shipped configs and the Flow Base controller actually build are listed. A type
+# that is absent raises instead of being compared against a value inferred from its name -- extending
+# this table is a bench reading, not a guess.
+_GEAR_RATIO: dict[str, float] = {
+    MotorType.DM3507: 7.0,  # DM manual
+    MotorType.DM4310: 10.0,  # DM manual
+    MotorType.DM4310V: 10.0,  # bench: flow base steering motors 1/3/7, 2026-08-18
+    MotorType.DM4340: 40.0,  # DM manual
+    MotorType.DM6248: 48.0,  # bench: big_yam motor 2, 2026-08-18
+    MotorType.DM8009: 9.0,  # bench: flow base rail motor 9, 2026-08-14 and again 2026-08-18
+    # DM_FLOW_WHEEL is a *role*, not a part number: i2rt/flow_base/README.md says the physical drive
+    # motor may differ per unit, and Gr being read-only means it cannot be normalised across units the
+    # way PMAX/VMAX/TMAX are. Recorded and asserted anyway (decided 2026-08-18, after all four drive
+    # motors on one base read 10), so a unit built with a different drive motor refuses to start rather
+    # than running mis-scaled -- which is the intended way to discover that such a unit exists. The
+    # kinematics make that non-negotiable: N_s/N_r1/N_r2/N_w are all 1 in flow_base_controller.py, i.e.
+    # the swerve model assumes the motor's own rad/s *is* the wheel's. --no-verify-motor-config is the
+    # field bypass, and widening this number is the fix.
+    MotorType.DM_FLOW_WHEEL: 10.0,  # bench: flow base drive motors 2/4/6/8, 2026-08-18
+}
+
 
 class AutoNameEnum(enum.Enum):
     def _generate_next_value_(name: str, start: int, count: int, last_values: List[str]) -> str:

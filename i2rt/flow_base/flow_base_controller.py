@@ -24,7 +24,6 @@ from ruckig import ControlInterface, InputParameter, OutputParameter, Result, Ru
 from threadpoolctl import threadpool_limits
 
 from i2rt.flow_base import caster_steering_check
-from i2rt.flow_base.motor_config_check import verify_base_motor_registers
 from i2rt.motor_drivers.dm_driver import ControlMode, DMChainCanInterface
 
 # Configure logging
@@ -122,16 +121,25 @@ N_s_r2_w = N_s * N_r2 * N_w
 TWO_PI = 2 * math.pi
 
 
-def _check_motor_config(channel: str, motor_list: List[List[Any]], enabled: bool) -> None:
-    """Verify the motors' control mode and scaling before the chain claims the bus, unless turned off."""
-    if enabled:
-        verify_base_motor_registers(channel, motor_list)
-        return
+STEER_MOTOR_IDS: Tuple[int, ...] = (1, 3, 5, 7)
+"""The caster steering motors, in CAN-id order. The even ids are the drive motors, and the linear rail,
+when fitted, is id 9.
+
+Handed to the chain as ``loop_critical_motor_ids``: only these four carry feedback the swerve loop acts
+on, so only these can abort a launch over a mis-scaled PMAX/VMAX. The same registers on a drive or rail
+motor mis-scale translational odometry, which is reported and started anyway. See
+i2rt/motor_drivers/motor_check.py for the other half of that policy, which comes from the control mode.
+"""
+
+
+def _warn_checks_disabled(channel: str) -> None:
+    """Say what --no-verify-motor-config gives up. The chain skips both checks; this is the whole cost."""
     logger.warning(
-        "motor configuration verification is DISABLED (verify_motor_config=False) on %s. A motor that is "
-        'not in speed mode will not answer, and the base will report "Motor interface is not running" as '
-        "though the E stop or the wiring were at fault; and a motor whose PMAX/VMAX/TMAX disagree with "
-        "MotorType.get_motor_constants will silently mis-scale every reading it sends.",
+        "motor verification is DISABLED (verify_motor_config=False) on %s. A motor that is not in speed "
+        'mode will not answer, and the base will report "Motor interface is not running" as though the E '
+        "stop or the wiring were at fault; a motor whose PMAX/VMAX/TMAX disagree with "
+        "MotorType.get_motor_constants will silently mis-scale every reading it sends; and a motor that "
+        "is not the part it is driven as -- a different gear ratio -- will not be caught either.",
         channel,
     )
 
@@ -192,9 +200,8 @@ class VehicleMotorController:
             motor_list.append([steering_motor_id, "DM4310V"])
             motor_list.append([drive_motor_id, "DM_FLOW_WHEEL"])
 
-        # Before DMChainCanInterface takes the bus: it opens the socket, enables every motor and starts
-        # its reader thread before returning, and register access needs an idle bus.
-        _check_motor_config(channel, motor_list, verify_motor_config)
+        if not verify_motor_config:
+            _warn_checks_disabled(channel)
 
         motor_interface = DMChainCanInterface(
             motor_list,
@@ -204,6 +211,12 @@ class VehicleMotorController:
             motor_chain_name="holonomic_base",
             control_mode=ControlMode.VEL,
             enable_auto_recovery=False,  # fail-fast on motor error (ROB-1449); base does not self-heal
+            # The base runs both checks, in that order, inside the constructor -- the last moment the bus
+            # is idle. One flag drives both so --no-verify-motor-config keeps skipping everything, which
+            # is what motor_drivers/utils.py's DM_FLOW_WHEEL note and flow_base/README.md document.
+            check_motor_types=verify_motor_config,
+            check_motor_config=verify_motor_config,
+            loop_critical_motor_ids=STEER_MOTOR_IDS,
         )
         return motor_interface
 
@@ -785,7 +798,7 @@ class Vehicle(Robot):
         hangs on the way out: ``remove_pid_file`` never runs, ``/tmp/base-controller.pid`` survives,
         and ``create_pid_file`` refuses the next launch -- while the orphaned thread keeps driving the
         bus at 250 Hz, which also makes the next launch's control-mode check fail with "motor did not
-        answer", pointing at the wrong component exactly as motor_config_check.py exists to prevent.
+        answer", pointing at the wrong component exactly as motor_check.verify_motor_config exists to prevent.
 
         The ordering is load-bearing: the 200 Hz control loop has to stop first or it overwrites the
         neutral command on its next iteration, and the neutral command needs time to actually reach
@@ -879,7 +892,7 @@ class LinearRailVehicle(Vehicle):
             verify_motor_config: Before the motor chain claims the bus, check that every motor is in speed
                 mode, repairing and persisting any that is not, and that every motor's PMAX/VMAX/TMAX
                 match the constants the driver decodes their feedback with. See
-                i2rt/flow_base/motor_config_check.py.
+                i2rt/motor_drivers/motor_check.py.
             check_caster_steering: While the base is moving, check that each steering motor is executing
                 its commanded velocity, is reaching the heading the kinematics demand, and is not running
                 away. On a confirmed fault the base is ramped to a stop and caster_fault() is published.
@@ -918,9 +931,8 @@ class LinearRailVehicle(Vehicle):
             motor_offsets.append(0.0)
             motor_directions.append(1)
 
-        # Before the chain takes the bus; see _check_motor_config's call site in _initialize_motor_chain,
-        # which this path bypasses because it builds and hands down the chain itself.
-        _check_motor_config(channel, motor_list, verify_motor_config)
+        if not verify_motor_config:
+            _warn_checks_disabled(channel)
 
         # Create unified motor chain
         unified_motor_chain = DMChainCanInterface(
@@ -932,6 +944,11 @@ class LinearRailVehicle(Vehicle):
             control_mode=ControlMode.VEL,
             control_freq=control_freq,
             enable_auto_recovery=False,  # fail-fast on motor error (ROB-1449); base does not self-heal
+            # Both checks, one flag; see _initialize_motor_chain. The rail motor (id 9) is checked too,
+            # but is not loop-critical: its mis-scaled feedback moves only the height it reports.
+            check_motor_types=verify_motor_config,
+            check_motor_config=verify_motor_config,
+            loop_critical_motor_ids=STEER_MOTOR_IDS,
         )
 
         # From here to the end of __init__ the chain is live and nothing else will ever stop it: its
@@ -1138,7 +1155,7 @@ if __name__ == "__main__":
         device: Optional[str] = None
         """Serial device for the USB-GPIO converter; REQUIRED with --linear-rail on x86. Ignored on a Raspberry Pi (native GPIO)."""
         verify_motor_config: bool = True
-        """Check every motor's control mode and PMAX/VMAX/TMAX before opening the chain. A wrong control mode is written and saved to Flash; wrong scaling is only reported, and blocks the launch on a steering motor."""
+        """Check every motor's type (gear ratio), control mode and PMAX/VMAX/TMAX before opening the chain. A wrong control mode is written and saved to Flash; a wrong gear ratio means the wrong part is fitted and always refuses; wrong scaling is only reported, and blocks the launch on a steering motor."""
         check_caster_steering: bool = True
         """While moving, check the four steering motors are executing their commands. On a fault the base ramps to a stop and this exits 2. Cannot detect a wrong steering zero or STEERING_DIRECTION -- see the flow_base README."""
 

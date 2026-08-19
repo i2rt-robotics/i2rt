@@ -205,8 +205,48 @@ Values this library expects:
 | DM8009 | 12.5 | 45 | 54 |
 | DMH6215MIT | 12.5 | 45 | 10 |
 
-`read-all` is the quickest way to check a motor against this table. Identify the motor type from `Gr`
-(address 20): 7 is a DM3507, 10 a DM4310, 40 a DM4340.
+`read-all` is the quickest way to check a motor against this table; identify which row applies with
+`Gr`, below.
+
+## Identifying a motor from `Gr`
+
+`Gr` (address 20) is the **gear reduction ratio**, and it is the one register that identifies a motor.
+`PMAX`/`VMAX`/`TMAX` cannot: they are writable, so they can be wrong on a correct motor *and* right on
+a wrong one. `Gr` is read-only and describes the physical gearbox.
+
+A DM part number ends in its gear ratio — not in "80 → 80:1", which is the tempting misreading:
+
+| `Gr` | Motor type | Provenance |
+| ---: | --- | --- |
+| 7 | `DM3507` | DM manual |
+| 9 | `DM8009` | bench read, 2026-08-14 and 2026-08-18, flow base motor 9 (two bases) |
+| 10 | `DM4310` | DM manual |
+| 10 | `DM4310V` | bench read, 2026-08-18, flow base steering motors 1/3/7 |
+| 10 | `DM_FLOW_WHEEL` | bench read, 2026-08-18, flow base drive motors 2/4/6/8 |
+| 40 | `DM4340` | DM manual |
+| 48 | `DM6248` | bench read, 2026-08-18, big_yam motor 2 |
+
+Note that `Gr` maps **many-to-one**: 10 is a `DM4310`, a `DM4310V` *or* a `DM_FLOW_WHEEL`, so it can
+distinguish classes of motor but not those three from each other. `DM_FLOW_WHEEL` is also a *role*
+rather than a part number — the Flow Base's physical drive motor may differ per unit — so its row is one
+station's reading, not a guarantee; see [`flow_base/README.md`](../flow_base/README.md).
+
+`verify_motor_types` in `i2rt/motor_drivers/motor_check.py` reads `Gr` from every motor in a chain and
+refuses to go on with one whose declared motor types it does not match. `DMChainCanInterface.__init__`
+calls it, before it opens its socket, whenever it is built with `check_motor_types=True` — which arms
+and the Flow Base both do. The mix-up it exists for is a `yam_ultra_2` arm
+launched as `--arm yam_ultra`, whose configs differ only at joint 4 (`DM4340` vs `DM4310`), which would
+otherwise encode that joint's torque 2.8x too large with no error anywhere. Its expected values come
+from `MotorType.get_gear_ratio` in `i2rt/motor_drivers/utils.py`; a motor type absent from that table
+raises rather than being compared against a guess.
+
+`verify_motor_config`, the other function in that module, checks `CTRL_MODE` and `PMAX`/`VMAX`/`TMAX`;
+arms and the Flow Base both run it (`check_motor_config=True`), though an arm is the stricter caller —
+being a MIT chain that names no loop-critical subset, all three registers on all of its motors can refuse
+the launch, where on the base only `PMAX`/`VMAX` on the four steering motors can. The chain runs the type
+check first, and that
+verdict is what keeps the config check from advising a `PMAX` rewrite — or writing `CTRL_MODE` to
+Flash — on a motor that should be swapped instead.
 
 ## Code reference
 
@@ -267,7 +307,7 @@ summarized from the DM manual; see it for exact units and semantics. Registers t
 | 17 | `Rs` | float | ro | Phase (stator) resistance (Ω) |
 | 18 | `Ls` | float | ro | Phase (stator) inductance (H) |
 | 19 | `Flux` | float | ro | Rotor flux linkage (Wb) |
-| 20 | `Gr` | float | ro | Gear reduction ratio — 7 on a DM3507, 10 on a DM4310, 40 on a DM4340 |
+| 20 | `Gr` | float | ro | Gear reduction ratio — the part number's last two digits; see [Identifying a motor from `Gr`](#identifying-a-motor-from-gr) |
 | 21 | `PMAX` | float | rw | Max position; the ±range used to encode position in MIT mode (rad). Must match `POSITION_MAX` — see [MIT scaling](#mit-scaling-pmax-vmax-tmax) |
 | 22 | `VMAX` | float | rw | Max velocity; the range used to encode velocity in MIT mode (rad/s). Must match `VELOCITY_MAX` |
 | 23 | `TMAX` | float | rw | Max torque; the range used to encode torque in MIT mode (N·m). Must match `TORQUE_MAX` |

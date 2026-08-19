@@ -297,8 +297,35 @@ Configuration rules:
 
   | Register | Steering (1/3/5/7, DM4310V) | Drive (2/4/6/8, DM_FLOW_WHEEL) | Rail (9, DM8009) | Checked at startup |
   |----------|------------------------------|--------------------------------|------------------|--------------------|
+  | `Gr` (gear ratio) | 10 | 10 | 9 | ✅ **yes — read-only; any mismatch blocks the launch** (`verify_motor_types`) |
   | `CTRL_MODE` | 3 (speed) | 3 (speed) | 3 (speed) | ✅ **yes — repaired and saved** |
   | `PMAX` / `VMAX` / `TMAX` | π (≈3.1415926) rad / 30 rad/s / 10 Nm | π (≈3.1415926) rad / 30 rad/s / 10 Nm | 12.5 rad / 45 rad/s / 54 Nm | ✅ **yes — read-only.** A wrong `PMAX`/`VMAX` on a steering motor blocks the launch; everything else — the same registers on a drive or rail motor, and `TMAX` on any motor — logs an ERROR and the base starts |
+
+  `Gr` is the **gear reduction ratio**, and it is the one register that identifies a motor: it is
+  read-only, so unlike `PMAX`/`VMAX`/`TMAX` it cannot be misconfigured on a correct motor or set to
+  flatter a wrong one. It is checked by `verify_motor_types`, which the chain runs *before* the
+  control-mode and scaling pass — deliberately, because on the wrong part those three registers hold that
+  part's own scale, so checking type first is what stops the rows below from advising a `PMAX` rewrite, or
+  writing `CTRL_MODE` to Flash, on a motor whose repair is to be swapped. All three columns were **read
+  off hardware** (2026-08-18, `can_flowbase`: motors
+  1/3/7 steering, 2/4/6/8 drive, 9 rail; the rail's 9 also reproduces a 2026-08-14 reading on a
+  different base). A mismatch blocks the launch on *every* motor, with none of the severity split the
+  scaling rows get, because it is not a setting that could be repaired — it means the wrong part is
+  bolted in, and the swerve model folds no gear ratio in anywhere (`N_s`/`N_r1`/`N_r2`/`N_w` are all 1
+  in `flow_base_controller.py`, i.e. the motor's own rad/s is taken as the wheel's).
+
+  > ⚠️ **`Gr` cannot tell a steering motor from a drive motor.** Both are 10:1, so a caster whose two
+  > motors are swapped passes this check. What it does catch is the wrong *class* of motor in a slot — a
+  > `DM4340` reads 40, a `DM6248` 48, a `DM8009` 9. A wrong steering zero or `STEERING_DIRECTION` is
+  > likewise invisible to it; those are the caster steering check's business, and the section below's.
+
+  > ⚠️ **`DM_FLOW_WHEEL` is a role, not a part number.** The drive motor's part number may differ per
+  > unit, and `Gr` being read-only means it cannot be normalised across units the way the scaling
+  > registers are. It is asserted at 10 anyway, so a base built with a different drive motor refuses to
+  > start rather than driving mis-scaled — which is the intended way to find out such a unit exists. If
+  > one turns up, read its `Gr` and widen `_GEAR_RATIO` in
+  > [`motor_drivers/utils.py`](../motor_drivers/utils.py); `--no-verify-motor-config` is the field bypass,
+  > and it turns off the type check and the control-mode/scaling check together.
 
   > ⚠️ **The rail motor is a different type and holds different numbers.** The check derives every
   > expectation per motor from `MotorType.get_motor_constants`, so it compares motor 9 against
@@ -351,10 +378,14 @@ operating procedures. Register access needs an **idle bus**, so stop the base co
 
 #### Startup motor-configuration check
 
-`flow_base_controller` checks **every** motor's control mode and feedback scaling on each launch, before
-it opens the motor chain — there is no later opportunity, because `DMChainCanInterface` claims the bus for
-its control loop as soon as it is constructed. See [`motor_config_check.py`](motor_config_check.py). Six
-register reads per motor, roughly 0.5 s for a healthy eight-motor bus.
+`flow_base_controller` checks **every** motor's type, control mode and feedback scaling on each launch,
+before it opens the motor chain — there is no later opportunity, because `DMChainCanInterface` claims the
+bus for its control loop as soon as it is constructed. It is that constructor that runs them, from
+`check_motor_types=True` and `check_motor_config=True`; both live in
+[`motor_drivers/motor_check.py`](../motor_drivers/motor_check.py) and are shared with the arms, which run
+both as well — more strictly, since a MIT chain that names no loop-critical subset can be refused over any
+of the three scaling registers on any motor. Eight register reads per motor — three for the type check (`Gr`, `hw_ver`, `sw_ver`),
+five for the config check — roughly 0.7 s for a healthy eight-motor bus.
 
 The control-mode half exists because a wrong `CTRL_MODE` fails in a way that points at the wrong
 component: `_motor_on` enables a motor over the raw-id frame, which is answered in any mode, so the chain
@@ -368,11 +399,22 @@ builds cleanly and it is the first speed-mode command that goes unanswered — s
   `VMAX` disagrees aborts the launch — those two decode the angle and the rate the base steers and
   navigates on. Everything else logs an ERROR and the base starts: those registers on a drive or rail
   motor, and `TMAX` on any motor, which only scales the torque the base reports. See the table above.
+
+  Both halves of that policy are arguments the controller passes, because the check is shared with the
+  arms and cannot infer either. `STEER_MOTOR_IDS` in
+  [`flow_base_controller.py`](flow_base_controller.py) is `loop_critical_motor_ids` — the four motors
+  whose feedback the swerve loop acts on, and so the only ones that can abort a launch. `ControlMode.VEL`
+  is what makes `TMAX` non-blocking: a `VEL` frame carries a raw float32 rad/s and encodes nothing through
+  `TMAX`. On an arm, which is MIT, the same register encodes commanded torque and *does* block.
 - **Nothing is written unless every motor answered.** A silent motor, or a bus another process is using,
   aborts the launch without touching anything. Likewise nothing is written if a steering motor's `PMAX`
   or `VMAX` is mis-scaled: a bus whose scaling the base will not move on is not one to commit Flash
   writes on. A mismatch that does not block — a drive or rail motor's, or any `TMAX` — never suppressed
   the control-mode repair, and still does not.
+- **The first repair that does not stick stops the rest.** Same rule, applied to the write phase: if the
+  bus dies (or another process claims it) partway through, the motors behind the failure are named as
+  *not attempted* rather than written and Flash-saved over a bus that just dropped one write. Fix the
+  motor the error names and run again; `save` is the call most likely to false-ack on a contended bus.
 - After a repair, **power-cycle that motor** if the base still reports `Motor interface is not running` —
   the mode change may need a reboot to take effect.
 - `--no-verify-motor-config` skips the check entirely (it logs a warning saying so). Use it only for

@@ -45,7 +45,7 @@ so a firmware register that disagrees rescales every reading: with ``PMAX`` at 1
 every reported steering angle is 0.251x the truth and feeds ``C`` directly. It hides for the same reason
 as the paragraph above, though -- the controller rebuilds ``C`` from the *reported* angle, so the loop
 stays autonomous in reported coordinates, the reported angle still converges to ``phi_eq``, and no
-detector here has anything to see. :mod:`i2rt.flow_base.motor_config_check` reads those three registers
+detector here has anything to see. :func:`i2rt.motor_drivers.motor_check.verify_motor_config` reads those three registers
 from every motor at startup and compares them against the same constants. That is the right place for it:
 a firmware register cannot change while the base is driving, so reading it once is both exact and
 sufficient, where inferring a mismatch from motion needs thresholds and a moving base to work with.
@@ -225,7 +225,8 @@ _CANNOT_DETECT = (
     "MotorType.get_motor_constants -- the first three are applied symmetrically to command and feedback, "
     "and a mis-scaled register leaves the loop self-consistent in reported coordinates. In every case the "
     "software frame stays internally consistent while the wheel is somewhere else. The registers are "
-    "checked at startup by motor_config_check.py; for the rest, if the wheels are visibly misaligned but "
+    "checked at startup by motor_drivers/motor_check.py; for the rest, if the wheels are visibly "
+    "misaligned but "
     "the table above looks clean, that is the fault, and section 5 of i2rt/flow_base/README.md is how to "
     "find it."
 )
