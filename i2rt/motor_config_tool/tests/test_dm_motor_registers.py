@@ -207,7 +207,7 @@ def test_a_short_frame_on_the_write_path_is_dropped_not_decoded() -> None:
     ``_tx_rx`` returns the first frame on the bus and filters on nothing, so a stray short frame -- a
     late 0xAA reply, another motor's feedback -- lands on the write path too. Decoding it reaches
     ``struct.unpack("<f", data[4:8])`` and raises ``struct.error``, which is not in ``BUS_ERRORS``, so it
-    escapes ``motor_config_check._repair``'s handler as a raw traceback instead of its tailored "the
+    escapes ``motor_check._repair``'s handler as a raw traceback instead of its tailored "the
     write failed ... nothing was saved to Flash" message.
     """
     spec = REG_BY_ADDR[int(DMRegAddr.PMAX)]

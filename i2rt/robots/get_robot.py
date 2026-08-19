@@ -103,8 +103,10 @@ def _get_gripper_only_robot(
     gripper_kp, gripper_kd = gripper_type.get_motor_kp_kd(nominal_arm)
     direction = gripper_type.get_motor_direction(nominal_arm)
 
+    motor_list = [[0x07, motor_type]]
+
     motor_chain = DMChainCanInterface(
-        [[0x07, motor_type]],
+        motor_list,
         [0.0],
         [direction],
         channel,
@@ -112,6 +114,12 @@ def _get_gripper_only_robot(
         receive_mode=ReceiveMode.p16,
         start_thread=True,
         enable_auto_recovery=enable_auto_recovery,
+        # Both checks, in the constructor, before the bus is claimed. This chain is MIT with no
+        # loop_critical_motor_ids, which is the strictest reading of the config check: PMAX, VMAX and
+        # TMAX can each refuse the launch on this one motor. That is deliberate -- MIT encodes the
+        # gripper's commanded torque through TMAX, and the force limiter steers by its feedback.
+        check_motor_types=True,
+        check_motor_config=True,
     )
 
     return MotorChainRobot(
@@ -260,6 +268,10 @@ def get_yam_robot(
         get_same_bus_device_driver=get_encoder_chain if with_teaching_handle else None,
         use_buffered_reader=False,
         enable_auto_recovery=enable_auto_recovery,
+        # Both checks; see the gripper-only chain above for what the config check costs on a MIT chain.
+        # motor_list already has the gripper motor appended, so both cover it too.
+        check_motor_types=True,
+        check_motor_config=True,
     )
     motor_states = motor_chain.read_states()
     logging.debug(f"motor_states: {motor_states}")

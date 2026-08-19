@@ -348,7 +348,7 @@ def test_a_mis_scaled_pmax_is_not_detected_at_runtime() -> None:
     rebuilds ``C`` from the *reported* angle, so the loop stays autonomous in reported coordinates, the
     reported angle still converges to ``phi_eq``, and no detector has anything to see. A
     position-versus-velocity window that could see it was removed deliberately -- a firmware register
-    cannot change while the base is driving, so ``motor_config_check.py`` reads it directly at startup
+    cannot change while the base is driving, so ``motor_drivers/motor_check.py`` reads it directly at startup
     instead, which is exact and needs no thresholds.
     """
     clock = Clock()
