@@ -14,6 +14,10 @@ Press **SPACE** in the viewer to toggle between modes.
 
 ## Usage
 
+> **macOS:** launch with `mjpython` instead of `python` (`uv run mjpython ...`).
+> MuJoCo's passive viewer only opens from the process `mjpython` started, so on
+> macOS the viewer runs in the main process and only the robot gets a subprocess.
+
 ### Simulation (no hardware required)
 
 ```bash
