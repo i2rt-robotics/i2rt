@@ -24,6 +24,21 @@ from i2rt.robots.utils import (
 logger = logging.getLogger(__name__)
 
 
+def _apply_arm_motor_wrap_offsets(
+    motor_offsets: np.ndarray,
+    motor_positions: np.ndarray,
+    n_arm_joints: int,
+) -> None:
+    """Rebase wrapped arm encoders without changing calibrated gripper positions."""
+    for idx, position in enumerate(motor_positions[:n_arm_joints]):
+        if position < -np.pi:
+            logging.info(f"motor {idx} pos={position:.3f}, offset -2π")
+            motor_offsets[idx] -= 2 * np.pi
+        elif position > np.pi:
+            logging.info(f"motor {idx} pos={position:.3f}, offset +2π")
+            motor_offsets[idx] += 2 * np.pi
+
+
 def _load_joint_limits_from_xml(*xml_paths: str) -> np.ndarray:
     """Parse joint limits (range attributes) from one or more XML files.
 
@@ -276,14 +291,9 @@ def get_yam_robot(
     motor_states = motor_chain.read_states()
     logging.debug(f"motor_states: {motor_states}")
 
-    logging.info(f"current_pos: {[m.pos for m in motor_states]}")
-    for idx, state in enumerate(motor_states):
-        if state.pos < -np.pi:
-            logging.info(f"motor {idx} pos={state.pos:.3f}, offset -2π")
-            motor_chain.motor_offset[idx] -= 2 * np.pi
-        elif state.pos > np.pi:
-            logging.info(f"motor {idx} pos={state.pos:.3f}, offset +2π")
-            motor_chain.motor_offset[idx] += 2 * np.pi
+    motor_positions = np.asarray([state.pos for state in motor_states], dtype=np.float64)
+    logging.info(f"current_pos: {motor_positions.tolist()}")
+    _apply_arm_motor_wrap_offsets(motor_chain.motor_offset, motor_positions, n_arm_joints)
 
     logging.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
 
