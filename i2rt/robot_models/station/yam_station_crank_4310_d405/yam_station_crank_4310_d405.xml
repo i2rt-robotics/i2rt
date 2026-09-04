@@ -2,13 +2,23 @@
      generated from yam_station_crank_4310_d405.urdf (the source of truth) with the repo's standard
      URDF -> MJCF conversion. Kinematics only: no defaults, actuators, cameras or keyframe.
 
-     `left_base` is the model root; `right_base` and `top_camera_bracket` hang off it as
-     static bodies. Both arms share one <asset> mesh list; every mesh is referenced from
-     arm/yam/v1/assets/ except the top-camera bracket, which lives in ../assets/ and is
+     `left_base` is the model root; `right_base` and `top_camera` hang off it as static
+     bodies. Both arms share one <asset> mesh list; the arm meshes are referenced from
+     arm/yam/v1/assets/ and the two merged camera meshes live in ../assets/, with d405_top.stl
      shared with the linear station.
 
-     The `*_camera` and `top_camera` bodies are pure optical frames (+Z along the optical
-     axis, ROS/OpenCV convention). See README.md for the extrinsics. -->
+     The `*_camera` and `top_camera` bodies are the optical frames (+Z along the optical axis,
+     ROS/OpenCV convention) and each carries its camera assembly's merged mesh, so its <geom>
+     needs no pos/quat: body frame, mesh frame and optical frame are one. See README.md for the
+     extrinsics.
+
+     `tcp_left` / `tcp_right` are the tool-centre frames, taken from
+     gripper/crank_4310/crank_4310.xml's `grasp_site`: the flange turned 180 deg about X and carried
+     out to the centre of the two claw points, 146.764 mm along the flange's -Z and 44.591 mm off
+     its axis. That lateral offset is the geometry, not an error: each claw tapers to a point near
+     one end of its jaw, so the two points meet well off the flange axis. Unlike the linear
+     station's, this transform is gripper-specific. Sites are a MuJoCo concept, so the URDF has no
+     counterpart. -->
 <mujoco model="yam_station_crank_4310_d405">
   <compiler angle="radian" meshdir="."/>
 
@@ -22,10 +32,8 @@
     <mesh name="gripper" file="../../arm/yam/v1/assets/crank_4310/gripper.stl"/>
     <mesh name="tip_left" file="../../arm/yam/v1/assets/crank_4310/tip_left.stl"/>
     <mesh name="tip_right" file="../../arm/yam/v1/assets/crank_4310/tip_right.stl"/>
-    <mesh name="camera_bracket_for_D405_crank_4310_" file="../../arm/yam/v1/assets/d405/camera_bracket_for_D405_crank_4310_.stl"/>
-    <mesh name="Cable_holder" file="../../arm/yam/v1/assets/d405/Cable_holder.stl"/>
-    <mesh name="D405_with_depth_" file="../../arm/yam/v1/assets/d405/D405_with_depth_.stl"/>
-    <mesh name="Bracket_for_top_D405" file="../assets/Bracket_for_top_D405.stl"/>
+    <mesh name="d405_wrist_crank_4310" file="../assets/d405_wrist_crank_4310.stl"/>
+    <mesh name="d405_top" file="../assets/d405_top.stl"/>
   </asset>
 
   <worldbody>
@@ -56,6 +64,7 @@
                   <inertial pos="0 0 -0.027" quat="1 0 0 0" mass="0.45" diaginertia="0.0003 0.0005 0.0004"/>
                   <joint name="left_joint6" pos="0 0 0" axis="1.46014e-15 2.40808e-14 -1" type="hinge" range="-2.0944 2.0944"/>
                   <geom pos="0.164101 0 0.110597" quat="-0.4999981633974483 -0.49999999999662686 0.5000018366025518 0.49999999999662686" type="mesh" rgba="1 0.6 0 1" mesh="gripper"/>
+                  <site name="tcp_left" pos="0.0445904208 -8.83226729e-05 -0.146764365" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
                   <body name="left_tip_left" pos="-0.0392 0.037 -0.0605" quat="-0.4999981633974483 -0.49999999999662686 0.5000018366025518 0.49999999999662686">
                     <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
                     <joint name="left_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>
@@ -66,20 +75,9 @@
                     <joint name="left_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.039574"/>
                     <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
                   </body>
-                  <body name="left_camera_bracket" pos="-0.0503998 0.0353 -0.0505" quat="0.7071054825112364 0 -0.7071080798594737 0">
-                    <inertial pos="0.00699823 -0.032608 0.0284953" quat="0.7164150267059034 0.1316640527856447 -0.6720088946931565 -0.13348457651474585" mass="2.52751e-05" diaginertia="6.885494938010507e-09 1.4949300757475866e-08 2.0042274304513628e-08"/>
-                    <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="camera_bracket_for_D405_crank_4310_"/>
-                    <body name="left_camera_cable_holder" pos="-0.00765908 -0.0076 0.125721" quat="0.21643946114636745 1.5825153773254462e-06 0.976296040990468 -1.5825153773254462e-06">
-                      <inertial pos="0.00792011 -0.0526775 0.0654133" quat="0.596367708229736 0.5963677082297357 0.37992835716857565 -0.37992835716857565" mass="1.16203e-06" diaginertia="2.3774192956017242e-11 4.594540704398275e-11 6.517809999999999e-11"/>
-                      <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.647059 0.647059 0.647059 1" mesh="Cable_holder"/>
-                    </body>
-                    <body name="left_camera_body" pos="-0.0155207 -0.0246001 0.0293289" quat="0.6644617678528763 0.2418444178790959 0.2418453062248774 0.6644642085617154">
-                      <inertial pos="0.000132413 8.24103e-05 0.0114538" quat="0.7044779966271342 -0.0013138846974138797 -0.0031505217786036376 0.7097176200347177" mass="3.92631e-05" diaginertia="7.330500201325134e-09 7.379577796201558e-09 1.1277582002473307e-08"/>
-                      <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="D405_with_depth_"/>
-                      <body name="left_camera" pos="-0.009 0 0" quat="1.3267948966775328e-06 0.9999999999991198 0 0">
-                        <inertial pos="0 0 0" quat="1 0 0 0" mass="1e-09" diaginertia="4e-14 4e-14 4e-14"/>
-                      </body>
-                    </body>
+                  <body name="left_camera" pos="-0.07972864298920912 0.0016999000000607195 -0.06602077467211452" quat="0.2988393471376894 0.64085493257762 0.640856030262865 0.2988369931400325">
+                    <inertial pos="0.005367325026457384 0.00679312769439656 -0.012947035458291244" quat="0.8199955905312964 0.12049049432648964 -0.29970802921846723 0.4725085919940197" mass="6.570123e-05" diaginertia="2.2217308667812097e-08 2.6885771105377165e-08 3.5759366026218555e-08"/>
+                    <geom type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="d405_wrist_crank_4310"/>
                   </body>
                 </body>
               </body>
@@ -114,6 +112,7 @@
                     <inertial pos="0 0 -0.027" quat="1 0 0 0" mass="0.45" diaginertia="0.0003 0.0005 0.0004"/>
                     <joint name="right_joint6" pos="0 0 0" axis="1.46014e-15 2.40808e-14 -1" type="hinge" range="-2.0944 2.0944"/>
                     <geom pos="0.164101 0 0.110597" quat="-0.4999981633974483 -0.49999999999662686 0.5000018366025518 0.49999999999662686" type="mesh" rgba="1 0.6 0 1" mesh="gripper"/>
+                    <site name="tcp_right" pos="0.0445904208 -8.83226729e-05 -0.146764365" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
                     <body name="right_tip_left" pos="-0.0392 0.037 -0.0605" quat="-0.4999981633974483 -0.49999999999662686 0.5000018366025518 0.49999999999662686">
                       <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
                       <joint name="right_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>
@@ -124,20 +123,9 @@
                       <joint name="right_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.039574"/>
                       <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
                     </body>
-                    <body name="right_camera_bracket" pos="-0.0503998 0.0353 -0.0505" quat="0.7071054825112364 0 -0.7071080798594737 0">
-                      <inertial pos="0.00699823 -0.032608 0.0284953" quat="0.7164150267059034 0.1316640527856447 -0.6720088946931565 -0.13348457651474585" mass="2.52751e-05" diaginertia="6.885494938010507e-09 1.4949300757475866e-08 2.0042274304513628e-08"/>
-                      <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="camera_bracket_for_D405_crank_4310_"/>
-                      <body name="right_camera_cable_holder" pos="-0.00765908 -0.0076 0.125721" quat="0.21643946114636745 1.5825153773254462e-06 0.976296040990468 -1.5825153773254462e-06">
-                        <inertial pos="0.00792011 -0.0526775 0.0654133" quat="0.596367708229736 0.5963677082297357 0.37992835716857565 -0.37992835716857565" mass="1.16203e-06" diaginertia="2.3774192956017242e-11 4.594540704398275e-11 6.517809999999999e-11"/>
-                        <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.647059 0.647059 0.647059 1" mesh="Cable_holder"/>
-                      </body>
-                      <body name="right_camera_body" pos="-0.0155207 -0.0246001 0.0293289" quat="0.6644617678528763 0.2418444178790959 0.2418453062248774 0.6644642085617154">
-                        <inertial pos="0.000132413 8.24103e-05 0.0114538" quat="0.7044779966271342 -0.0013138846974138797 -0.0031505217786036376 0.7097176200347177" mass="3.92631e-05" diaginertia="7.330500201325134e-09 7.379577796201558e-09 1.1277582002473307e-08"/>
-                        <geom pos="0 0 0" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="D405_with_depth_"/>
-                        <body name="right_camera" pos="-0.009 0 0" quat="1.3267948966775328e-06 0.9999999999991198 0 0">
-                          <inertial pos="0 0 0" quat="1 0 0 0" mass="1e-09" diaginertia="4e-14 4e-14 4e-14"/>
-                        </body>
-                      </body>
+                    <body name="right_camera" pos="-0.07972864298920912 0.0016999000000607195 -0.06602077467211452" quat="0.2988393471376894 0.64085493257762 0.640856030262865 0.2988369931400325">
+                      <inertial pos="0.005367325026457384 0.00679312769439656 -0.012947035458291244" quat="0.8199955905312964 0.12049049432648964 -0.29970802921846723 0.4725085919940197" mass="6.570123e-05" diaginertia="2.2217308667812097e-08 2.6885771105377165e-08 3.5759366026218555e-08"/>
+                      <geom type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="d405_wrist_crank_4310"/>
                     </body>
                   </body>
                 </body>
@@ -146,16 +134,9 @@
           </body>
         </body>
       </body>
-      <body name="top_camera_bracket" pos="-0.239181381 -0.30599996 0.909873086" quat="1 0 0 0">
-        <inertial pos="0.0352504 -0.00106856 0.0443451" quat="-0.016575422954669818 0.92757668936090154 -0.017226169402485364 0.37286726833534217" mass="3.43841e-05" diaginertia="1.1550001110334773e-08 5.9779632405645255e-08 6.8498866484019958e-08"/>
-        <geom pos="0.003 0.001 0.03" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="Bracket_for_top_D405"/>
-        <body name="top_camera_body" pos="0.0616865 0.002 0.0635" quat="-0.68301142693404882 -0.18301244240477954 0.18301311464825168 0.6830139357797157">
-          <inertial pos="0.0101324 8.25213e-05 -0.0115514" quat="0.70447257088379112 -0.0013141702007409997 -0.003157947427169969 0.70972297214977664" mass="3.92871e-05" diaginertia="7.3343399897790905e-09 7.3833673144231135e-09 1.128028269579778e-08"/>
-          <geom pos="0.01 0 -0.023" quat="1 0 0 0" type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="D405_with_depth_"/>
-          <body name="top_camera" pos="0.001 2.22045e-16 -0.022" quat="1.3267948966775328e-06 0.99999999999911982 -1.4003667818378436e-33 -2.4255168580016345e-33">
-            <inertial pos="0 0 0" quat="1 0 0 0" mass="1e-09" diaginertia="4e-14 4e-14 4e-14"/>
-          </body>
-        </body>
+      <body name="top_camera" pos="-0.16649488039785276 -0.3050000004052651 0.9543205295851617" quat="0.18301153618854285 -0.6830116697534223 0.683014178599981 -0.1830122084286862">
+        <inertial pos="0.005835504095314085 0.015111175330384422 -0.014266550145650479" quat="0.734185701818278 0.09283020737220371 -0.010299463644039157 -0.6724937389251155" mass="7.36722e-05" diaginertia="2.2820332929517444e-08 8.813044028474225e-08 9.802573532569974e-08"/>
+        <geom type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="d405_top"/>
       </body>
     </body>
   </worldbody>

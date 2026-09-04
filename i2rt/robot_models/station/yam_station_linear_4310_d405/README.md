@@ -5,8 +5,15 @@ third D405 mounted overhead on the gantry crossbar. `yam_station_linear_4310_d40
 generated from it carry every transform below at full precision. The `crank_4310` counterpart is
 [`../yam_station_crank_4310_d405/`](../yam_station_crank_4310_d405/README.md).
 
-`{side}_gripper` is the flange, i.e. the `joint6` output frame. `{side}_camera` and `top_camera` are
-massless pure frames carrying no geometry.
+`{side}_gripper` is the flange, i.e. the `joint6` output frame. `tcp_left` / `tcp_right` are the
+tool-centre frames, copied from `linear_4310`'s `grasp_site`: the flange turned 180° about X and
+carried out to the centre of the two fingertip facets — 144.650 mm along the flange's −Z and
+0.104 mm off its axis. It is measured from the tip meshes and holds at every finger opening, because
+the fingers slide transversely. Sites are a MuJoCo concept, so these live in the MJCF only.
+`{side}_camera` and `top_camera` are the optical frames. Each is also the frame of its camera assembly's merged mesh (one STL per
+assembly in [`../assets/`](../assets/), baked from the CAD parts): the mesh sits at identity in the
+body, so "where the geometry is" and "where the camera is" are the same frame, with nothing to
+compose between them.
 
 ## Conventions
 
@@ -14,10 +21,12 @@ massless pure frames carrying no geometry.
   transforms as `rpy` with `R = Rz(yaw) · Ry(pitch) · Rx(roll)`; read it there if you need Euler.
 - **Every camera frame's +Z is its optical axis** (ROS/OpenCV: +X right, +Y down, +Z forward).
 - Values are rounded to 3 decimals (1 mm) with trailing zeros dropped. The URDF and MJCF carry full
-  precision — read them if you need more digits, or the intermediate `*_bracket` / `*_body` frames.
+  precision — read them if you need more digits. Each camera is one link there, so every transform
+  below is a single `<origin>` you can read straight off, not a chain to compose.
   Renormalize any quaternion copied from here; rounding leaves them up to 5e-4 off unit length.
-- Every rotation here is a whole number of degrees (30°, 65°, ±90°, 180°). The URDF stores them as
-  6-significant-figure `rpy` constants (`1.5708`, `3.14159`, `0.523599`, `1.13446`), so the committed
+- Every rotation here is a whole number of degrees (30°, 65°, ±90°, 180°). Each committed `<origin>`
+  carries their composition at full precision, and because the CAD export wrote every factor as a
+  6-significant-figure `rpy` constant (`1.5708`, `3.14159`, `0.523599`, `1.13446`), the committed
   transforms sit ≤2.3 arcsec from exact.
 
 ## `left_base` → `top_camera`
@@ -52,9 +61,10 @@ serves both:
 
 The optical axis is canted 25° off the flange's −Z approach axis, tilted back toward the gripper
 centreline: the ray leaves the camera 70 mm behind and 77 mm below the flange and crosses the
-gripper axis at `z = -0.228 m`, i.e. at the fingertips, past `linear_4310`'s `grasp_site` at
-`z = -0.1347`.
+gripper axis at `z = -0.228 m` — 83 mm *beyond* the fingertip plane at `z = -0.14465` where
+`tcp_{side}` sits. The tool centre itself is 35.3 mm off the optical ray, so the wrist camera looks
+past the fingers rather than at them.
 
-The whole wrist-camera chain hangs off `joint6`'s output by fixed joints, so this transform holds at
+The wrist camera hangs off `joint6`'s output by a fixed joint, so this transform holds at
 every arm configuration. Because both arms carry the same mount and the same base orientation, it is
 also side-independent; only the base→top-camera extrinsics differ between arms.
