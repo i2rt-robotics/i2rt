@@ -9,7 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, Optional, Sequence
 
+from mcap.reader import make_reader
 from mcap.records import Schema
+from mcap_ros2.decoder import DecoderFactory
 from mcap_ros2.writer import Writer as McapWriter
 
 _JOINT_STATE_SCHEMA_NAME = "sensor_msgs/msg/JointState"
@@ -41,6 +43,8 @@ MSG: builtin_interfaces/Time
 int32 sec
 uint32 nanosec
 """
+
+_JOINT_STATE_TOPIC = "/joint_states"
 
 _STOP = object()
 
@@ -158,7 +162,7 @@ class RobotMcapRecorder:
         stamp = {"sec": stamp_sec, "nanosec": stamp_nanosec}
 
         self._writer.write_message(
-            topic="/joint_states",
+            topic=_JOINT_STATE_TOPIC,
             schema=self._joint_state_schema,
             message={
                 "header": {"stamp": stamp, "frame_id": ""},
@@ -211,3 +215,33 @@ class RobotMcapRecorder:
         self._thread.join()
         if self._writer_error is not None:
             raise RuntimeError(f"Failed to write MCAP recording: {self.path}") from self._writer_error
+
+
+@dataclass(frozen=True)
+class JointPositionRecording:
+    """The /joint_states positions of one recording, in the order they were written."""
+
+    names: tuple[str, ...]
+    timestamps: tuple[float, ...]  # seconds, the motor feedback timestamp of each sample
+    positions: tuple[tuple[float, ...], ...]  # radians, one row per sample, one column per joint name
+
+
+def read_joint_positions(path: Path) -> JointPositionRecording:
+    """Read the joint positions RobotMcapRecorder wrote back out of an MCAP file.
+
+    Only /joint_states is decoded; the torque and temperature topics are skipped.
+    """
+    names: tuple[str, ...] = ()
+    timestamps: list[float] = []
+    positions: list[tuple[float, ...]] = []
+
+    with path.open("rb") as stream:
+        reader = make_reader(stream, decoder_factories=[DecoderFactory()])
+        for _, _, message, joint_state in reader.iter_decoded_messages(topics=_JOINT_STATE_TOPIC):
+            names = tuple(joint_state.name)
+            timestamps.append(message.log_time / 1_000_000_000)
+            positions.append(tuple(joint_state.position))
+
+    if not positions:
+        raise ValueError(f"No {_JOINT_STATE_TOPIC} messages in {path}")
+    return JointPositionRecording(names=names, timestamps=tuple(timestamps), positions=tuple(positions))
