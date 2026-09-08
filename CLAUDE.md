@@ -109,6 +109,64 @@ a background send/receive thread, absolute-position wrap-around tracking, and op
 errored motors. `MotorChainRobot` sits on top of this. `motor_config_tool/` holds one-off maintenance CLIs
 (`set_zero.py`, `set_timeout.py`, `ping_motors.py`).
 
+**Startup register checks.** [motor_drivers/motor_check.py](i2rt/motor_drivers/motor_check.py) holds
+both of them, as one function each, and `DMChainCanInterface.__init__` runs whichever the caller asked
+for. **Both are opt-in** (`check_motor_types` / `check_motor_config`, each defaulting to `False`), and
+both real callers — arms and the Flow Base — opt into both. `_motor_rows` drops a passive `motor_type: ""`
+row (`no_gripper`, `yam_teaching_handle`) before either check sees it:
+
+- `verify_motor_types` reads every motor's read-only `Gr` (gear-ratio) register and refuses to build a
+  chain that does not hold the motor types its `motor_list` declares. Writes nothing. **Arms and the
+  Flow Base both run it.**
+- `verify_motor_config` compares `CTRL_MODE` — *repairing* it, written then verified then saved to
+  Flash, unless the caller passed `repair=False` — and compares `PMAX`/`VMAX`/`TMAX` against
+  `MotorType.get_motor_constants`, writing none of those three. **Arms and the Flow Base both run it
+  too**, but an arm is the strictest possible caller:
+  `MIT` puts `TMAX` in the blocking set and it names no `loop_critical_motor_ids`, so any of the three
+  registers on any of its motors refuses the launch, where the base can only be refused over
+  `PMAX`/`VMAX` on its four steering motors. `dm_driver.py --survey-only` surveys a chain's registers
+  without building a robot around it, and is the **only** `repair=False` caller: a wrong `CTRL_MODE` is
+  reported with the `dm_motor_registers.py write` command that fixes it and still refuses (non-zero
+  exit), never written. **Without** that flag the same command repairs `CTRL_MODE` and then goes on to
+  enable every motor and hold it at zero command. A survey still needs `--control-mode` — it is the
+  value every motor is *required to hold*, and (without `--survey-only`) the one saved to Flash to get
+  there, so `--check-motor-config` refuses to guess it: `MIT` for an arm, `VEL` for a base. On any arm
+  that is not a YAM v1 it also needs a per-id `--motor-type` list positionally matching `--motor-id`.
+
+Why the type check matters: the driver *encodes* every MIT command with the declared type's constants,
+so a wrong declaration silently rescales torque — a `yam_ultra_2` arm run as `--arm yam_ultra` is 2.8x
+on joint 4, with no error anywhere. Expected ratios come from `MotorType.get_gear_ratio`
+([motor_drivers/utils.py](i2rt/motor_drivers/utils.py)); adding a motor type to a config without an
+entry there is a CI failure, and the entry must come from a bench read, not the part number. `Gr` maps
+many-to-one (10 is a `DM4310`, `DM4310V` *or* `DM_FLOW_WHEEL`), so it identifies a motor's class, never
+which of a same-ratio pair is fitted — it cannot catch a steering/drive swap on the base.
+
+Neither is called directly. `run_startup_checks` is the entry point, and it enforces the two rules that
+have to hold for every caller rather than for whichever one remembered them: **types run before config**,
+and asking for config alone is a `ValueError` — on the wrong part the scaling registers hold *that* part's
+own scale, so a config check running first would report three consequent mismatches, tell the operator to
+rewrite `PMAX`, and write `CTRL_MODE` to Flash on a motor whose repair is to be swapped; and **a check
+that was asked for and cannot run refuses** rather than warning, because a non-socketcan channel that
+started anyway would trust every declared type and scaling unverified. Both flags off is still a no-op on
+any channel, which is what keeps an unchecked chain buildable on the `PCAN_USBBUS1` default.
+
+On the chain-building path the call sits **inside the constructor**, after its asserts and before the
+branch that opens the socket: everything above that line is pure Python, and register access needs an
+**idle bus**, so there is no later window. `--survey-only` is the other call site and builds no chain at
+all — it is also the one that passes `repair=False`, which is what makes "survey" true in both senses.
+Sim robots reach neither: `get_robot` returns a `SimRobot` before building a chain, so the sim-only
+test suite never opens a socket.
+
+Two things `verify_motor_config` cannot derive and takes as arguments. The chain's **control mode**
+gives it the `CTRL_MODE` to expect (`1` MIT / `2` pos-speed / `3` speed — `set_control` encodes only MIT
+and VEL, so the CLI offers only those two) and decides whether a wrong
+`TMAX` blocks: MIT encodes commanded torque through it, a `VEL` frame carries a raw float32 rad/s and
+nothing else, so on the base `TMAX` is telemetry-only. **`loop_critical_motor_ids`** says whose feedback
+the caller's loop acts on; omit it and every motor can block, which is what an arm wants, while
+`flow_base_controller` passes its four `STEER_MOTOR_IDS` so a drive or rail motor's mis-scaled feedback
+is logged and the base still starts. The base drives both flags from its one
+`--no-verify-motor-config`, so that flag still skips everything it used to.
+
 ### Flow Base (`i2rt/flow_base/`)
 
 A four-caster swerve mobile base (8 DM motors) plus an optional linear-rail lift. `flow_base_controller.py`

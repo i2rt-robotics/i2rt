@@ -1,20 +1,38 @@
 <?xml version="1.0"?>
-<!-- YAM dual-arm station with linear_4310 grippers and a gantry-mounted Intel RealSense D405.
+<!-- yambox dual-arm cell: two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel
+     RealSense D405 cameras, plus a DECXIN camera looking down over the workspace from the box's
+     camera mast.
 
-     Derived from the raw ONShape export `yam_station_d405` (214 links) by keeping only the two
-     arms and the top camera. The arms are the repo's own yam v1 model: a rigid-transform fit
-     against the export matches every arm link to <=0.2 mm, so all arm meshes are shared from
-     arm/yam/v1/assets/.
+     The arms and their wrist cameras are byte-identical to
+     ../yam_station_linear_4310_d405/yam_station_linear_4310_d405.urdf, the `left_base` ->
+     `right_base` offset of 0.61 m included, so the two arms sit exactly as they do on the YAM
+     station. All arm meshes are shared from arm/yam/v1/assets/.
 
-     Each camera is a single link. The export's per-part chain (bracket, cable holder, D405 body,
-     cover) is baked into one mesh expressed in the optical frame, so every camera <visual><origin>
-     is identity and the link frame, the mesh frame and the optical frame are the same frame. Those
-     merged meshes live in ../assets/; d405_top.stl is shared with the crank station, whose top
-     camera is this one verbatim. Each camera <inertial> is the sum of the baked parts' unit-density
+     Each camera is a single link. The export's per-part chains (a wrist bracket, cable holder,
+     D405 body and cover; the DECXIN's bracket, cover and camera body) are each baked into one mesh
+     expressed in the optical frame, so every camera <visual><origin> is identity and the link
+     frame, the mesh frame and the optical frame are the same frame. Those merged meshes live in
+     ../assets/, d405_wrist_linear_4310.stl shared with the YAM station; the per-part meshes and
+     frames are in git history. Each camera <inertial> is the sum of the baked parts' unit-density
      (1 kg/m^3) properties, the convention the CAD export used.
 
+     Only the DECXIN, its cover and its bracket are modelled from the box CAD, so the mast
+     (`YB01_A01_010_cameraShaft`) the bracket clamps to is absent, and with it the bracket's own arm
+     down to that mast: the merged mesh is cut at left_base z = 0.6194, flush under the bracket's
+     head plate, and capped, which drops a 16.9 x 16.9 mm post 153 mm long and its clamp foot.
+
+     `top_camera_joint` pairs the specified translation with the export's own 46 deg mount angle and
+     carries that whole chain in one origin, including the 180 deg roll that takes the export's
+     camera frame (+Y up) to the ROS/OpenCV optical convention (+Y down); that is why it holds more
+     digits than the ONShape constants elsewhere in this file. It was solved through the bracket
+     frame, and the solve is self-checking: it put the bracket at a pure 180 deg yaw to within
+     0.6 arcsec, which is how the export mounts it.
+
      `left_base` is the model root. See README.md for the camera extrinsics. -->
-<robot name="yam_station_linear_4310_d405">
+<robot name="yambox_linear_4310_d405_decxin">
+    <material name="0.541176_0.682353_0.839216_0.000000_0.000000">
+        <color rgba="0.541176 0.682353 0.839216 1" />
+    </material>
     <material name="0.615686_0.811765_0.929412_0.000000_0.000000">
         <color rgba="0.615686 0.811765 0.929412 1" />
     </material>
@@ -249,6 +267,10 @@
         <limit effort="1" velocity="1" lower="0" upper="0.04695" />
     </joint>
 
+
+
+
+
     <joint name="left_camera_joint" type="fixed">
         <origin xyz="-0.07043497874827391 -7.656797949839866e-08 -0.07700592901799347" rpy="2.70525 3.673205103638111e-06 1.5707963267814136" />
         <parent link="left_gripper" />
@@ -461,6 +483,10 @@
         <limit effort="1" velocity="1" lower="0" upper="0.04695" />
     </joint>
 
+
+
+
+
     <joint name="right_camera_joint" type="fixed">
         <origin xyz="-0.07043497874827391 -7.656797949839866e-08 -0.07700592901799347" rpy="2.70525 3.673205103638111e-06 1.5707963267814136" />
         <parent link="right_gripper" />
@@ -476,21 +502,24 @@
     </joint>
     <link name="top_camera">
         <inertial>
-            <mass value="7.36722e-05" />
-            <origin xyz="0.005835504095314085 0.015111175330384422 -0.014266550145650479" rpy="0 0 0" />
-            <inertia ixx="8.773127463629006e-08" ixy="6.3270846375786265e-09" ixz="-6.780441023943824e-10" iyy="2.434818063759686e-08" iyz="-8.281123625198273e-09" izz="9.689705326607251e-08" />
+            <mass value="4.0957037e-05" />
+            <origin xyz="1.9814539815456122e-08 0.0070085741482612662 -0.023777967454422358" rpy="0 0 0" />
+            <inertia ixx="1.6748267010842182e-08" ixy="-2.1698073852873013e-12" ixz="-1.8116213309633616e-14" iyy="1.1019763055897229e-08" iyz="3.3807946372744116e-09" izz="1.848749318467738e-08" />
         </inertial>
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0" />
             <geometry>
-                <mesh filename="../assets/d405_top.stl" scale="1 1 1" />
+                <mesh filename="../assets/decxin_top.stl" scale="1 1 1" />
             </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
+            <material name="0.541176_0.682353_0.839216_0.000000_0.000000" />
         </visual>
     </link>
 
+
+
+
     <joint name="top_camera_joint" type="fixed">
-        <origin xyz="-0.16649488039785276 -0.3050000004052651 0.9543205295851617" rpy="-2.6179963071795864 -2.220446049250313e-16 -1.5708" />
+        <origin xyz="0.027300000268037632 -0.30499999974662501 0.62729999996097807" rpy="-2.373647782711898 3.9441448501430418e-13 -1.5707963267948952" />
         <parent link="left_base" />
         <child link="top_camera" />
     </joint>

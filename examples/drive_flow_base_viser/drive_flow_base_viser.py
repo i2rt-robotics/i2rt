@@ -44,6 +44,11 @@ class Args:
     control_hz: float = 50.0
     """Control-loop rate (Hz): how often the command is sent and the scene refreshed. Keep it
     well above the base's 0.25 s (4 Hz) command-safety timeout."""
+    verify_motor_config: bool = True
+    """Check every motor's control mode and feedback scaling before opening the chain. Pass
+    --no-verify-motor-config only for bench work with motors missing or a busy bus; this example
+    drives the base, so a mis-scaled steering motor is not something to start on. Ignored when
+    --host is set: the controller already running on the base did its own check at launch."""
 
 
 def make_backend(args: Args) -> object:
@@ -56,6 +61,7 @@ def make_backend(args: Args) -> object:
             max_vel=(args.max_linear, args.max_linear, args.max_angular),
             channel=args.channel,
             auto_start=True,
+            verify_motor_config=args.verify_motor_config,
         )
     from i2rt.flow_base.flow_base_client import FlowBaseClient
 
@@ -72,6 +78,21 @@ def yaw_to_wxyz(theta: float) -> np.ndarray:
     """Quaternion (w, x, y, z) for a rotation of `theta` about +Z."""
     half = 0.5 * theta
     return np.array([np.cos(half), 0.0, 0.0, np.sin(half)])
+
+
+def caster_fault_reported(backend: object) -> bool:
+    """Print and return True once the base has latched a steering fault and ramped itself to a stop.
+
+    Without this the failure is silent from here: the base stops and its control loop exits, but the
+    chain stays alive, so ``running()`` keeps returning True and the sliders carry on sending commands
+    nothing will ever act on. Only a local ``Vehicle`` exposes the fault -- with ``--host`` the
+    controller runs in its own process and reports it there.
+    """
+    fault = getattr(backend, "caster_fault", lambda: None)()
+    if fault is None:
+        return False
+    print(f"\n{fault.render()}", file=sys.stderr)
+    return True
 
 
 def main(args: Args) -> None:
@@ -118,6 +139,9 @@ def main(args: Args) -> None:
 
     try:
         while True:
+            if caster_fault_reported(backend):
+                status.content = "**STOPPED — caster steering fault.** See the terminal; the base will not move."
+                break
             cmd = np.array([float(vx.value), float(vy.value), float(wz.value)])
             enabled = bool(enable.value)
             if enabled:

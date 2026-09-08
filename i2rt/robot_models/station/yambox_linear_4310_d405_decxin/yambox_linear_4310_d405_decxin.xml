@@ -1,16 +1,24 @@
-<!-- YAM dual-arm station with linear_4310 grippers and a gantry-mounted Intel RealSense D405,
-     generated from yam_station_linear_4310_d405.urdf (the source of truth) with the repo's standard
-     URDF -> MJCF conversion. Kinematics only: no defaults, actuators, cameras or keyframe.
+<!-- yambox dual-arm cell: two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel
+     RealSense D405 cameras, plus a DECXIN camera looking down over the workspace, generated from
+     yambox_linear_4310_d405_decxin.urdf (the source of truth) with the repo's standard URDF -> MJCF
+     conversion. Kinematics only: no defaults, actuators, cameras or keyframe.
 
-     `left_base` is the model root; `right_base` and `top_camera` hang off it as static
-     bodies. Both arms share one <asset> mesh list — the arm meshes are referenced from
-     arm/yam/v1/assets/ rather than duplicated here, and the two merged camera meshes live in
-     ../assets/, with d405_top.stl shared with the crank station.
+     The arms and their wrist cameras are byte-identical to
+     ../yam_station_linear_4310_d405/yam_station_linear_4310_d405.xml, `right_base`'s 0.61 m offset
+     included. Only the DECXIN, its cover and its bracket are modelled from the box CAD; the mast
+     (`YB01_A01_010_cameraShaft`) the bracket clamps to is absent, and so is the bracket's own arm
+     down to it, cut flush under the bracket's head plate. See README.md.
+
+     `left_base` is the model root; `right_base` and `top_camera` hang off it as static bodies.
+     Every arm mesh is referenced from arm/yam/v1/assets/ rather than duplicated here, and the two
+     merged camera meshes live in ../assets/, with d405_wrist_linear_4310.stl shared with the YAM
+     station.
 
      The `*_camera` and `top_camera` bodies are the optical frames (+Z along the optical axis,
-     ROS/OpenCV convention) and each carries its camera assembly's merged mesh, so its <geom>
-     needs no pos/quat: body frame, mesh frame and optical frame are one. See README.md for the
-     extrinsics.
+     ROS/OpenCV convention) and each carries its camera assembly's merged mesh, so its <geom> needs
+     no pos/quat: body frame, mesh frame and optical frame are one. `top_camera`'s quat includes the
+     180 deg roll that takes the export's camera frame (+Y up) to that convention. See README.md for
+     the extrinsics.
 
      `tcp_left` / `tcp_right` are the tool-centre frames, taken from
      gripper/linear_4310/linear_4310.xml's `grasp_site`: the flange turned 180 deg about X and
@@ -18,7 +26,7 @@
      0.104 mm off its axis. Measured from the tip meshes, and the same point at every finger
      opening because the fingers slide transversely. Sites are a MuJoCo concept, so the URDF has no
      counterpart. -->
-<mujoco model="yam_station_linear_4310_d405">
+<mujoco model="yambox_linear_4310_d405_decxin">
   <compiler angle="radian" meshdir="."/>
 
   <asset>
@@ -32,7 +40,7 @@
     <mesh name="tip_left" file="../../arm/yam/v1/assets/tip_left.stl"/>
     <mesh name="tip_right" file="../../arm/yam/v1/assets/tip_right.stl"/>
     <mesh name="d405_wrist_linear_4310" file="../assets/d405_wrist_linear_4310.stl"/>
-    <mesh name="d405_top" file="../assets/d405_top.stl"/>
+    <mesh name="decxin_top" file="../assets/decxin_top.stl"/>
   </asset>
 
   <worldbody>
@@ -133,9 +141,9 @@
           </body>
         </body>
       </body>
-      <body name="top_camera" pos="-0.16649488039785276 -0.3050000004052651 0.9543205295851617" quat="0.18301153618854285 -0.6830116697534223 0.683014178599981 -0.1830122084286862">
-        <inertial pos="0.005835504095314085 0.015111175330384422 -0.014266550145650479" quat="0.734185701818278 0.09283020737220371 -0.010299463644039157 -0.6724937389251155" mass="7.36722e-05" diaginertia="2.2820332929517444e-08 8.813044028474225e-08 9.802573532569974e-08"/>
-        <geom type="mesh" rgba="0.615686 0.811765 0.929412 1" mesh="d405_top"/>
+      <body name="top_camera" pos="0.027300000268037632 -0.30499999974662501 0.62729999996097807" quat="0.26488686248184062 -0.65561799097075357 0.65561799097085716 -0.26488686248158172">
+        <inertial pos="1.9814539815456122e-08 0.0070085741482612662 -0.023777967454422358" quat="0.12945190388581945 0.69525945169384606 0.69509383136590286 -0.12923260040631726" mass="4.0957037e-05" diaginertia="9.7166124826973428e-09 1.674826738109139e-08 1.9790643387628062e-08"/>
+        <geom type="mesh" rgba="0.541176 0.682353 0.839216 1" mesh="decxin_top"/>
       </body>
     </body>
   </worldbody>

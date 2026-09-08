@@ -1,22 +1,22 @@
 <?xml version="1.0"?>
 <!-- YAM dual-arm station with crank_4310 grippers and a gantry-mounted Intel RealSense D405.
 
-     The arms, the left->right base offset and the whole top-camera chain are the linear station
+     The arms, the left->right base offset and the whole top camera are the linear station
      (yam_station_linear_4310_d405.urdf) unchanged; only the {side}_gripper subtree differs. That
-     subtree is grafted from arm/yam/v1/yam_crank_4310_d405.xml, which is an MJCF (there is no
-     crank URDF), so this file is authored from a MuJoCo model rather than the other way round.
-     It reproduces that model's flange->camera frame to 0.434 um / 6.75 arcsec, the residual of
-     writing the chain as whole-degree rpy constants. See README.md.
+     subtree was grafted from arm/yam/v1/yam_crank_4310_d405.xml, an MJCF (there is no crank URDF),
+     so this file was authored from a MuJoCo model rather than the other way round. It reproduced
+     that model's flange->camera frame to 0.434 um / 6.75 arcsec, the residual of writing the chain
+     as whole-degree rpy constants. That MJCF has since been removed; see git history for it.
 
-     The wrist-camera link frames are the mesh frames, so every camera <visual><origin> is
-     identity and each <inertial> is the STL's unit-density (1 kg/m^3) property, the same
-     convention the CAD export used for the linear station's camera parts.
+     Each camera is a single link. The export's per-part chain (bracket, cable holder, D405 body)
+     is baked into one mesh expressed in the optical frame, so every camera <visual><origin> is
+     identity and the link frame, the mesh frame and the optical frame are the same frame. Those
+     merged meshes live in ../assets/; d405_top.stl is shared with the linear station. Each camera
+     <inertial> is the sum of the baked parts' unit-density (1 kg/m^3) properties, the convention
+     the CAD export used.
 
      `left_base` is the model root. -->
 <robot name="yam_station_crank_4310_d405">
-    <material name="0.647059_0.647059_0.647059_0.000000_0.000000">
-        <color rgba="0.647059 0.647059 0.647059 1" />
-    </material>
     <material name="1.000000_0.600000_0.000000_0.000000_0.000000">
         <color rgba="1 0.6 0 1" />
     </material>
@@ -172,54 +172,19 @@
             <material name="0.749020_0.749020_0.749020_0.000000_0.000000" />
         </visual>
     </link>
-    <link name="left_camera_bracket">
-        <inertial>
-            <mass value="2.52751e-05" />
-            <origin xyz="0.00699823 -0.032608 0.0284953" rpy="0 -0 0" />
-            <inertia ixx="1.9992e-08" ixy="2.28634e-10" ixz="-7.73464e-10" iyy="1.38564e-08" iyz="2.75172e-09" izz="8.02867e-09" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/camera_bracket_for_D405_crank_4310_.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
-    <link name="left_camera_cable_holder">
-        <inertial>
-            <mass value="1.16203e-06" />
-            <origin xyz="0.00792011 -0.0526775 0.0654133" rpy="0 -0 0" />
-            <inertia ixx="4.19855e-11" ixy="0" ixz="8.49206e-12" iyy="6.51781e-11" iyz="0" izz="2.77341e-11" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/Cable_holder.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.647059_0.647059_0.647059_0.000000_0.000000" />
-        </visual>
-    </link>
-    <link name="left_camera_body">
-        <inertial>
-            <mass value="3.92631e-05" />
-            <origin xyz="0.000132413 8.24103e-05 0.0114538" rpy="0 -0 0" />
-            <inertia ixx="7.37973e-09" ixy="4.28448e-13" ixz="-2.45712e-11" iyy="7.33053e-09" iyz="-1.03418e-11" izz="1.12774e-08" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/D405_with_depth_.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
     <link name="left_camera">
         <inertial>
-            <mass value="1e-09" />
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <inertia ixx="4e-14" ixy="0" ixz="0" iyy="4e-14" iyz="0" izz="4e-14" />
+            <mass value="6.570123e-05" />
+            <origin xyz="0.005367325026457384 0.00679312769439656 -0.012947035458291244" rpy="0 0 0" />
+            <inertia ixx="2.749895614015092e-08" ixy="3.850294167595482e-10" ixz="-3.708303331020041e-09" iyy="2.663221056092581e-08" iyz="-5.362251639770525e-09" izz="3.0731279098331074e-08" />
         </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="../assets/d405_wrist_crank_4310.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
+        </visual>
     </link>
 
     <joint name="left_joint1" type="revolute">
@@ -286,27 +251,9 @@
         <limit effort="1" velocity="1" lower="0" upper="0.039574" />
     </joint>
 
-    <joint name="left_camera_bracket_joint" type="fixed">
-        <origin xyz="-0.0503998 0.0353 -0.0505" rpy="0 -1.5708 0" />
-        <parent link="left_gripper" />
-        <child link="left_camera_bracket" />
-    </joint>
-
-    <joint name="left_camera_cable_holder_joint" type="fixed">
-        <origin xyz="-0.00765908 -0.0076 0.125721" rpy="-3.14159 0.436332 3.14159" />
-        <parent link="left_camera_bracket" />
-        <child link="left_camera_cable_holder" />
-    </joint>
-
-    <joint name="left_camera_body_joint" type="fixed">
-        <origin xyz="-0.0155207 -0.0246001 0.0293289" rpy="0.698132 0 1.5708" />
-        <parent link="left_camera_bracket" />
-        <child link="left_camera_body" />
-    </joint>
-
     <joint name="left_camera_joint" type="fixed">
-        <origin xyz="-0.009 0 0" rpy="3.14159 0 0" />
-        <parent link="left_camera_body" />
+        <origin xyz="-0.07972864298920912 0.0016999000000607195 -0.06602077467211452" rpy="2.268922 3.673205103416066e-06 1.5707963267814042" />
+        <parent link="left_gripper" />
         <child link="left_camera" />
     </joint>
 
@@ -437,54 +384,19 @@
             <material name="0.749020_0.749020_0.749020_0.000000_0.000000" />
         </visual>
     </link>
-    <link name="right_camera_bracket">
-        <inertial>
-            <mass value="2.52751e-05" />
-            <origin xyz="0.00699823 -0.032608 0.0284953" rpy="0 -0 0" />
-            <inertia ixx="1.9992e-08" ixy="2.28634e-10" ixz="-7.73464e-10" iyy="1.38564e-08" iyz="2.75172e-09" izz="8.02867e-09" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/camera_bracket_for_D405_crank_4310_.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
-    <link name="right_camera_cable_holder">
-        <inertial>
-            <mass value="1.16203e-06" />
-            <origin xyz="0.00792011 -0.0526775 0.0654133" rpy="0 -0 0" />
-            <inertia ixx="4.19855e-11" ixy="0" ixz="8.49206e-12" iyy="6.51781e-11" iyz="0" izz="2.77341e-11" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/Cable_holder.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.647059_0.647059_0.647059_0.000000_0.000000" />
-        </visual>
-    </link>
-    <link name="right_camera_body">
-        <inertial>
-            <mass value="3.92631e-05" />
-            <origin xyz="0.000132413 8.24103e-05 0.0114538" rpy="0 -0 0" />
-            <inertia ixx="7.37973e-09" ixy="4.28448e-13" ixz="-2.45712e-11" iyy="7.33053e-09" iyz="-1.03418e-11" izz="1.12774e-08" />
-        </inertial>
-        <visual>
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/D405_with_depth_.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
     <link name="right_camera">
         <inertial>
-            <mass value="1e-09" />
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <inertia ixx="4e-14" ixy="0" ixz="0" iyy="4e-14" iyz="0" izz="4e-14" />
+            <mass value="6.570123e-05" />
+            <origin xyz="0.005367325026457384 0.00679312769439656 -0.012947035458291244" rpy="0 0 0" />
+            <inertia ixx="2.749895614015092e-08" ixy="3.850294167595482e-10" ixz="-3.708303331020041e-09" iyy="2.663221056092581e-08" iyz="-5.362251639770525e-09" izz="3.0731279098331074e-08" />
         </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="../assets/d405_wrist_crank_4310.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
+        </visual>
     </link>
 
     <joint name="right_joint1" type="revolute">
@@ -551,27 +463,9 @@
         <limit effort="1" velocity="1" lower="0" upper="0.039574" />
     </joint>
 
-    <joint name="right_camera_bracket_joint" type="fixed">
-        <origin xyz="-0.0503998 0.0353 -0.0505" rpy="0 -1.5708 0" />
-        <parent link="right_gripper" />
-        <child link="right_camera_bracket" />
-    </joint>
-
-    <joint name="right_camera_cable_holder_joint" type="fixed">
-        <origin xyz="-0.00765908 -0.0076 0.125721" rpy="-3.14159 0.436332 3.14159" />
-        <parent link="right_camera_bracket" />
-        <child link="right_camera_cable_holder" />
-    </joint>
-
-    <joint name="right_camera_body_joint" type="fixed">
-        <origin xyz="-0.0155207 -0.0246001 0.0293289" rpy="0.698132 0 1.5708" />
-        <parent link="right_camera_bracket" />
-        <child link="right_camera_body" />
-    </joint>
-
     <joint name="right_camera_joint" type="fixed">
-        <origin xyz="-0.009 0 0" rpy="3.14159 0 0" />
-        <parent link="right_camera_body" />
+        <origin xyz="-0.07972864298920912 0.0016999000000607195 -0.06602077467211452" rpy="2.268922 3.673205103416066e-06 1.5707963267814042" />
+        <parent link="right_gripper" />
         <child link="right_camera" />
     </joint>
 
@@ -582,59 +476,24 @@
         <parent link="left_base" />
         <child link="right_base" />
     </joint>
-    <link name="top_camera_bracket">
-        <inertial>
-            <mass value="3.43841e-05" />
-            <origin xyz="0.0352504 -0.00106856 0.0443451" rpy="0 -0 0" />
-            <inertia ixx="3.88627e-08" ixy="1.64991e-09" ixz="-2.84e-08" iyy="5.96877e-08" iyz="1.36469e-09" izz="4.12781e-08" />
-        </inertial>
-        <visual>
-            <origin xyz="0.003 0.001 0.03" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../assets/Bracket_for_top_D405.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
-    <link name="top_camera_body">
-        <inertial>
-            <mass value="3.92871e-05" />
-            <origin xyz="0.0101324 8.25213e-05 -0.0115514" rpy="0 -0 0" />
-            <inertia ixx="7.38352e-09" ixy="4.29168e-13" ixz="-2.46066e-11" iyy="7.33437e-09" iyz="-1.0379e-11" izz="1.12801e-08" />
-        </inertial>
-        <visual>
-            <origin xyz="0.01 0 -0.023" rpy="0 -0 0" />
-            <geometry>
-                <mesh filename="../../arm/yam/v1/assets/d405/D405_with_depth_.stl" scale="1 1 1" />
-            </geometry>
-            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
-        </visual>
-    </link>
     <link name="top_camera">
         <inertial>
-            <mass value="1e-09" />
-            <origin xyz="0 0 0" rpy="0 -0 0" />
-            <inertia ixx="4e-14" ixy="0" ixz="0" iyy="4e-14" iyz="0" izz="4e-14" />
+            <mass value="7.36722e-05" />
+            <origin xyz="0.005835504095314085 0.015111175330384422 -0.014266550145650479" rpy="0 0 0" />
+            <inertia ixx="8.773127463629006e-08" ixy="6.3270846375786265e-09" ixz="-6.780441023943824e-10" iyy="2.434818063759686e-08" iyz="-8.281123625198273e-09" izz="9.689705326607251e-08" />
         </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="../assets/d405_top.stl" scale="1 1 1" />
+            </geometry>
+            <material name="0.615686_0.811765_0.929412_0.000000_0.000000" />
+        </visual>
     </link>
 
-    <joint name="top_camera_bracket_joint" type="fixed">
-        <origin xyz="-0.239181381 -0.30599996 0.909873086" rpy="0 0 0" />
-        <parent link="left_base" />
-        <child link="top_camera_bracket" />
-    </joint>
-
-    <joint name="top_camera_body_joint" type="fixed">
-        <origin xyz="0.0616865 0.002 0.0635" rpy="0.523599 -0 -1.5708" />
-        <axis xyz="0 0 1" />
-        <parent link="top_camera_bracket" />
-        <child link="top_camera_body" />
-    </joint>
-
     <joint name="top_camera_joint" type="fixed">
-        <origin xyz="0.001 2.22045e-16 -0.022" rpy="3.14159 4.85103e-33 -2.80074e-33" />
-        <axis xyz="0 0 1" />
-        <parent link="top_camera_body" />
+        <origin xyz="-0.16649488039785276 -0.3050000004052651 0.9543205295851617" rpy="-2.6179963071795864 -2.220446049250313e-16 -1.5708" />
+        <parent link="left_base" />
         <child link="top_camera" />
     </joint>
 </robot>

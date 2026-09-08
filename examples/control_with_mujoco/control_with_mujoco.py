@@ -6,13 +6,19 @@ process is just glue: it spawns both workers, hosts the shared
 memory + command queue that they speak through, and shuts them
 down together.
 
+macOS is the exception: MuJoCo's passive viewer only opens from the
+process ``mjpython`` launched (a spawned child never inherits its
+UI-thread hook), so there the viewer runs in the main process and
+only the robot gets a subprocess. Launch with ``mjpython`` instead
+of ``python``.
+
 Starts in VIS mode, mirroring the robot's joint state (gravity-comp
 active on real hardware). Press SPACE in the viewer to toggle into
 CONTROL mode; then use the per-joint sliders or double-click the
 mocap marker + ctrl+drag for IK. Commands are blocked on self-
 collision.
 
-Usage:
+Usage (use ``mjpython`` in place of ``python`` on macOS):
     python examples/control_with_mujoco/control_with_mujoco.py --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripper linear_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra_2 --sim
@@ -369,6 +375,20 @@ def _robot_worker(
 # ---------------------------------------------------------------------------
 
 
+def _needs_mjpython() -> bool:
+    """True on macOS when this interpreter was not launched by ``mjpython``.
+
+    ``mujoco.viewer.launch_passive`` needs a UI-thread hook that only
+    ``mjpython`` installs, in the process it started. Checking up front turns
+    a crash deep inside the viewer into an actionable message.
+    """
+    if sys.platform != "darwin":
+        return False
+    import mujoco.viewer
+
+    return getattr(mujoco.viewer, "_MJPYTHON", None) is None
+
+
 def _viewer_worker(
     gripper_value: str,
     site_arg: Optional[str],
@@ -453,6 +473,11 @@ def main() -> None:
         raise SystemExit("--gripper cannot be 'no_gripper' when --arm is 'no_arm'")
     if args.record and args.sim:
         raise SystemExit("--record requires real hardware motor feedback; remove --sim")
+    if _needs_mjpython():
+        raise SystemExit(
+            "[control] On macOS the MuJoCo viewer must be launched by mjpython. Re-run:\n"
+            f"    uv run mjpython {' '.join(sys.argv)}"
+        )
 
     mp.set_start_method("spawn", force=True)
 
@@ -487,26 +512,35 @@ def main() -> None:
             robot_proc.terminate()
         raise SystemExit(1) from e
 
-    viewer_proc = mp.Process(
-        target=_viewer_worker,
-        name="viewer_worker",
-        args=(args.gripper, args.site, args.dt, cmd_queue, meta, stop_event),
-    )
-    viewer_proc.start()
+    viewer_args = (args.gripper, args.site, args.dt, cmd_queue, meta, stop_event)
+    viewer_proc: Optional[mp.Process] = None
 
     try:
-        mp.connection.wait([robot_proc.sentinel, viewer_proc.sentinel])
+        if sys.platform == "darwin":
+            # mjpython's UI-thread hook lives only in the process it launched
+            # and is not inherited by a spawned child, so the viewer has to run
+            # here. The robot keeps its own process either way.
+            _viewer_worker(*viewer_args)
+        else:
+            viewer_proc = mp.Process(
+                target=_viewer_worker,
+                name="viewer_worker",
+                args=viewer_args,
+            )
+            viewer_proc.start()
+            mp.connection.wait([robot_proc.sentinel, viewer_proc.sentinel])
     except KeyboardInterrupt:
         pass
     finally:
+        procs = [p for p in (robot_proc, viewer_proc) if p is not None]
         stop_event.set()
-        for p in (robot_proc, viewer_proc):
+        for p in procs:
             if p.is_alive():
                 try:
                     os.kill(p.pid, signal.SIGINT)
                 except ProcessLookupError:
                     pass
-        for p in (robot_proc, viewer_proc):
+        for p in procs:
             join_timeout = 10.0 if args.record and p is robot_proc else 2.0
             p.join(timeout=join_timeout)
             if p.is_alive():
