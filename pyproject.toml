@@ -37,12 +37,29 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PyRoki inverse kinematics, used by examples/adamo_teleop. Kept out of the base
+# install: it pulls in jax, and the two solver packages live on git rather than PyPI
+# (PyPI's `jaxls` is an unrelated 2024 package that will not import against modern jax).
+teleop = [
+    "jax>=0.6",
+    "jax-dataclasses>=1.6",
+    "jaxlie>=1.5",
+    "jaxls",
+    "pyroki",
+    "yourdfpy>=0.0.60",
+]
 dev = [
     "pyright>=1.1.408",
     "pytest>=8.4.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+
+[tool.uv.sources]
+# Pinned to the revisions the reference teleop rig runs, so a resolve cannot silently
+# move the solver under a tuned set of IK weights.
+pyroki = { git = "https://github.com/chungmin99/pyroki.git", rev = "388e43e1fc0d0ee382968d3dd72970fd62a0450c" }
+jaxls = { git = "https://github.com/brentyi/jaxls.git", rev = "50a58be88c5ef74532f09e3f55268b4f02c490e3" }
 
 [tool.uv]
 # ruckig 0.15.3 publishes only an sdist, so it is compiled from source on a fresh

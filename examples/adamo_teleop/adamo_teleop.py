@@ -3,7 +3,8 @@
 Each arm ramps to a ready pose, then follows one hand: can0 the left controller,
 can1 the right. A controller's grip is a clutch -- hold it to pin the hand to where
 that arm's end-effector already is and move the arm one-for-one from there, release
-to freeze. The trigger closes that arm's gripper.
+to freeze. The trigger closes that arm's gripper, and Y (B on the right controller)
+walks that arm back to the pose it started in.
 
 The operator's view is the rig's two USB cameras, composited side by side into one
 ``stereo=True`` track. The whole capture -> decode -> composite -> encode graph runs
@@ -18,21 +19,21 @@ import threading
 import time
 
 import adamo
-import mink
-import mujoco
+import jaxlie
 import numpy as np
 from adamo.xr import PoseStamped, XRJoy, subscribe_xr_control
+from yam_ik import REST_POSE, VELOCITY_LIMITS, YamIK
 
 from i2rt.robots.get_robot import get_yam_robot
-from i2rt.robots.kinematics import Kinematics
-from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
+from i2rt.robots.utils import ArmType, GripperType
 
 NAME = "yam-san-mateo"
 ARMS = (("can0", "left"), ("can1", "right"))
-SITE = "grasp_site"
-READY = np.array([0.0, 1.0, 1.0, 0.0, 0.0, 0.0])
+READY = REST_POSE  # the IK's posture bias, so the arm starts where the solver wants to sit
 DT = 0.02
-MAX_JOINT_STEP = 0.05
+# Rehoming runs a sixth of the speed the IK clamps hand-tracking to: nobody is steering it,
+# so it should look deliberate rather than as quick as the arm can manage.
+HOME_SPEED = VELOCITY_LIMITS / 6.0
 
 TRACK = "zed"
 # The rig's two USB cameras, in left/right order. Each is one of a pair of nodes on its
@@ -48,7 +49,7 @@ BITRATE_KBPS = 12000
 XR2W = np.array([[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
 lock = threading.Lock()
-state = {side: {"pos": None, "rot": None, "clutch": False, "grip": None} for _, side in ARMS}
+state = {side: {"pos": None, "rot": None, "clutch": False, "grip": None, "home": False} for _, side in ARMS}
 
 
 def quat_to_mat(q: object) -> np.ndarray:
@@ -73,6 +74,8 @@ def on_sample(sample: object) -> None:
             side["rot"] = XR2W @ quat_to_mat(msg.orientation) @ XR2W.T
         elif len(parts) == 3 and parts[2] == "joy" and isinstance(msg, XRJoy):
             side["clutch"] = len(msg.buttons) > 1 and bool(msg.buttons[1])
+            # Y on the left controller, B on the right: the same index in the Touch mapping.
+            side["home"] = len(msg.buttons) > 5 and bool(msg.buttons[5])
             trigger = (
                 float(msg.axes[4])
                 if len(msg.axes) > 4 and msg.axes[4] > 0
@@ -80,13 +83,6 @@ def on_sample(sample: object) -> None:
             )
             if trigger > 0.05:  # a released trigger leaves the gripper where it was
                 side["grip"] = 1.0 - trigger
-
-
-def pose(rot: np.ndarray, pos: np.ndarray) -> np.ndarray:
-    target = np.eye(4)
-    target[:3, :3] = rot
-    target[:3, 3] = pos
-    return target
 
 
 def eye_branch(device: str, sink: str) -> str:
@@ -113,10 +109,7 @@ PIPELINE = "  ".join(
     )
 )
 
-xml_path = combine_arm_and_gripper_xml(ArmType.YAM, GripperType.LINEAR_4310)
-model = mujoco.MjModel.from_xml_path(xml_path)
-kin = Kinematics(xml_path, SITE)
-limits = [mink.ConfigurationLimit(model)]
+ik = YamIK()
 
 
 class Arm:
@@ -126,32 +119,47 @@ class Arm:
         self.side = side
         self.robot = get_yam_robot(channel=channel, arm_type=ArmType.YAM, gripper_type=GripperType.LINEAR_4310)
         self.cmd = self.robot.get_joint_pos()
-        self.q_full = np.zeros(model.nq)
-        self.q_full[:6] = READY
-        ready_pose = kin.fk(self.q_full, SITE)
-        self.rot, self.target = ready_pose[:3, :3].copy(), ready_pose[:3, 3].copy()
+        self.q = READY.copy()
+        position, wxyz = ik.tcp_pose(self.q)
+        self.target, self.rot = position, np.asarray(jaxlie.SO3(wxyz).as_matrix())
         self.anchor = None
+        self.homing = False
 
     def step(self) -> None:
         with lock:
             s = state[self.side]
-            hand, hand_rot, clutch, grip = s["pos"], s["rot"], s["clutch"], s["grip"]
-        if clutch and hand is not None:
+            hand, hand_rot, clutch, grip, home = s["pos"], s["rot"], s["clutch"], s["grip"], s["home"]
+        tracking = clutch and hand is not None
+        if home and not tracking and not self.homing:  # a held clutch is never overridden
+            self.homing = True
+            print(f"[teleop] {self.side} rehoming to {np.round(READY, 3)}", flush=True)
+
+        if tracking:
+            self.homing = False
             if self.anchor is None:
                 self.anchor = (hand, hand_rot, self.target, self.rot)
                 print(f"[teleop] {self.side} grip held, tracking from {np.round(self.target, 4)}", flush=True)
             hand0, hand_rot0, ee0, ee_rot0 = self.anchor
-            candidate, candidate_rot = ee0 + (hand - hand0), hand_rot @ hand_rot0.T @ ee_rot0
-            ok, solution = kin.ik(
-                pose(candidate_rot, candidate), SITE, init_q=self.q_full, limits=limits, max_iters=40
-            )
-            if ok:  # a failed solve holds the target, so pushing into an unreachable pose stalls
-                self.target, self.rot, self.q_full = candidate, candidate_rot, solution.copy()
-            # Clamped so a solution that jumped across a singularity is walked, not snapped.
-            self.cmd[:6] = np.clip(self.q_full[:6], self.cmd[:6] - MAX_JOINT_STEP, self.cmd[:6] + MAX_JOINT_STEP)
-        elif self.anchor is not None:
-            self.anchor = None
-            print(f"[teleop] {self.side} grip released, holding {np.round(self.target, 4)}", flush=True)
+            self.target, self.rot = ee0 + (hand - hand0), hand_rot @ hand_rot0.T @ ee_rot0
+            # The solve is warm-started from the last configuration and rate-limited inside, so an
+            # unreachable target degrades into a lagging arm rather than a jump, and recovers.
+            wxyz = np.asarray(jaxlie.SO3.from_matrix(self.rot).wxyz)
+            self.q, _, _ = ik.solve(self.target, wxyz, self.q, DT)
+            self.cmd[:6] = self.q
+        else:
+            if self.anchor is not None:
+                self.anchor = None
+                print(f"[teleop] {self.side} grip released, holding {np.round(self.target, 4)}", flush=True)
+            if self.homing:
+                # Joint space, at HOME_SPEED. The target is carried along so a re-clutch
+                # mid-rehome anchors to where the arm actually is.
+                self.q = self.q + np.clip(READY - self.q, -HOME_SPEED * DT, HOME_SPEED * DT)
+                position, wxyz = ik.tcp_pose(self.q)
+                self.target, self.rot = position, np.asarray(jaxlie.SO3(wxyz).as_matrix())
+                self.cmd[:6] = self.q
+                if np.array_equal(self.q, READY):
+                    self.homing = False
+                    print(f"[teleop] {self.side} rehomed", flush=True)
         if grip is not None:
             self.cmd[6] = grip
         self.robot.command_joint_pos(self.cmd)
@@ -163,6 +171,9 @@ adamo_robot = adamo.Robot(api_key=os.environ["ADAMO_API_KEY"], name=NAME)
 # negotiates, and this graph has already decoded to raw NV12 itself.
 adamo_robot.attach_video(TRACK, pipeline=PIPELINE, fps=FPS, bitrate_kbps=BITRATE_KBPS, stereo=True)
 subscribe_xr_control(adamo_robot.session, NAME, on_sample, max_age_seconds=0.25)
+# Compile the solver before anything moves; the first solve takes seconds, every one after
+# it a few milliseconds.
+ik.solve(*ik.tcp_pose(READY), READY, DT)
 # attach_video only queues the graph; run() is what starts the Rust pipeline, and it
 # blocks -- so it goes in a daemon thread and the control loop keeps the main one.
 threading.Thread(target=adamo_robot.run, daemon=True).start()
@@ -177,10 +188,14 @@ try:
             arm.robot.command_joint_pos(arm.cmd)
         time.sleep(DT)
 
+    deadline = time.perf_counter()
     while True:
         for arm in arms:
             arm.step()
-        time.sleep(DT)
+        # Sleep the remainder of the tick rather than a flat DT: the solve costs milliseconds,
+        # and DT is what the IK's velocity clamp is scaled by.
+        deadline += DT
+        time.sleep(max(deadline - time.perf_counter(), 0.0))
 except KeyboardInterrupt:
     print("\n[teleop] interrupted", flush=True)
 finally:
