@@ -1,4 +1,4 @@
-"""Trace a 15 cm square in the xz plane with a YAM end-effector."""
+"""Trace a 15 cm square in the xz plane with two YAM arms in lockstep."""
 
 import time
 from itertools import pairwise
@@ -11,6 +11,7 @@ from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
+CHANNELS = ("can0", "can1")
 SITE = "grasp_site"
 READY = np.array([0.0, 1.0, 1.0, 0.0, 0.0, 0.0])
 SIZE = 0.15
@@ -52,22 +53,24 @@ for a, b in pairwise(corners):
         traj.append(q[:6].copy())
     traj.extend([traj[-1]] * int(HOLD / DT))
 
-robot = get_yam_robot(channel="can0", arm_type=ArmType.YAM, gripper_type=GripperType.LINEAR_4310)
+robots = [get_yam_robot(channel=ch, arm_type=ArmType.YAM, gripper_type=GripperType.LINEAR_4310) for ch in CHANNELS]
 try:
-    cmd = robot.get_joint_pos()
+    cmds = [r.get_joint_pos() for r in robots]
+    starts = [c[:6].copy() for c in cmds]
+
+    def send(qs: list[np.ndarray]) -> None:
+        for r, c, q in zip(robots, cmds, qs, strict=True):
+            c[:6] = q
+            r.command_joint_pos(c)
+        time.sleep(DT)
+
     # Ramp into the first corner in joint space: the home pose sits on joint2/joint3's lower bound.
-    q0 = cmd[:6].copy()
     for i in range(1, 201):
-        cmd[:6] = q0 + (start - q0) * (i / 200)
-        robot.command_joint_pos(cmd)
-        time.sleep(DT)
+        send([q0 + (start - q0) * (i / 200) for q0 in starts])
     for q6 in traj:
-        cmd[:6] = q6
-        robot.command_joint_pos(cmd)
-        time.sleep(DT)
+        send([q6] * len(robots))
     for i in range(1, 201):
-        cmd[:6] = traj[-1] + (q0 - traj[-1]) * (i / 200)
-        robot.command_joint_pos(cmd)
-        time.sleep(DT)
+        send([traj[-1] + (q0 - traj[-1]) * (i / 200) for q0 in starts])
 finally:
-    robot.close()
+    for r in robots:
+        r.close()
