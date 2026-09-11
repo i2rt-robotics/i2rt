@@ -37,17 +37,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# PyRoki inverse kinematics, used by examples/adamo_teleop. Kept out of the base
-# install: it pulls in jax, and the two solver packages live on git rather than PyPI
-# (PyPI's `jaxls` is an unrelated 2024 package that will not import against modern jax).
-teleop = [
-    "jax>=0.6",
-    "jax-dataclasses>=1.6",
-    "jaxlie>=1.5",
-    "jaxls",
-    "pyroki",
-    "yourdfpy>=0.0.60",
-]
 dev = [
     "pyright>=1.1.408",
     "pytest>=8.4.0",
@@ -66,6 +55,9 @@ jaxls = { git = "https://github.com/brentyi/jaxls.git", rev = "50a58be88c5ef7453
 # install (e.g. CI). Its build fails under scikit-build-core >= 0.10, which rejects the
 # package's deprecated `cmake.targets`. Pin the build backend below that so it builds.
 build-constraint-dependencies = ["scikit-build-core<0.10"]
+# Install the teleop group alongside dev on `uv sync` / `uv run`, so
+# `uv run examples/adamo_teleop/adamo_teleop.py` works straight after a clone.
+default-groups = ["dev", "teleop"]
 
 [tool.flit.module]
 name = "i2rt"
@@ -137,4 +129,18 @@ dev = [
     "pytest>=8.4.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
+]
+# examples/adamo_teleop: the Adamo VR/streaming client plus PyRoki inverse kinematics.
+# A dependency group rather than an extra so `uv run` installs it by default (see
+# default-groups below) while `pip install i2rt` stays free of jax. The two solver
+# packages live on git rather than PyPI (PyPI's `jaxls` is an unrelated 2024 package
+# that will not import against modern jax).
+teleop = [
+    "adamo>=0.4.59",
+    "jax>=0.6",
+    "jax-dataclasses>=1.6",
+    "jaxlie>=1.5",
+    "jaxls",
+    "pyroki",
+    "yourdfpy>=0.0.60",
 ]

@@ -11,7 +11,7 @@ The operator's view is the rig's two USB cameras, composited side by side into o
 in the Rust runtime, so no frame crosses into Python.
 
     export ADAMO_API_KEY=ak_...
-    python examples/adamo_teleop/adamo_teleop.py
+    uv run examples/adamo_teleop/adamo_teleop.py
 """
 
 import os

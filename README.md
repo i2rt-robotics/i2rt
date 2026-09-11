@@ -56,6 +56,16 @@ With setup done, run the sample script. It drives two YAM arms (`linear_4310` gr
 python3 examples/task_space_square/task_space_square.py
 ```
 
+## Teleop
+
+Drive both arms from a pair of VR controllers over Adamo. `uv run` installs the teleop dependencies on
+first launch:
+
+```bash
+export ADAMO_API_KEY=<secret_key>
+uv run examples/adamo_teleop/adamo_teleop.py
+```
+
 ## YAM Arm
 
 ### Arm variants

@@ -22,6 +22,19 @@ wheels = [
 ]
 
 [[package]]
+name = "adamo"
+version = "0.4.59"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/ca/c78fe4081b37d115385780805177a36766da0935925edf0ef215231e80a3/adamo-0.4.59-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:ce8e44ab58cfe14ffad2de246aac851cec0d5dcd5c05bfd548092a8bfe8ec4fe", size = 13325069, upload-time = "2026-09-08T18:41:28.637Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/79/77cb1ce8b38d1bb338eee305b24949a94133178a9932d731b3a31a28dcd3/adamo-0.4.59-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:da092b765ccc2d8aabcd5aba2bcc5c10fd80808afdb131cb9e3b47a9bd733c33", size = 17399063, upload-time = "2026-09-08T18:41:31.95Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/45/15ef92116e5bd3903cf87b28fa72c704eb2f55d5226a905d8347342fcf41/adamo-0.4.59-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:d5dafceeee56b0e6bd60c48c2111ef329226ae728ac3465dbf674cd4486c89cd", size = 14646928, upload-time = "2026-09-08T18:41:34.467Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -665,7 +678,17 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pre-commit" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+]
 teleop = [
+    { name = "adamo" },
     { name = "jax", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "jax", version = "0.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "jax", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -676,24 +699,11 @@ teleop = [
     { name = "yourdfpy" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "pre-commit" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = "<8.2.0" },
     { name = "crcmod-plus", specifier = ">=2.3.1" },
     { name = "dm-env", specifier = "==1.6" },
-    { name = "jax", marker = "extra == 'teleop'", specifier = ">=0.6" },
-    { name = "jax-dataclasses", marker = "extra == 'teleop'", specifier = ">=1.6" },
-    { name = "jaxlie", marker = "extra == 'teleop'", specifier = ">=1.5" },
-    { name = "jaxls", marker = "extra == 'teleop'", git = "https://github.com/brentyi/jaxls.git?rev=50a58be88c5ef74532f09e3f55268b4f02c490e3" },
     { name = "mcap-ros2-support", specifier = ">=0.5.5" },
     { name = "mink", specifier = ">=0.0.13" },
     { name = "mujoco", specifier = ">=3.3.5" },
@@ -702,7 +712,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pygame", specifier = "==2.6.1" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.408" },
-    { name = "pyroki", marker = "extra == 'teleop'", git = "https://github.com/chungmin99/pyroki.git?rev=388e43e1fc0d0ee382968d3dd72970fd62a0450c" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8.0" },
@@ -716,9 +725,8 @@ requires-dist = [
     { name = "threadpoolctl", specifier = "==3.6.0" },
     { name = "tyro", specifier = ">=1.0.0" },
     { name = "viser", specifier = ">=0.2.0" },
-    { name = "yourdfpy", marker = "extra == 'teleop'", specifier = ">=0.0.60" },
 ]
-provides-extras = ["teleop", "dev"]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -727,6 +735,15 @@ dev = [
     { name = "pytest", specifier = ">=8.4.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.15.6" },
+]
+teleop = [
+    { name = "adamo", specifier = ">=0.4.59" },
+    { name = "jax", specifier = ">=0.6" },
+    { name = "jax-dataclasses", specifier = ">=1.6" },
+    { name = "jaxlie", specifier = ">=1.5" },
+    { name = "jaxls", git = "https://github.com/brentyi/jaxls.git?rev=50a58be88c5ef74532f09e3f55268b4f02c490e3" },
+    { name = "pyroki", git = "https://github.com/chungmin99/pyroki.git?rev=388e43e1fc0d0ee382968d3dd72970fd62a0450c" },
+    { name = "yourdfpy", specifier = ">=0.0.60" },
 ]
 
 [[package]]
