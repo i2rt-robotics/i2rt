@@ -18,7 +18,7 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 ## Installation
 
 ```bash
-git clone https://github.com/i2rt-robotics/i2rt.git && cd i2rt
+git clone https://github.com/Shade5/i2rt.git && cd i2rt
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 uv venv --python 3.11
