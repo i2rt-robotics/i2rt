@@ -47,6 +47,15 @@ sudo sh devices/install_devices.sh
 sh scripts/reset_all_can.sh
 ```
 
+## Quick Start
+
+With setup done, run the sample script. It drives two YAM arms (`linear_4310` grippers) on `can0` and
+`can1` in lockstep, tracing a 15 cm square in the xz plane:
+
+```bash
+python3 examples/task_space_square/task_space_square.py
+```
+
 ## YAM Arm
 
 ### Arm variants
