@@ -493,6 +493,7 @@ class DMChainCanInterface(MotorChain):
         self.command_lock = threading.RLock()
 
         self.start_thread_flag = False
+        self._control_thread: Optional[threading.Thread] = None
         if start_thread:
             self.start_thread()
 
@@ -561,8 +562,8 @@ class DMChainCanInterface(MotorChain):
         if self.start_thread_flag:
             return
         logging.info("starting separate thread for control loop")
-        thread = threading.Thread(target=self._set_torques_and_update_state)
-        thread.start()
+        self._control_thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
@@ -777,6 +778,13 @@ class DMChainCanInterface(MotorChain):
 
     def close(self) -> None:
         self.running = False
+        # Give the control loop a chance to see running=False and fall out
+        # before its CAN socket is closed underneath it. Without this it can
+        # be inside _set_commands when the socket goes, and dies with
+        # "file descriptor cannot be a negative integer (-1)" on every
+        # shutdown. The timeout keeps close() bounded if the loop is wedged.
+        if self._control_thread is not None:
+            self._control_thread.join(timeout=1.0)
         self.motor_interface.close()
 
 
