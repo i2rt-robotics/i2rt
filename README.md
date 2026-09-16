@@ -53,7 +53,7 @@ With setup done, run the sample script. It drives two YAM arms (`linear_4310` gr
 `can1` in lockstep, tracing a 15 cm square in the xz plane:
 
 ```bash
-python3 examples/task_space_square/task_space_square.py
+python3 examples/task_space_square/task_space_square.py --arm-left can1 --arm-right can0
 ```
 
 ## Teleop
