@@ -8,14 +8,14 @@
   </asset>
 
   <worldbody>
-    <body name="gripper" pos="0.000700400000971018 -2.45648799996445e-07 0.00214809999902899" quat="2.000000000002e-06 -5.55111512312578e-17 1.99999999997424e-06 -0.999999999996">
+    <body name="gripper" pos="0 0.0007004 -0.0021481" quat="0 -0.70711 0.70711 0">
       <inertial pos="0 0 0" mass="0.455645" diaginertia="0.0003 0.0003 0.0002"/>
       <geom type="mesh" quat="0 0.707107 0.707107 0" rgba="0.74902 0.74902 0.74902 1" mesh="flexible_base" contype="0" conaffinity="0"/>
       <site name="tcp_site" pos="0 0 0" quat="0 1 0 0" size="0.005" rgba="1 0 0 1"/>
       <!-- grasp_site is the tool centre: the midpoint of the two tips' distal facets, measured
            from the tip meshes. The fingers slide transversely, so it is the same point at every
            opening. -->
-      <site name="grasp_site" pos="0 0 -0.143901012" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
+      <site name="grasp_site" pos="0 0 -0.1439" quat="0 1 0 0" size="0.005" rgba="0 1 0 1"/>
       <body name="linear_module" pos="-0.02615 0.04395 -0.0547" quat="0.707107 -0.707107 0 0">
         <inertial pos="0.0206066 0.0299426 -0.0504181" quat="0.764844 0.232608 -0.418301 0.431197" mass="0.120713" diaginertia="9.73585e-05 9.07567e-05 4.0415e-05"/>
         <joint name="joint7" pos="0 0 0" axis="0 0 -1" type="slide" range="0 0.048" actuatorfrcrange="-10 10"/>

@@ -6,6 +6,7 @@ This document records the physical and kinematic properties of the six-DOF YAM a
 
 - The physical arm consists of `base` and `link1` through `link5`, connected by `joint1` through `joint6`.
 - The child of `joint6` is named `gripper` in both the URDF and the arm-only MJCF. It is the end-effector mount frame, not a physical arm link: the MJCF body carries only a placeholder inertial, and the selected gripper model is merged into it at runtime.
+- The `gripper` mount frame follows the tool convention `+X` right, `+Y` down, `+Z` forward: at the home pose its `+Z` (the approach axis) points along world `+X`, its `+X` along world `-Y`, and its `+Y` along world `-Z`. This is the ROS/OpenCV convention the camera frames in `robot_models/station/` already use.
 - Gripper, finger, tip, tool, and top bodies are excluded.
 - SI units are used: metres, kilograms, radians, and kg·m².
 - Home pose means all six arm joint coordinates are zero.
@@ -29,7 +30,7 @@ The COM position and inertial-frame RPY are relative to the corresponding link f
 
 | Link | Mass (kg) | COM xyz (m) | Inertial-frame RPY (rad) |
 | --- | ---: | --- | --- |
-| `base` | 0.873654 | `0 0 0.0247677998591499` | `0 π/2 π` |
+| `base` | 0.873654 | `0 0 0.024768` | `0 π/2 π` |
 | `link1` | 0.101218 | `-0.0233636 -0.00172503 -0.00727828` | `0 0 0` |
 | `link2` | 1.46908 | `0.000134495 -0.0331253 0.129165` | `0 0 0` |
 | `link3` | 0.982553 | `-0.0556042 -0.0340514 -0.135083` | `0 0 0` |
@@ -64,12 +65,12 @@ The origin is the joint frame relative to its parent link. At zero joint displac
 
 | Joint | Parent → child | Origin xyz (m) | Origin RPY (rad) | Axis | Range (rad) | Range (deg) | Link length (m) |
 | --- | --- | --- | --- | --- | --- | --- | ---: |
-| `joint1` | `base → link1` | `0 0 0.0679999999995413` | `0 π/2 π` | `-1 0 0` | `[-5π/6, π]` | `[-150, 180]` | 0.0680000000 |
+| `joint1` | `base → link1` | `0 0 0.068` | `0 π/2 π` | `-1 0 0` | `[-5π/6, π]` | `[-150, 180]` | 0.0680000000 |
 | `joint2` | `link1 → link2` | `-0.0455 -0.0339 -0.02` | `0 0 -π` | `0 1 0` | `[0, 7π/6]` | `[0, 210]` | 0.0601619481 |
 | `joint3` | `link2 → link3` | `0 -0.0688 0.264` | `0 0 -π` | `0 1 0` | `[0, π]` | `[0, 180]` | 0.2728175947 |
 | `joint4` | `link3 → link4` | `-0.0600003 -0.0688 -0.244999` | `0 0 0` | `0 1 0` | `[-1.69297, π/2]` | `[-97, 90]` | 0.2614536020 |
 | `joint5` | `link4 → link5` | `-0.0405003 0.0338995 -0.0739989` | `0 0 0` | `1 0 0` | `[-π/2, π/2]` | `[-90, 90]` | 0.0909136271 |
-| `joint6` | `link5 → gripper` | `0.0404996 0 -0.0356` | `0 0 0` | `0 0 -1` | `[-2π/3, 2π/3]` | `[-120, 120]` | 0.0539219584 |
+| `joint6` | `link5 → gripper` | `0.0404996 0 -0.0356` | `π 0 π/2` | `0 0 1` | `[-2π/3, 2π/3]` | `[-120, 120]` | 0.0539219584 |
 
 ## Global link and joint frames at home
 
@@ -78,12 +79,12 @@ The base frame is the world/TF root. Each `jointN` frame coincides with its corr
 | Link / coincident joint frame | Global xyz (m) | Global RPY (rad) | Joint axis, world frame |
 | --- | --- | --- | --- |
 | `base` | `0 0 0` | `0 0 0` | — |
-| `link1 / joint1` | `0 0 0.0679999999995` | `π π/2 0` | `0 0 1` |
-| `link2 / joint2` | `0.0199994585693 0.0339000734623 0.113500073463` | `-2.51597890471 -π/2 2.51598257791` | `0 1 0` |
-| `link3 / joint3` | `-0.244000288713 -0.034900896262 0.113499694735` | `2.17621409311 π/2 -0.965374887285` | `0 -1 0` |
-| `link4 / joint4` | `0.000998238174145 0.0339003220997 0.173500529532` | `2.17621410583 π/2 -0.965374874569` | `0 -1 0` |
-| `link5 / joint5` | `0.0749971139256 0 0.214001281255` | `2.17621410578 π/2 -0.965374874617` | `0 0 -1` |
-| `gripper / joint6` | `0.11059726269 0 0.173501812023` | `2.17621409891 π/2 -0.96537488148` | `1 0 0` |
+| `link1 / joint1` | `0 0 0.068` | `π π/2 0` | `0 0 1` |
+| `link2 / joint2` | `0.0199995838252 0.0339001469261 0.113500073464` | `-2.51597890471 -π/2 2.51598257791` | `0 1 0` |
+| `link3 / joint3` | `-0.243999910734 -0.0349017925241 0.113499286305` | `2.17621409311 π/2 -0.965374887285` | `0 -1 0` |
+| `link4 / joint4` | `0.000998363430751 0.0339003257669 0.173500121101` | `2.17621410583 π/2 -0.965374874569` | `0 -1 0` |
+| `link5 / joint5` | `0.0749973636997 0 0.214000872824` | `2.17621410578 π/2 -0.965374874617` | `0 0 -1` |
+| `gripper / joint6` | `0.110597512463 0 0.173501403591` | `-π/2 0 -π/2` | `1 0 0` |
 
 Several home-frame orientations are very close to the RPY pitch singularity at `±π/2`. Equivalent roll/yaw pairs may therefore look different while representing the same rotation; use rotation matrices or the model quaternions for numerical comparisons.
 
@@ -110,7 +111,7 @@ projection from the preceding frame, giving the values shown.
 | 3 | `-2.901418` | `0` | `0.252239` | `0` |
 | 4 | `-0.240173` | `0` | `0.073999` | `π/2` |
 | 5 | `π/2` | `0` | `0` | `π/2` |
-| 6 | `π/2` | `0.0356` | `0` | `-π` |
+| 6 | `0` | `0.0356` | `0` | `0` |
 
 ## Product-of-exponentials screw axes
 
@@ -128,8 +129,8 @@ is the `gripper` mount frame; the space frame is the `base` frame.
 | --- | --- | --- |
 | `joint1` | `0 0 1` | `0 0 0` |
 | `joint2` | `0 1 0` | `-0.1135 0 0.02` |
-| `joint3` | `0 -1 0` | `0.1135 0 0.244` |
-| `joint4` | `0 -1 0` | `0.173501 0 -0.000998` |
+| `joint3` | `0 -1 0` | `0.113499 0 0.244` |
+| `joint4` | `0 -1 0` | `0.1735 0 -0.000999` |
 | `joint5` | `0 0 -1` | `0 0.074998 0` |
 | `joint6` | `1 0 0` | `0 0.173501 0` |
 
@@ -137,9 +138,9 @@ Home configuration `M` (end-effector pose at zero joints), as a 4×4 homogeneous
 transform in the base frame:
 
 ```text
-[ +0.000000  +0.000000  -1.000000  +0.110597 ]
-[ +0.000000  -1.000000  +0.000000  +0.000000 ]
-[ -1.000000  +0.000000  +0.000000  +0.173502 ]
+[ +0.000000  +0.000000  +1.000000  +0.110598 ]
+[ -1.000000  +0.000000  +0.000000  +0.000000 ]
+[ +0.000000  -1.000000  +0.000000  +0.173501 ]
 [ +0.000000  +0.000000  +0.000000  +1.000000 ]
 ```
 
@@ -153,9 +154,9 @@ Bᵢ   = [Ad_{M⁻¹}] Sᵢ
 
 | Joint | ωᵢ (unit) | vᵢ (m) |
 | --- | --- | --- |
-| `joint1` | `-1 0 0` | `0 -0.110598 0` |
-| `joint2` | `0 -1 0` | `0.090598 0 -0.060001` |
-| `joint3` | `0 1 0` | `-0.354598 0 0.060001` |
-| `joint4` | `0 1 0` | `-0.109599 0 0` |
-| `joint5` | `1 0 0` | `0 0.0356 0` |
-| `joint6` | `0 0 -1` | `0 0 0` |
+| `joint1` | `0 -1 0` | `-0.110598 0 0` |
+| `joint2` | `-1 0 0` | `0 0.090598 0.060001` |
+| `joint3` | `1 0 0` | `0 -0.354598 -0.060001` |
+| `joint4` | `1 0 0` | `0 -0.109599 0` |
+| `joint5` | `0 1 0` | `0.0356 0 0` |
+| `joint6` | `0 0 1` | `0 0 0` |

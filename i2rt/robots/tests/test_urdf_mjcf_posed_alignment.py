@@ -17,11 +17,6 @@ Two properties are asserted:
      so only the joint axis -- the frame-invariant "orientation" of a revolute joint -- matches.
 
 big_yam scope notes:
-  - big_yam mounts every gripper with a wrist-frame convention that differs from its URDF: all
-    gripper configs give it ``quat "0 0.707107 0 -0.707107"`` versus the native ``"-0.5 0.5 0.5
-    -0.5"``. ``combine_arm_and_gripper_xml`` therefore rewrites big_yam's ``gripper`` body (the
-    mount) orientation and joint6 axis, so those two frames are intentionally not compared to the
-    URDF; its five physical arm links/joints (and the mount *origin*) still are.
   - big_yam's URDF/MJCF use axis signs opposite to the yam family, so the same command vector
     reaches a different physical pose; it is excluded from the cross-arm axis check.
 """
@@ -55,8 +50,11 @@ YAM_ARM_MOTIONS = [
 # Every shipped arm variant; a hardware revision is its own variant.
 ARMS = [arm for arm in ArmType if arm != ArmType.NO_ARM]
 # Arms whose gripper mount preserves the native (URDF) wrist frame, so the mount body/joint6 stay
-# URDF-comparable in the combined model. big_yam mounts grippers rotated (see module docstring).
-MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2}
+# URDF-comparable in the combined model. Every shipped arm now qualifies: big_yam's configs used to
+# roll its mount +90 deg about z and flip joint6's sign relative to its URDF, and that divergence
+# was folded into its URDF/MJCF. The set is kept so a future arm that genuinely diverges has one
+# place to opt out of the mount comparison.
+MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2, ArmType.BIG_YAM}
 # Arms that share a joint-axis convention, so the same command reaches the same physical pose.
 CROSS_ARM_FAMILY = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2]
 

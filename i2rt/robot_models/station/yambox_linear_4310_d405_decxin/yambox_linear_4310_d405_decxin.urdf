@@ -149,11 +149,11 @@
     <link name="left_gripper">
         <inertial>
             <mass value="0.553219" />
-            <origin xyz="-3.57064e-05 0.000249371 -0.0293133" rpy="0 -0 0" />
+            <origin xyz="0.000249371 -3.57064e-05 0.0293133" rpy="3.141592653589793 -0 1.5707963267948966" />
             <inertia ixx="0.000409669" ixy="5.44941e-07" ixz="7.91268e-07" iyy="0.000324942" iyz="-4.83959e-06" izz="0.000369249" />
         </inertial>
         <visual>
-            <origin xyz="-0.014 -0.0463995 0.0731" rpy="0 -0 0" />
+            <origin xyz="-0.0463995 -0.014 -0.0731" rpy="3.141592653589793 -0 1.5707963267948966" />
             <geometry>
                 <mesh filename="../../arm/yam/v1/assets/gripper.stl" scale="1 1 1" />
             </geometry>
@@ -244,15 +244,15 @@
     </joint>
 
     <joint name="left_joint6" type="revolute">
-        <origin xyz="0.0404996 2.39858e-07 -0.0356" rpy="8.83309e-16 -5.88588e-16 7.69861e-14" />
-        <axis xyz="1.46014e-15 2.40808e-14 -1" />
+        <origin xyz="0.0404996 2.39858e-07 -0.0356" rpy="3.1415926535897927 -8.83309e-16 1.5707963267949736" />
+        <axis xyz="2.40808e-14 1.46014e-15 1" />
         <parent link="left_link5" />
         <child link="left_gripper" />
         <limit effort="1" velocity="1" lower="-2.0944" upper="2.0944" />
     </joint>
 
     <joint name="left_joint7" type="prismatic">
-        <origin xyz="-0.0239931 0.0445119 -0.0566829" rpy="1.02229e-14 4.71845e-16 1.68314e-15" />
+        <origin xyz="0.0445119 -0.0239931 0.0566829" rpy="-3.141592653589783 -4.71845e-16 1.570796326794895" />
         <axis xyz="-6.86541e-15 -1 0" />
         <parent link="left_gripper" />
         <child link="left_tip_left" />
@@ -260,7 +260,7 @@
     </joint>
 
     <joint name="left_joint8" type="prismatic">
-        <origin xyz="0.0239931 -0.0445119 -0.0566829" rpy="9.6084e-15 -2.77556e-16 -3.77189e-15" />
+        <origin xyz="-0.0445119 0.0239931 0.0566829" rpy="-3.141592653589784 2.77556e-16 1.5707963267949003" />
         <axis xyz="6.86541e-15 1 0" />
         <parent link="left_gripper" />
         <child link="left_tip_right" />
@@ -272,7 +272,7 @@
 
 
     <joint name="left_camera_joint" type="fixed">
-        <origin xyz="-0.07043497874827391 -7.656797949839866e-08 -0.07700592901799347" rpy="2.70525 3.673205103638111e-06 1.5707963267814136" />
+        <origin xyz="-7.656797949839866e-08 -0.07043497874827391 0.07700592901799347" rpy="-0.43634265358979335 -3.673205103638111e-06 1.3483053732597708e-11" />
         <parent link="left_gripper" />
         <child link="left_camera" />
     </joint>
@@ -365,11 +365,11 @@
     <link name="right_gripper">
         <inertial>
             <mass value="0.553219" />
-            <origin xyz="-3.57064e-05 0.000249371 -0.0293133" rpy="0 -0 0" />
+            <origin xyz="0.000249371 -3.57064e-05 0.0293133" rpy="3.141592653589793 -0 1.5707963267948966" />
             <inertia ixx="0.000409669" ixy="5.44941e-07" ixz="7.91268e-07" iyy="0.000324942" iyz="-4.83959e-06" izz="0.000369249" />
         </inertial>
         <visual>
-            <origin xyz="-0.014 -0.0463995 0.0731" rpy="0 -0 0" />
+            <origin xyz="-0.0463995 -0.014 -0.0731" rpy="3.141592653589793 -0 1.5707963267948966" />
             <geometry>
                 <mesh filename="../../arm/yam/v1/assets/gripper.stl" scale="1 1 1" />
             </geometry>
@@ -460,15 +460,15 @@
     </joint>
 
     <joint name="right_joint6" type="revolute">
-        <origin xyz="0.0404996 2.39858e-07 -0.0356" rpy="8.83309e-16 -5.88588e-16 7.69861e-14" />
-        <axis xyz="1.46014e-15 2.40808e-14 -1" />
+        <origin xyz="0.0404996 2.39858e-07 -0.0356" rpy="3.1415926535897927 -8.83309e-16 1.5707963267949736" />
+        <axis xyz="2.40808e-14 1.46014e-15 1" />
         <parent link="right_link5" />
         <child link="right_gripper" />
         <limit effort="1" velocity="1" lower="-2.0944" upper="2.0944" />
     </joint>
 
     <joint name="right_joint7" type="prismatic">
-        <origin xyz="-0.0239931 0.0445119 -0.0566829" rpy="1.02229e-14 4.71845e-16 1.68314e-15" />
+        <origin xyz="0.0445119 -0.0239931 0.0566829" rpy="-3.141592653589783 -4.71845e-16 1.570796326794895" />
         <axis xyz="-6.86541e-15 -1 0" />
         <parent link="right_gripper" />
         <child link="right_tip_left" />
@@ -476,7 +476,7 @@
     </joint>
 
     <joint name="right_joint8" type="prismatic">
-        <origin xyz="0.0239931 -0.0445119 -0.0566829" rpy="9.6084e-15 -2.77556e-16 -3.77189e-15" />
+        <origin xyz="-0.0445119 0.0239931 0.0566829" rpy="-3.141592653589784 2.77556e-16 1.5707963267949003" />
         <axis xyz="6.86541e-15 1 0" />
         <parent link="right_gripper" />
         <child link="right_tip_right" />
@@ -488,7 +488,7 @@
 
 
     <joint name="right_camera_joint" type="fixed">
-        <origin xyz="-0.07043497874827391 -7.656797949839866e-08 -0.07700592901799347" rpy="2.70525 3.673205103638111e-06 1.5707963267814136" />
+        <origin xyz="-7.656797949839866e-08 -0.07043497874827391 0.07700592901799347" rpy="-0.43634265358979335 -3.673205103638111e-06 1.3483053732597708e-11" />
         <parent link="right_gripper" />
         <child link="right_camera" />
     </joint>
