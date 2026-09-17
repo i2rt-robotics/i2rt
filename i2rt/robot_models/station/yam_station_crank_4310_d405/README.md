@@ -6,8 +6,8 @@ generated from it carry every transform below at full precision. The `linear_431
 [`../yam_station_linear_4310_d405/`](../yam_station_linear_4310_d405/README.md).
 
 `{side}_gripper` is the flange, i.e. the `joint6` output frame. `tcp_left` / `tcp_right` are the
-tool-centre frames, copied from `crank_4310`'s `grasp_site`: the flange turned 180° about X and
-carried out to the centre of the two claw points — 146.764 mm along the flange's −Z and 44.591 mm
+tool-centre frames, copied from `crank_4310`'s `grasp_site`: the flange turned 90° about Z and
+carried out to the centre of the two claw points — 146.764 mm along the flange's +Z and 44.591 mm
 off its axis. That lateral offset is the geometry rather than an error: each claw tapers to a point
 near one end of its jaw, so the two points meet well off the flange axis, and unlike the linear
 station's this transform is gripper-specific. It is measured from the tip meshes and holds at every
@@ -61,22 +61,22 @@ the two mounts have byte-identical origins in the URDF, so one table serves both
 
 | | |
 | --- | --- |
-| `xyz` | `-0.08  0.0017  -0.066` |
-| `quat (w,x,y,z)` | `0.299  0.641  0.641  0.299` |
+| `xyz` | `0.0017  -0.08  0.066` |
+| `quat (w,x,y,z)` | `-0.906  0.423  0  0` |
 
-`y` is quoted at its full `0.0017`, not rounded to `0.002`: that 0.3 mm is 18% of the value, and it is
+`x` is quoted at its full `0.0017`, not rounded to `0.002`: that 0.3 mm is 18% of the value, and it is
 the whole reason the optical ray misses the gripper axis rather than crossing it (below). The linear
-station's `y` is `-7.7e-08`, so 3 decimals cost it nothing.
+station's `x` is `-7.7e-08`, so 3 decimals cost it nothing.
 
-The optical axis is canted **50°** off the flange's −Z approach axis, tilted back toward the gripper
-centreline. The ray leaves the camera 80 mm behind and 66 mm below the flange and passes **within
-1.700 mm** of the gripper axis, at its closest at `z = -0.1329`. It never actually meets the axis:
-the camera sits at `y = +0.0017` and its optical axis has an exactly zero `y` component, so the ray
-stays in the plane `y = +0.0017`. The tool centre is 18.1 mm off that ray, because `tcp_{side}` sits
+The optical axis is canted **50°** off the flange's +Z approach axis, tilted back toward the gripper
+centreline. The ray leaves the camera 80 mm above and 66 mm ahead of the flange and passes **within
+1.700 mm** of the gripper axis, at its closest at `z = +0.1329`. It never actually meets the axis:
+the camera sits at `x = +0.0017` and its optical axis has an exactly zero `x` component, so the ray
+stays in the plane `x = +0.0017`. The tool centre is 18.1 mm off that ray, because `tcp_{side}` sits
 44.6 mm off the flange axis out at the claw points while the ray tracks the axis itself.
 
-The two cant angles follow from the mount rotations: the D405 sits at `Rz(90°)·Rx(40°)` here against
-`Rz(90°)·Rx(65°)` on the linear mount, and `90° − 40° = 50°` against `90° − 65° = 25°`. Aiming at the
+The two cant angles are now read straight off the mounts: in the flange's own frame the D405 sits at
+`Rx(-50°)` here against `Rx(-25°)` on the linear mount, so each cant *is* its mount rotation. Aiming at the
 fingers more nearly than 35 mm past them is the practical difference between the two wrist views.
 
 The wrist camera hangs off `joint6`'s output by a fixed joint, so this transform holds at

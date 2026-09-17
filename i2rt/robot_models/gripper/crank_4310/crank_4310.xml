@@ -8,14 +8,14 @@
   </asset>
 
   <worldbody>
-    <body name="gripper" pos="0 0 0" quat="0.5 0.5 -0.5 -0.5">
+    <body name="gripper" pos="0 0 0" quat="0 0 0.70711 -0.70711">
       <inertial pos="0 -0.027 0" mass="0.45" diaginertia="0.0005 0.0004 0.0003"/>
       <geom pos="0 0.110597 -0.164101" quat="1 0 0 0" type="mesh" rgba="1 0.6 0 1" mesh="gripper" contype="0" conaffinity="0"/>
       <site name="tcp_site" pos="0 0 0" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="1 0 0 1"/>
       <!-- grasp_site is the tool centre: the midpoint of the two tips' distal facets, measured
            from the tip meshes. The fingers slide transversely, so it is the same point at every
            opening. -->
-      <site name="grasp_site" pos="8.83226729e-05 -0.146764365 -0.0445904208" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="0 1 0 1"/>
+      <site name="grasp_site" pos="8.8323e-05 -0.14676 -0.04459" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="0 1 0 1"/>
       <body name="tip_left" pos="-0.037 -0.0605 0.0392" quat="1 0 0 0">
         <inertial pos="0.03 -0.04 -0.039" mass="0.075" diaginertia="6e-5 6e-5 3e-5"/>
         <joint name="joint7" pos="0 0 0" type="slide" axis="1 0 0" range="0 0.039574"/>

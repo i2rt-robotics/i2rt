@@ -1,17 +1,18 @@
 <?xml version="1.0" ?>
 <!-- Generated using onshape-to-robot -->
 <!-- Onshape document_id: 43f56c228ac6ebe5a357efab -->
+<!-- flange-convention: v1 applied 2026-09-16; flange rotated rpy="3.141592653589793 -0 3.141592653589793" to z-forward/x-right/y-down; joint6 axis sign -1; children counter-rotated (no part moves) -->
 <robot name="output">
   <!-- Link base -->
   <link name="base">
     <inertial>
-      <origin xyz="7.99855e-06 0 0.0314825" rpy="0 0 0"/>
+      <origin xyz="0 0 0.0314825" rpy="0 0 0"/>
       <mass value="1.11529"/>
       <inertia ixx="0.00127239" ixy="0" ixz="-4.24782e-07" iyy="0.00108285" iyz="0" izz="0.00120806"/>
     </inertial>
     <!-- Part base -->
     <visual>
-      <origin xyz="-0.00307547 0.06 0" rpy="1.5708 -0 0"/>
+      <origin xyz="-0.00307547 0.06 0" rpy="1.5708 0 0"/>
       <geometry>
         <mesh filename="assets/base.stl"/>
       </geometry>
@@ -20,7 +21,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.00307547 0.06 0" rpy="1.5708 -0 0"/>
+      <origin xyz="-0.00307547 0.06 0" rpy="1.5708 0 0"/>
       <geometry>
         <mesh filename="assets/base.stl"/>
       </geometry>
@@ -35,7 +36,7 @@
     </inertial>
     <!-- Part link1 -->
     <visual>
-      <origin xyz="-0.00307547 -0.06 0.0666" rpy="-1.5708 -0 -0"/>
+      <origin xyz="-0.00307547 -0.06 0.0666" rpy="-1.5708 0 0"/>
       <geometry>
         <mesh filename="assets/link1.stl"/>
       </geometry>
@@ -44,7 +45,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.00307547 -0.06 0.0666" rpy="-1.5708 -0 -0"/>
+      <origin xyz="-0.00307547 -0.06 0.0666" rpy="-1.5708 0 0"/>
       <geometry>
         <mesh filename="assets/link1.stl"/>
       </geometry>
@@ -59,7 +60,7 @@
     </inertial>
     <!-- Part link2 -->
     <visual>
-      <origin xyz="-0.024987 0.130552 0.082425" rpy="3.14159 -0 0"/>
+      <origin xyz="-0.024987 0.130552 0.082425" rpy="3.14159 0 0"/>
       <geometry>
         <mesh filename="assets/link2.stl"/>
       </geometry>
@@ -68,7 +69,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.024987 0.130552 0.082425" rpy="3.14159 -0 0"/>
+      <origin xyz="-0.024987 0.130552 0.082425" rpy="3.14159 0 0"/>
       <geometry>
         <mesh filename="assets/link2.stl"/>
       </geometry>
@@ -77,13 +78,13 @@
   <!-- Link link3 -->
   <link name="link3">
     <inertial>
-      <origin xyz="0.211196 1.09757e-07 0.0377013" rpy="0 0 0"/>
+      <origin xyz="0.211196 0 0.0377013" rpy="0 0 0"/>
       <mass value="1.16452"/>
       <inertia ixx="0.00071823" ixy="3.3578e-08" ixz="5.52473e-05" iyy="0.0175944" iyz="-1.38248e-07" izz="0.0173974"/>
     </inertial>
     <!-- Part link3 -->
     <visual>
-      <origin xyz="0.35371 -0.198552 -0.023275" rpy="0 -0 0"/>
+      <origin xyz="0.35371 -0.198552 -0.023275" rpy="0 0 0"/>
       <geometry>
         <mesh filename="assets/link3.stl"/>
       </geometry>
@@ -92,7 +93,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="0.35371 -0.198552 -0.023275" rpy="0 -0 0"/>
+      <origin xyz="0.35371 -0.198552 -0.023275" rpy="0 0 0"/>
       <geometry>
         <mesh filename="assets/link3.stl"/>
       </geometry>
@@ -149,13 +150,13 @@
   <!-- Link gripper -->
   <link name="gripper">
     <inertial>
-      <origin xyz="3.573e-05 -0.000249533 -0.0293014" rpy="0 0 0"/>
+      <origin xyz="-3.573e-05 -0.000249533 0.0293014" rpy="3.141592653589793 0 3.141592653589793"/>
       <mass value="0.552865"/>
       <inertia ixx="0.000409403" ixy="5.44934e-07" ixz="-7.91026e-07" iyy="0.000324525" iyz="4.83791e-06" izz="0.000368814"/>
     </inertial>
     <!-- Part gripper -->
     <visual>
-      <origin xyz="-0.198552 0.059995 0.13787" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0.198552 0.059995 -0.13787" rpy="1.5708 -1.5708 0"/>
       <geometry>
         <mesh filename="assets/gripper.stl"/>
       </geometry>
@@ -164,7 +165,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.198552 0.059995 0.13787" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0.198552 0.059995 -0.13787" rpy="1.5708 -1.5708 0"/>
       <geometry>
         <mesh filename="assets/gripper.stl"/>
       </geometry>
@@ -179,7 +180,7 @@
     </inertial>
     <!-- Part tip_right -->
     <visual>
-      <origin xyz="-0.194553 0.174559 0.0149331" rpy="3.14159 -0 -0"/>
+      <origin xyz="-0.194553 0.174559 0.0149331" rpy="3.14159 0 0"/>
       <geometry>
         <mesh filename="assets/tip_right.stl"/>
       </geometry>
@@ -188,7 +189,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.194553 0.174559 0.0149331" rpy="3.14159 -0 -0"/>
+      <origin xyz="-0.194553 0.174559 0.0149331" rpy="3.14159 0 0"/>
       <geometry>
         <mesh filename="assets/tip_right.stl"/>
       </geometry>
@@ -196,7 +197,7 @@
   </link>
   <!-- Joint from gripper to tip_right -->
   <joint name="joint7" type="prismatic">
-    <origin xyz="-0.0239931 0.0450619 -0.0566829" rpy="-1.5708 1.5708 0"/>
+    <origin xyz="0.0239931 0.0450619 0.0566829" rpy="-1.5708 -1.5708 0"/>
     <parent link="gripper"/>
     <child link="tip_right"/>
     <axis xyz="0 0 1"/>
@@ -211,7 +212,7 @@
     </inertial>
     <!-- Part tip_left -->
     <visual>
-      <origin xyz="-0.194553 -0.222545 -0.105057" rpy="-0 -0 0"/>
+      <origin xyz="-0.194553 -0.222545 -0.105057" rpy="0 0 0"/>
       <geometry>
         <mesh filename="assets/tip_left.stl"/>
       </geometry>
@@ -220,7 +221,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.194553 -0.222545 -0.105057" rpy="-0 -0 0"/>
+      <origin xyz="-0.194553 -0.222545 -0.105057" rpy="0 0 0"/>
       <geometry>
         <mesh filename="assets/tip_left.stl"/>
       </geometry>
@@ -228,7 +229,7 @@
   </link>
   <!-- Joint from gripper to tip_left -->
   <joint name="joint8" type="prismatic">
-    <origin xyz="0.0239931 -0.0450619 -0.0566829" rpy="1.5708 1.5708 0"/>
+    <origin xyz="-0.0239931 -0.0450619 0.0566829" rpy="1.5708 -1.5708 0"/>
     <parent link="gripper"/>
     <child link="tip_left"/>
     <axis xyz="0 0 1"/>
@@ -236,7 +237,7 @@
   </joint>
   <!-- Joint from link5 to gripper -->
   <joint name="joint6" type="revolute">
-    <origin xyz="0.0356 -2.39858e-07 -0.0404996" rpy="-1.5708 0 1.5708"/>
+    <origin xyz="0.0356 0 -0.0404996" rpy="-1.5708 0 -1.5708"/>
     <parent link="link5"/>
     <child link="gripper"/>
     <axis xyz="0 0 1"/>
@@ -244,7 +245,7 @@
   </joint>
   <!-- Joint from link4 to link5 -->
   <joint name="joint5" type="revolute">
-    <origin xyz="0.0739989 -0.0403003 0.0323887" rpy="1.5708 -0 0"/>
+    <origin xyz="0.0739989 -0.0403003 0.0323887" rpy="1.5708 0 0"/>
     <parent link="link4"/>
     <child link="link5"/>
     <axis xyz="0 0 -1"/>
@@ -268,7 +269,7 @@
   </joint>
   <!-- Joint from link1 to link2 -->
   <joint name="joint2" type="revolute">
-    <origin xyz="0.0219115 0.022425 -0.0639519" rpy="1.5708 0 -0"/>
+    <origin xyz="0.0219115 0.022425 -0.0639519" rpy="1.5708 0 0"/>
     <parent link="link1"/>
     <child link="link2"/>
     <axis xyz="0 0 1"/>
@@ -276,7 +277,7 @@
   </joint>
   <!-- Joint from base to link1 -->
   <joint name="joint1" type="revolute">
-    <origin xyz="-0 -0 0.0666" rpy="3.14159 -0 0"/>
+    <origin xyz="0 0 0.0666" rpy="3.14159 0 0"/>
     <parent link="base"/>
     <child link="link1"/>
     <axis xyz="0 0 -1"/>

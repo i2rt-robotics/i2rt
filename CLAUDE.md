@@ -90,6 +90,10 @@ entry in the `_ARM_VARIANTS` map. The two enums are the entry points:
   an un-versioned `last_joint_mount.<arm>` block (with `pos` directly under the arm key) is still accepted
   for backward compatibility. Seed a new version's blocks with
   `sync_gripper_mounts.py <arm>.xml --version N` rather than hand-editing all six configs.
+  The mount frame follows the tool convention **`+X` right, `+Y` down, `+Z` forward**: at the home pose its
+  `+Z` (the approach axis) points along world `+X`. That holds on every artifact that carries a flange —
+  the five arm URDFs and MJCFs, all 30 composed models, and the `{side}_gripper` frames in
+  `robot_models/station/` — and matches the ROS/OpenCV convention the station camera frames already use.
 - **Both bodies are named `gripper`** — the arm's terminal mount (matching the URDF's `joint6` child) and the
   gripper model's root — and MuJoCo body names must be unique, so composition *merges* them instead of nesting:
   the gripper's children move into the mount body under a `<frame>` carrying the gripper root's own
