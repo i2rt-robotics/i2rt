@@ -3,8 +3,18 @@
 
   <asset>
     <mesh name="gripper" file="gripper.stl"/>
-    <mesh name="tip_left" file="tip_left.stl"/>
-    <mesh name="tip_right" file="tip_right.stl"/>
+    <mesh name="umi_left_adapter" file="umi_left_adapter.stl"/>
+    <mesh name="umi_left_adapter_collision" file="umi_left_adapter_collision.stl"/>
+    <mesh name="umi_left_finger" file="umi_left_finger.stl"/>
+    <mesh name="umi_left_finger_collision" file="umi_left_finger_collision.stl"/>
+    <mesh name="umi_left_pad" file="umi_left_pad.stl"/>
+    <mesh name="umi_left_pad_collision" file="umi_left_pad_collision.stl"/>
+    <mesh name="umi_right_adapter" file="umi_right_adapter.stl"/>
+    <mesh name="umi_right_adapter_collision" file="umi_right_adapter_collision.stl"/>
+    <mesh name="umi_right_finger" file="umi_right_finger.stl"/>
+    <mesh name="umi_right_finger_collision" file="umi_right_finger_collision.stl"/>
+    <mesh name="umi_right_pad" file="umi_right_pad.stl"/>
+    <mesh name="umi_right_pad_collision" file="umi_right_pad_collision.stl"/>
   </asset>
 
   <worldbody>
@@ -16,12 +26,22 @@
       <body name="tip_left" pos="-0.0238981 0.0450619 -0.0545599" quat="0.499998 -0.5 -0.5 -0.500002">
         <inertial pos="-0.0224716 0.0143408 -0.0426253" quat="0.498899 0.455348 -0.0576406 0.735143" mass="0.0710042" diaginertia="6.24193e-05 6.01079e-05 2.83591e-05"/>
         <joint name="joint7" pos="0 0 0" type="slide" axis="0 0 -1" range="0 0.0475"/>
-        <geom pos="0.129783 0.00999321 -0.0914614" quat="0.499998 0.5 0.500002 0.5" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_left"/>
+        <geom name="umi_left_adapter" type="mesh" mesh="umi_left_adapter" rgba="0.85 0.88 0.90 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_left_adapter_collision" type="mesh" mesh="umi_left_adapter_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
+        <geom name="umi_left_finger" type="mesh" mesh="umi_left_finger" rgba="0.85 0.88 0.90 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_left_finger_collision" type="mesh" mesh="umi_left_finger_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
+        <geom name="umi_left_pad" type="mesh" mesh="umi_left_pad" rgba="0.08 0.09 0.10 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_left_pad_collision" type="mesh" mesh="umi_left_pad_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
       </body>
       <body name="tip_right" pos="0.0238981 -0.0450619 -0.0545599" quat="0.707105 0.707108 0 0">
         <inertial pos="-0.0143408 -0.0224716 -0.0426253" quat="0.281222 0.8726 0.16705 -0.362738" mass="0.0710042" diaginertia="6.24193e-05 6.01079e-05 2.83591e-05"/>
         <joint name="joint8" pos="0 0 0" type="slide" axis="0 0 -1" range="0 0.0475"/>
-        <geom pos="-0.0379932 0.129783 0.00133753" quat="0.707105 -0.707108 0 0" type="mesh" rgba="0.596078 0.788235 0.921569 1" mesh="tip_right"/>
+        <geom name="umi_right_adapter" type="mesh" mesh="umi_right_adapter" rgba="0.85 0.88 0.90 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_right_adapter_collision" type="mesh" mesh="umi_right_adapter_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
+        <geom name="umi_right_finger" type="mesh" mesh="umi_right_finger" rgba="0.85 0.88 0.90 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_right_finger_collision" type="mesh" mesh="umi_right_finger_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
+        <geom name="umi_right_pad" type="mesh" mesh="umi_right_pad" rgba="0.08 0.09 0.10 1" contype="0" conaffinity="0" group="1"/>
+        <geom name="umi_right_pad_collision" type="mesh" mesh="umi_right_pad_collision" contype="1" conaffinity="1" group="3" rgba="0.9 0.3 0.1 0.2"/>
       </body>
     </body>
   </worldbody>
