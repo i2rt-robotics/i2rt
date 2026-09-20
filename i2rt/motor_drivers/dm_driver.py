@@ -485,9 +485,7 @@ class DMChainCanInterface(MotorChain):
 
             self.absolute_positions = None
             self._motor_on()
-        starting_command = []
-        for motor_state in self.state:
-            starting_command.append(MotorCmd(torque=motor_state.torque))
+        starting_command = [MotorCmd() for _ in self.state]
         logging.info(f"Initializing motorchain with starting command: {starting_command}")
         self.commands = starting_command
         self.command_lock = threading.RLock()

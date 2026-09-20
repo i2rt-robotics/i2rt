@@ -789,6 +789,8 @@ def detect_gripper_limits(
     max_duration: float = 2.0,
     position_threshold: float = 0.01,
     check_interval: float = 0.1,
+    hold_arm_kp: float = 5.0,
+    hold_arm_kd: float = 0.5,
 ) -> Tuple[float, float]:
     """
     Detect gripper limits by applying test torques and monitoring position changes.
@@ -800,9 +802,11 @@ def detect_gripper_limits(
         max_duration: Maximum test duration for each direction (s)
         position_threshold: Minimum position change to consider motor still moving (rad)
         check_interval: Time interval between checks (s)
+        hold_arm_kp: Position gain used to hold non-gripper joints during calibration
+        hold_arm_kd: Damping gain used to hold non-gripper joints during calibration
 
     Returns:
-        List of detected limits [limit1, limit2]
+        Tuple of detected limits [limit1, limit2]
     """
     logger = logging.getLogger(__name__)
     positions = []
@@ -814,7 +818,13 @@ def detect_gripper_limits(
 
     # Record initial position
     initial_states = motor_chain.read_states()
-    init_torque = np.array([state.eff for state in initial_states])
+    hold_pos = np.array([state.pos for state in initial_states])
+    hold_vel = np.zeros(num_motors)
+    hold_kp = np.zeros(num_motors)
+    hold_kd = np.zeros(num_motors)
+    arm_indices = np.arange(num_motors) != gripper_index
+    hold_kp[arm_indices] = hold_arm_kp
+    hold_kd[arm_indices] = hold_arm_kd
     initial_pos = initial_states[gripper_index].pos
     positions.append(initial_pos)
     logger.info(f"Gripper calibration starting from position: {initial_pos:.4f}")
@@ -822,7 +832,7 @@ def detect_gripper_limits(
     # Test both directions
     for direction in [1, -1]:
         logger.info(f"Testing gripper direction: {direction}")
-        test_torques = init_torque
+        test_torques = zero_torques.copy()
         test_torques[gripper_index] = direction * test_torque
 
         start_time = time.time()
@@ -830,7 +840,7 @@ def detect_gripper_limits(
         position_stable_count = 0
 
         while time.time() - start_time < max_duration:
-            motor_chain.set_commands(torques=test_torques)
+            motor_chain.set_commands(torques=test_torques, pos=hold_pos, vel=hold_vel, kp=hold_kp, kd=hold_kd)
             time.sleep(check_interval)
 
             states = motor_chain.read_states()
@@ -853,6 +863,8 @@ def detect_gripper_limits(
             last_pos = current_pos
 
         time.sleep(0.3)
+
+    motor_chain.set_commands(torques=zero_torques, pos=hold_pos, vel=hold_vel, kp=hold_kp, kd=hold_kd)
 
     # Calculate detected limits
     min_pos = min(positions)
