@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class _GripperHWConfig:
-    mount_pos: str
-    mount_quat: str
-    mount_axis: str
+    mount_pos: Optional[str]
+    mount_quat: Optional[str]
+    mount_axis: Optional[str]
     motor_type: str
     motor_kp: float
     motor_kd: float
@@ -37,6 +37,28 @@ class _GripperHWConfig:
     needs_calibration: bool
     motor_direction: int  # motor polarity for the gripper (+1 or -1)
     limiter_params: Optional[dict]  # raw limiter section from YAML
+    # Where the gripper module attaches, relative to the mount body. Identity unless the arm's
+    # terminal body is not itself the mounting face -- see combine_arm_and_gripper_xml.
+    attach_pos: str = "0 0 0"
+    attach_quat: str = "1 0 0 0"
+
+
+def _arm_gripper_attach(arm_type: "ArmType") -> Tuple[str, str]:
+    """``gripper_attach_pos`` / ``gripper_attach_quat`` from the arm's own config, or identity.
+
+    Where the gripper module attaches is a property of the arm, so it lives in the arm's config
+    rather than being copied into all six gripper configs. Identity for every arm whose terminal
+    body *is* its mounting face, which is every six-joint arm shipped here.
+    """
+    try:
+        config_path = os.path.join(_CONFIG_DIR, f"{arm_type.family}_v{arm_type.version}.yml")
+    except ValueError:
+        return "0 0 0", "1 0 0 0"
+    if not os.path.isfile(config_path):
+        return "0 0 0", "1 0 0 0"
+    with open(config_path) as f:
+        raw = yaml.safe_load(f) or {}
+    return raw.get("gripper_attach_pos", "0 0 0"), raw.get("gripper_attach_quat", "1 0 0 0")
 
 
 @lru_cache(maxsize=None)
@@ -67,12 +89,13 @@ def _load_gripper_config(gripper_type_value: str, arm_type: "ArmType") -> _Gripp
     else:
         # Per-arm format: pick the sub-key matching arm_type_value
         if arm_type_value not in j_mount_raw:
-            raise ValueError(
-                f"No mount transform for arm type {arm_type_value!r} in "
-                f"{gripper_type_value}.yml. Available: {list(j_mount_raw.keys())}"
-            )
-        arm_mount = j_mount_raw[arm_type_value]
-        if "pos" in arm_mount:
+            j_mount = {"pos": None, "quat": None, "axis": None}
+            arm_mount = None
+        else:
+            arm_mount = j_mount_raw[arm_type_value]
+        if arm_mount is None:
+            pass
+        elif "pos" in arm_mount:
             # Legacy un-versioned per-arm block
             j_mount = arm_mount
         else:
@@ -94,6 +117,8 @@ def _load_gripper_config(gripper_type_value: str, arm_type: "ArmType") -> _Gripp
         mount_pos=j_mount["pos"],
         mount_quat=j_mount["quat"],
         mount_axis=j_mount["axis"],
+        attach_pos=j_mount.get("attach_pos") or _arm_gripper_attach(arm_type)[0],
+        attach_quat=j_mount.get("attach_quat") or _arm_gripper_attach(arm_type)[1],
         motor_type=raw["motor_type"],
         motor_kp=float(raw["motor_kp"]),
         motor_kd=float(raw["motor_kd"]),
@@ -231,6 +256,36 @@ def _find_deepest_body(element: ET.Element) -> ET.Element:
         current = child_bodies[0]
 
 
+def _renumber_gripper_joints(grip_root: ET.Element, n_arm_joints: int) -> None:
+    """Renumber a gripper's finger joints to continue the arm's count, in place.
+
+    Every gripper model names its fingers ``joint7``/``joint8``, which was unambiguous while every
+    arm stopped at ``joint6``. The 7-DOF arm's own terminal joint is ``joint7``, and MuJoCo rejects
+    a duplicate joint name outright -- ``XML Error: repeated name 'joint7' in joint`` -- so the
+    composed model would not compile at all. Shifting the gripper's joints to ``joint<n+1>...``
+    is what the 7-DOF model's README already describes as the composition's behaviour.
+
+    On a six-joint arm this maps joint7 -> joint7 and joint8 -> joint8, so it is a no-op there and
+    the shipped arms are untouched. The ``<equality>`` that couples the two fingers references them
+    by name, so it is rewritten with them; missing that would leave the constraint pointing at a
+    joint that no longer exists.
+    """
+    names = [j.get("name") for j in grip_root.iter("joint") if j.get("name")]
+    rename = {old: f"joint{n_arm_joints + i + 1}" for i, old in enumerate(names)}
+    if all(old == new for old, new in rename.items()):
+        return
+    for joint in grip_root.iter("joint"):
+        name = joint.get("name")
+        if name in rename:
+            joint.set("name", rename[name])
+    equality = grip_root.find("equality")
+    for constraint in equality if equality is not None else ():
+        for attr in ("joint1", "joint2"):
+            ref = constraint.get(attr)
+            if ref in rename:
+                constraint.set(attr, rename[ref])
+
+
 def combine_arm_and_gripper_xml(
     arm_type: "ArmType",
     gripper_type: "GripperType",
@@ -271,10 +326,12 @@ def combine_arm_and_gripper_xml(
     worldbody = arm_root.find("worldbody")
     mount_body = _find_deepest_body(worldbody) if worldbody is not None else None
     if mount_body is not None:
-        mount_body.set("pos", cfg.mount_pos)
-        mount_body.set("quat", cfg.mount_quat)
+        if cfg.mount_pos is not None:
+            mount_body.set("pos", cfg.mount_pos)
+        if cfg.mount_quat is not None:
+            mount_body.set("quat", cfg.mount_quat)
         last_joint = mount_body.find("joint")
-        if last_joint is not None:
+        if last_joint is not None and cfg.mount_axis is not None:
             last_joint.set("axis", cfg.mount_axis)
 
     # Resolve arm mesh paths to absolute
@@ -297,6 +354,9 @@ def combine_arm_and_gripper_xml(
         try:
             grip_tree = ET.parse(gripper_path)
             grip_root = grip_tree.getroot()
+            # Before anything is transplanted: the gripper's finger joints are named for a
+            # six-joint arm, and on a seven-joint one they collide with the arm's own joint7.
+            _renumber_gripper_joints(grip_root, len(worldbody.findall(".//joint")) if worldbody is not None else 0)
             grip_body = grip_root.find(".//body[@name='gripper']")
         except Exception:
             grip_root = None
@@ -335,6 +395,23 @@ def combine_arm_and_gripper_xml(
         if grip_body is not None and mount_body is not None:
             grip_pos = grip_body.get("pos", "0 0 0")
             grip_quat = grip_body.get("quat", "1 0 0 0")
+            # An arm's terminal joint frame need not coincide with its physical gripper
+            # interface. Keep arm geoms and the joint in place; transform only the attached
+            # gripper, including its inertia and tool sites, through that interface.
+            # The interface comes from the arm model when it declares one, and otherwise from the
+            # gripper config, which is where an arm that cannot be edited has to be accommodated.
+            # Both default to identity, so every arm that needed neither is composed exactly as
+            # before.
+            attachment = mount_body.find("frame[@name='gripper_attachment']")
+            interface = (
+                (attachment.get("pos", "0 0 0"), attachment.get("quat", "1 0 0 0"))
+                if attachment is not None
+                else (cfg.attach_pos, cfg.attach_quat)
+            )
+            pos, quat = _compose_pose(
+                _floats(interface[0]), _floats(interface[1]), _floats(grip_pos), _floats(grip_quat)
+            )
+            grip_pos, grip_quat = _fmt(pos), _fmt(quat)
             frame = ET.Element("frame", {"pos": grip_pos, "quat": grip_quat})
             # MuJoCo does not apply an enclosing <frame> to an <inertial>, so that one element is
             # composed into the mount frame by hand below; everything else (geoms, sites, tip
@@ -411,6 +488,8 @@ _ARM_VARIANTS: Dict[str, Tuple[str, int]] = {
     "yam_ultra": ("yam_ultra", 1),
     "yam_ultra_2": ("yam_ultra", 2),
     "big_yam": ("big_yam", 1),
+    "yam_7dof_left": ("yam_7dof_left", 1),
+    "yam_7dof_right": ("yam_7dof_right", 1),
 }
 
 
@@ -420,6 +499,8 @@ class ArmType(enum.Enum):
     YAM_ULTRA = "yam_ultra"
     YAM_ULTRA_2 = "yam_ultra_2"
     BIG_YAM = "big_yam"
+    YAM_7DOF_LEFT = "yam_7dof_left"
+    YAM_7DOF_RIGHT = "yam_7dof_right"
     NO_ARM = "no_arm"
 
     @classmethod

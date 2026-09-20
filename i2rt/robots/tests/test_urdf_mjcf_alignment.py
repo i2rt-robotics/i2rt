@@ -52,9 +52,6 @@ INERTIA_TOL = 1e-5
 RANGE_TOL = 1e-6
 
 ARM_JOINT_RE = re.compile(r"^(?:dof_)?joint(\d+)$")
-# MJCF bodies in chain order. The terminal ``gripper`` body is the mount (joint6's child), named
-# after the URDF link it represents.
-MJCF_BODIES = ["base", "link1", "link2", "link3", "link4", "link5", "gripper"]
 
 
 # --------------------------------------------------------------------------- math
@@ -202,19 +199,19 @@ def _load_arm_model(arm: ArmType) -> _ArmModel:
     )
     arm_joints = [j for _, j in arm_joints]
     base = arm_joints[0].find("parent").get("link")
-    links = [base] + [arm_joints[i].find("child").get("link") for i in range(5)]
-    mount = arm_joints[5].find("child").get("link")
+    links = [base] + [j.find("child").get("link") for j in arm_joints[:-1]]
+    mount = arm_joints[-1].find("child").get("link")
 
     urdf_w = _urdf_world_transforms(robot)
     mjcf_w, mjcf_el = _mjcf_world_transforms(mjcf)
     # MJCF body name -> corresponding URDF link name.
     urdf_link_of = {"base": base, "gripper": mount}
-    for i in range(1, 6):
+    for i in range(1, len(arm_joints)):
         urdf_link_of[f"link{i}"] = links[i]
 
     frames: list[_Frame] = []
     inertials: list[_Inertial] = []
-    for name in MJCF_BODIES:
+    for name in ["base", *(f"link{i}" for i in range(1, len(arm_joints))), "gripper"]:
         if name not in mjcf_w:  # e.g. big_yam has no `base` body (fixed static geom)
             continue
         urdf_link = urdf_link_of[name]
@@ -264,10 +261,26 @@ def model(request: pytest.FixtureRequest) -> _ArmModel:
 
 
 # --------------------------------------------------------------------------- tests
+ARM_JOINT_COUNTS = {
+    "yam": 6,
+    "yam_pro": 6,
+    "yam_ultra": 6,
+    "yam_ultra_2": 6,
+    "big_yam": 6,
+    "yam_7dof_left": 7,
+    "yam_7dof_right": 7,
+}
+
+
 def test_arm_structure(model: _ArmModel) -> None:
-    """Six revolute arm joints and a terminal mount, as every README asserts (six-DOF)."""
-    assert model.n_arm_joints == 6, f"{model.arm}: expected 6 revolute arm joints"
-    assert model.mount_child, f"{model.arm}: no joint6 child (terminal mount) found"
+    """The family's revolute arm joints, and a terminal mount, as every README asserts."""
+    expected = ARM_JOINT_COUNTS.get(model.arm)
+    assert expected is not None, (
+        f"{model.arm}: no entry in ARM_JOINT_COUNTS. Add one when registering an arm family; "
+        f"the model reports {model.n_arm_joints} revolute arm joints."
+    )
+    assert model.n_arm_joints == expected, f"{model.arm}: expected {expected} revolute arm joints"
+    assert model.mount_child, f"{model.arm}: no terminal-mount child of the last joint found"
 
 
 def test_home_pose_frames_aligned(model: _ArmModel) -> None:

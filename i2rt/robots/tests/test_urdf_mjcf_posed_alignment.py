@@ -38,9 +38,11 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
+from i2rt.robots.tests.test_urdf_mjcf_alignment import ARM_JOINT_COUNTS
 from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
 
-# Joint configurations to sweep. Each row is [joint1..joint6, gripper]; the 7th (gripper) value
+# Joint configurations to sweep. Each row is [joint1..joint6, gripper]; _pose_for widens a row
+# for an arm with more joints. The last (gripper) value
 # is part of the sim command but does not move any arm link/joint frame, so it is not applied.
 YAM_ARM_MOTIONS = [
     np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
@@ -56,11 +58,21 @@ YAM_ARM_MOTIONS = [
 ARMS = [arm for arm in ArmType if arm != ArmType.NO_ARM]
 # Arms whose gripper mount preserves the native (URDF) wrist frame, so the mount body/joint6 stay
 # URDF-comparable in the combined model. big_yam mounts grippers rotated (see module docstring).
-MOUNT_ALIGNED_ARMS = {ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2}
+MOUNT_ALIGNED_ARMS = {
+    ArmType.YAM,
+    ArmType.YAM_PRO,
+    ArmType.YAM_ULTRA,
+    ArmType.YAM_ULTRA_2,
+    ArmType.YAM_7DOF_LEFT,
+    ArmType.YAM_7DOF_RIGHT,
+}
 # Arms that share a joint-axis convention, so the same command reaches the same physical pose.
 CROSS_ARM_FAMILY = [ArmType.YAM, ArmType.YAM_PRO, ArmType.YAM_ULTRA, ArmType.YAM_ULTRA_2]
 
 N_ARM_JOINTS = 6
+"""Arm joints on the yam family. The cross-arm checks compare only those arms, so this stays a
+constant there; the per-arm checks take the count from ``ARM_JOINT_COUNTS`` instead, because the
+7-DOF arms have seven."""
 # Every gripper is mounted with linear_4310, matching the default sim/hardware end-effector.
 SIM_GRIPPER = GripperType.LINEAR_4310
 
@@ -100,9 +112,7 @@ def _axis_rotation(axis: np.ndarray, angle: float) -> np.ndarray:
 
 
 # ------------------------------------------------------------------- URDF forward kinematics
-def _urdf_posed_frames(
-    urdf_path: str, q_arm: np.ndarray
-) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
+def _urdf_posed_frames(urdf_path: str, q_arm: np.ndarray) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray]]:
     """Analytical URDF FK at joint configuration ``q_arm`` (6 arm joints).
 
     Walks the revolute chain joint1..joint6, composing each joint's fixed origin transform with
@@ -160,31 +170,49 @@ def _mjcf_posed_frames(arm: ArmType, pose: np.ndarray) -> tuple[dict[int, np.nda
     """
     model = _combined_model(arm)
     data = mujoco.MjData(model)
-    for n in range(1, N_ARM_JOINTS + 1):
+    n_joints = ARM_JOINT_COUNTS[arm.family]
+    for n in range(1, n_joints + 1):
         data.qpos[model.joint(f"joint{n}").qposadr[0]] = pose[n - 1]
     mujoco.mj_forward(model, data)
 
     link_world: dict[int, np.ndarray] = {}
     axis_world: dict[int, np.ndarray] = {}
-    for n in range(1, N_ARM_JOINTS + 1):
-        bid = model.body("gripper" if n == N_ARM_JOINTS else f"link{n}").id
+    for n in range(1, n_joints + 1):
+        bid = model.body("gripper" if n == n_joints else f"link{n}").id
         link_world[n] = _transform(data.xpos[bid].copy(), _wxyz_to_matrix(data.xquat[bid]))
         axis_world[n] = data.xaxis[model.joint(f"joint{n}").id].copy()
     return link_world, axis_world
 
 
 # --------------------------------------------------------------------------- tests
+def _pose_for(arm: ArmType, pose: np.ndarray) -> np.ndarray:
+    """``pose`` sized for ``arm``: one entry per arm joint, then the gripper's.
+
+    ``YAM_ARM_MOTIONS`` is written for the six-joint arms, as ``[j1..j6, gripper]``. A seven-joint
+    arm needs one more arm entry, and it has to be inserted *before* the gripper value rather than
+    appended, or joint7 would be commanded the gripper's opening and the gripper would get zero --
+    two wrong angles from one off-by-one. joint7 repeats joint6's command, which keeps each pose a
+    single well-defined configuration rather than introducing a new constant per pose.
+    """
+    n = ARM_JOINT_COUNTS[arm.family]
+    if n == len(pose) - 1:
+        return pose
+    return np.concatenate([pose[:-1], np.full(n - (len(pose) - 1), pose[-2]), pose[-1:]])
+
+
 @pytest.mark.parametrize("arm", ARMS, ids=lambda arm: arm.value)
 @pytest.mark.parametrize("pose", YAM_ARM_MOTIONS, ids=[f"pose{i}" for i in range(len(YAM_ARM_MOTIONS))])
 def test_posed_frames_match_urdf(arm: ArmType, pose: np.ndarray) -> None:
     """Sim-commanding an arm to each pose keeps its link/joint frames aligned with the URDF."""
+    n_joints = ARM_JOINT_COUNTS[arm.family]
+    pose = _pose_for(arm, pose)
     urdf_path = os.path.splitext(arm.get_xml_path())[0] + ".urdf"
-    urdf_frames, urdf_axes = _urdf_posed_frames(urdf_path, pose[:N_ARM_JOINTS])
+    urdf_frames, urdf_axes = _urdf_posed_frames(urdf_path, pose[:n_joints])
     mjcf_frames, mjcf_axes = _mjcf_posed_frames(arm, pose)
 
-    # Joints/links carrying the arm's own kinematics (all six) vs only the five physical arm
-    # joints when the gripper mount rewrites the wrist frame (big_yam).
-    checked = range(1, 7) if arm in MOUNT_ALIGNED_ARMS else range(1, 6)
+    # Joints/links carrying the arm's own kinematics (all of them) vs all but the terminal one
+    # when the gripper mount rewrites the wrist frame (big_yam).
+    checked = range(1, n_joints + 1) if arm in MOUNT_ALIGNED_ARMS else range(1, n_joints)
     bad = []
     for n in checked:
         dp = float(np.max(np.abs(urdf_frames[n][:3, 3] - mjcf_frames[n][:3, 3])))
@@ -196,11 +224,11 @@ def test_posed_frames_match_urdf(arm: ArmType, pose: np.ndarray) -> None:
     # The mount *origin* is convention-independent, so it is checked even when the wrist
     # orientation is rewritten by the gripper mount (big_yam).
     if arm not in MOUNT_ALIGNED_ARMS:
-        dp6 = float(np.max(np.abs(urdf_frames[6][:3, 3] - mjcf_frames[6][:3, 3])))
-        if dp6 > POS_TOL:
-            bad.append(f"gripper mount origin: dpos={dp6:.2e}")
+        dpn = float(np.max(np.abs(urdf_frames[n_joints][:3, 3] - mjcf_frames[n_joints][:3, 3])))
+        if dpn > POS_TOL:
+            bad.append(f"gripper mount origin: dpos={dpn:.2e}")
 
-    assert not bad, f"{arm.value} {pose[:N_ARM_JOINTS]}: URDF/MJCF posed frames diverge -> " + "; ".join(bad)
+    assert not bad, f"{arm.value} {pose[:n_joints]}: URDF/MJCF posed frames diverge -> " + "; ".join(bad)
 
 
 @pytest.mark.parametrize("pose", YAM_ARM_MOTIONS, ids=[f"pose{i}" for i in range(len(YAM_ARM_MOTIONS))])
