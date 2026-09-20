@@ -71,7 +71,7 @@ class SimRobot(Robot):
             if jnt_lo != 0.0 or jnt_hi != 1.0:
                 self._gripper_qpos_range = (float(jnt_lo), float(jnt_hi))
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._qpos = np.zeros(n_dofs) if initial_qpos is None else np.array(initial_qpos, dtype=float)
         self._qvel = np.zeros(n_dofs)
 
@@ -271,9 +271,10 @@ class SimRobot(Robot):
             self._update_joint_state()
 
     def command_joint_state(self, joint_state: Dict[str, np.ndarray]) -> None:
-        self.command_joint_pos(joint_state["pos"])
-        if "vel" in joint_state:
-            self.command_target_vel(joint_state["vel"])
+        with self._lock:
+            self.command_joint_pos(joint_state["pos"])
+            if "vel" in joint_state:
+                self.command_target_vel(joint_state["vel"])
 
     def get_observations(self) -> Dict[str, np.ndarray]:
         with self._lock:
