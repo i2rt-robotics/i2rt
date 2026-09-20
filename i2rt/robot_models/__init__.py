@@ -65,6 +65,10 @@ ARM_YAM_PRO_XML_PATH = _arm_xml_path("yam_pro", 1)
 ARM_YAM_ULTRA_XML_PATH = _arm_xml_path("yam_ultra", 1)
 ARM_BIG_YAM_XML_PATH = _arm_xml_path("big_yam", 1)
 
+# 7-DOF arm models. 
+ARM_7DOF_RIGHT_XML_PATH = get_arm_xml_path("yam_7dof_right", 1)
+ARM_7DOF_LEFT_XML_PATH = get_arm_xml_path("yam_7dof_left", 1)
+
 # Gripper XML paths
 GRIPPER_CRANK_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/crank_4310/crank_4310.xml")
 GRIPPER_LINEAR_3507_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/linear_3507/linear_3507.xml")
