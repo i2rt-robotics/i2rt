@@ -1219,12 +1219,9 @@ if __name__ == "__main__":
             self.frame = "local"
             self._lock = threading.Lock()
 
-        def is_command_valid(self) -> bool:
-            return time.time() - self.last_update_time < self.timeout
-
         def remote_set_target_velocity(self, input_dict: Dict[str, Any]) -> None:
             """Set target velocity for base (and optionally linear rail)"""
-            target_velocity = input_dict["target_velocity"]
+            target_velocity = np.array(input_dict["target_velocity"], copy=True)
             frame = input_dict["frame"]
             with self._lock:
                 # If 3D command, only update base part, preserve linear_rail value
@@ -1240,10 +1237,11 @@ if __name__ == "__main__":
                 self.frame = frame
                 self.last_update_time = time.time()
 
-        def get_command(self) -> Tuple[np.ndarray, str]:
+        def get_command(self) -> Tuple[np.ndarray, str, bool]:
             """Get base command [x, y, theta, linear_rail] and frame"""
             with self._lock:
-                return self.command, self.frame
+                valid = time.time() - self.last_update_time < self.timeout
+                return self.command.copy(), self.frame, valid
 
     remote_command = TimeoutRemoteCommand()
 
@@ -1320,10 +1318,9 @@ if __name__ == "__main__":
                 cmd_4d = np.append(gamepad_cmd, lift_vel)
                 gamepad_override_button = gamepad_button["key_left_2"]
 
-            is_remote_command_valid = remote_command.is_command_valid()
+            user_cmd, user_frame, is_remote_command_valid = remote_command.get_command()
 
             if is_remote_command_valid:
-                user_cmd, user_frame = remote_command.get_command()
                 gamepad_command_override = gamepad_override_button
             else:
                 gamepad_command_override = True
