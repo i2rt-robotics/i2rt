@@ -36,6 +36,10 @@ CONTROL_PERIOD = 1.0 / CONTROL_FREQ  # 4 ms
 EXPECTED_CONTROL_PERIOD = 0.007
 REPORT_INTERVAL = 30.0
 
+# How long close() waits for the control thread to leave its loop before shutting the CAN bus down.
+# One cycle is a few ms, so this only ever expires if the thread is wedged on the bus.
+_CONTROL_THREAD_JOIN_TIMEOUT = 2.0
+
 
 class ControlMode:
     MIT = "MIT"
@@ -493,6 +497,7 @@ class DMChainCanInterface(MotorChain):
         self.command_lock = threading.RLock()
 
         self.start_thread_flag = False
+        self._control_thread: Optional[threading.Thread] = None
         if start_thread:
             self.start_thread()
 
@@ -563,6 +568,7 @@ class DMChainCanInterface(MotorChain):
         logging.info("starting separate thread for control loop")
         thread = threading.Thread(target=self._set_torques_and_update_state)
         thread.start()
+        self._control_thread = thread
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
@@ -776,7 +782,24 @@ class DMChainCanInterface(MotorChain):
             return self.same_bus_device_states
 
     def close(self) -> None:
+        """Stop the control loop and shut the CAN bus down, in that order.
+
+        The control thread sends on ``self.motor_interface``'s socket every cycle, so shutting the bus
+        down while it is still running pulls the file descriptor out from under an in-flight
+        ``set_control`` and the thread dies with ``ValueError: file descriptor cannot be a negative
+        integer (-1)``. Joining first lets the loop observe ``running = False`` and exit between cycles.
+        """
         self.running = False
+        thread = self._control_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=_CONTROL_THREAD_JOIN_TIMEOUT)
+            if thread.is_alive():
+                logging.warning(
+                    f"{self} control loop did not stop within {_CONTROL_THREAD_JOIN_TIMEOUT}s; "
+                    "closing the CAN bus anyway"
+                )
+        self._control_thread = None
+        self.start_thread_flag = False
         self.motor_interface.close()
 
 
