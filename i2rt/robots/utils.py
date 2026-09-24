@@ -387,7 +387,7 @@ def combine_arm_and_gripper_xml(
         if ee_inertia is not None:
             arr = np.asarray(ee_inertia).ravel()
             ipos = " ".join(str(float(x)) for x in arr[:3])
-            inertial.set("ipos", ipos)
+            inertial.set("pos", ipos)  # MJCF <inertial> uses "pos"; "ipos" is not a valid attribute
             quat = " ".join(str(float(x)) for x in arr[3:7])
             inertial.set("quat", quat)
             diagin = " ".join(str(float(x)) for x in arr[-3:])
