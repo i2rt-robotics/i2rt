@@ -465,6 +465,7 @@ class DMChainCanInterface(MotorChain):
             )
 
         self.state = None
+        self._feedback_time: Optional[np.ndarray] = None
         self.state_lock = threading.Lock()
         self._report_interval = report_interval
         self._rate_recorder = RateRecorder(name=self, report_interval=report_interval)
@@ -692,6 +693,8 @@ class DMChainCanInterface(MotorChain):
 
     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
         motor_feedback = []
+        if self._feedback_time is None:
+            self._feedback_time = np.zeros(len(self.motor_list))
         for idx, motor_info in enumerate(self.motor_list):
             motor_id, motor_type = motor_info
             torque = commands[idx].torque * self.motor_direction[idx]
@@ -714,12 +717,21 @@ class DMChainCanInterface(MotorChain):
                 logging.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
                 raise e
 
+            # Stamp when *this* motor answered, not when the caller later reads the batch. A
+            # consumer's missing-frame watchdog can only work off an arrival time: with one shared
+            # read time every motor looks freshly heard from on every call, including one that has
+            # stopped answering entirely, and the fault the watchdog exists for is invisible.
+            self._feedback_time[idx] = time.time()
             motor_feedback.append(fd_back)
         return motor_feedback
 
     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
         motor_infos = []
-        timestamp = time.time()
+        # Per motor, and never the read time. `_set_commands` records when each motor's reply
+        # actually arrived; a motor that has gone quiet keeps its old stamp and its age grows,
+        # which is exactly what a watchdog keys off. Before a first reply the array is zero, so
+        # the age is enormous rather than falsely fresh -- the safe direction.
+        stamps = self._feedback_time if self._feedback_time is not None else np.zeros(len(self.motor_list))
         with self.state_lock:
             for idx in range(len(self.motor_list)):
                 state = self.state[idx]
@@ -733,7 +745,7 @@ class DMChainCanInterface(MotorChain):
                         pos=self._joint_position_real_to_sim_idx(self.absolute_positions[idx], idx),
                         temp_rotor=state.temperature_rotor,
                         temp_mos=state.temperature_mos,
-                        timestamp=timestamp,
+                        timestamp=float(stamps[idx]),
                     )
                 )
         return motor_infos
