@@ -1,0 +1,62 @@
+# 7-DOF arm, right. Referenced by i2rt/robot_models/arm_7dof/right/README.md.
+#
+# ==============================================================================================
+#  Motor types READ FROM THE HARDWARE (Gr register, right arm, can0).
+# ==============================================================================================
+#
+#   id  joint    type     rating      12-bit step   peak gravity   margin
+#    1  joint1   DM6248   +/-120 N.m   58.6 mN.m       14.7 N.m      8.2x
+#    2  joint2   DM6248   +/-120 N.m   58.6 mN.m       14.4 N.m      8.3x
+#    3  joint3   DM4340   +/- 28 N.m   13.7 mN.m        5.2 N.m      5.4x
+#    4  joint4   DM4340   +/- 28 N.m   13.7 mN.m        5.3 N.m      5.3x
+#    5  joint5   DM4340   +/- 28 N.m   13.7 mN.m        0.7 N.m     40.0x
+#    6  joint6   DM4310   +/- 10 N.m    4.9 mN.m        0.7 N.m     14.3x
+#    7  joint7   DM4310   +/- 10 N.m    4.9 mN.m        0.7 N.m     14.3x
+#    8  gripper  DM4310   +/- 10 N.m   (not an arm joint; the spec's "7 arm + 1")
+#
+# Re-verify after any motor is swapped:
+#   python examples/arm7_osc/arm7_bringup.py --stage check --channel can0   # read-only
+motor_list:
+  - [0x01, "DM6248"]
+  - [0x02, "DM6248"]
+  - [0x03, "DM4340"]
+  - [0x04, "DM4340"]
+  - [0x05, "DM4340"]
+  - [0x06, "DM4310"]
+  - [0x07, "DM4310"]
+
+# Correct directions, by watching the arm against the model in `--stage mirror`
+directions: [-1, 1, 1, 1, 1, 1, 1]
+
+# Position-hold gains for the repo's own MotorChainRobot path. Arm7OSC does NOT use these: it
+# closes position in the host loop and sends kp=0 with a small kd. Scaled from yam_v1 by the
+# inertia ratio; untuned on hardware.
+kp: [80.0, 80.0, 80.0, 40.0, 10.0, 10.0, 10.0]
+kd: [5.0, 5.0, 5.0, 3.0, 1.5, 1.5, 1.5]
+
+# Per-joint multiplier on the gravity term, tuned by hand on the arm.
+gravity_comp_factor: [1.2, 1.0, 0.6, 0.62, 1.0, 0.5, 1.2]
+
+# Motor-side kd held while floating. 
+grav_comp_kd: [0.1, 0.1, 0.1, 0.3, 0.05, 0.05, 0.05]
+
+# Breakaway friction, N.m. Measured by loading each joint until it lets go and repeating both
+# ways: friction reverses with direction and a gravity-model error does not, so half the
+# difference is friction and half the sum is model error. Repeatable to about 10%.
+#
+#     joint  ratio  axis              stiction
+#       1    48:1   base yaw            1.91     largest here; rises 1.33 -> 2.21 with angle
+#       2    48:1   shoulder pitch      1.37
+#       3    40:1   upper-arm roll      1.18
+#       4    40:1   elbow pitch         0.46
+#       5    40:1   forearm roll        0.29
+#       6    10:1   wrist pitch         0.04     lowest on the arm, so the first to hunt
+#       7    10:1   wrist roll          0.10     not constant -- see below
+#
+# These drive `_cap_task_stiffness` and `_cap_host_damping` in arm7_bringup.py, so they set the
+# usable task gain directly. Re-measure with `--stage sweep` after any mechanical change.
+coulomb_friction: [1.91, 1.37, 1.18, 0.46, 0.29, 0.04, 0.10]
+
+# Where the gripper module attaches, relative to this arm's terminal body. 
+gripper_attach_pos: "-0.068901 0.0002939999997 0.025637"
+gripper_attach_quat: "-0.49999999999930123 0.50000000000203615 -0.50000000000140798 0.49999999999725458"
