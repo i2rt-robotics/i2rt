@@ -561,8 +561,8 @@ class DMChainCanInterface(MotorChain):
         if self.start_thread_flag:
             return
         logging.info("starting separate thread for control loop")
-        thread = threading.Thread(target=self._set_torques_and_update_state)
-        thread.start()
+        self._control_thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
@@ -777,6 +777,8 @@ class DMChainCanInterface(MotorChain):
 
     def close(self) -> None:
         self.running = False
+        if hasattr(self, "_control_thread") and self._control_thread.is_alive():
+            self._control_thread.join(timeout=2.0)
         self.motor_interface.close()
 
 
