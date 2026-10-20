@@ -12,6 +12,11 @@ config, so a stale copy silently misplaces the gripper for that arm.
 The mount is keyed by arm **and** arm model version, because a new hardware revision can move the
 terminal mount frame. ``--version`` selects the ``v<N>`` sub-key (default 1).
 
+Only ``pos``/``quat``/``axis`` come from the MJCF, and only those are rewritten. Anything else in
+the block -- notably the ``gripper_pos``/``gripper_quat`` offset an arm needs when its last joint is
+a wrist pitch rather than the tool roll -- is arm data the MJCF cannot express, so it is passed
+through untouched and must be added by hand when a block is first seeded.
+
 This script re-reads the mount straight from the regenerated ``<arm>.xml`` -- using the very same
 ``_find_deepest_body`` that composition uses, so the body selected here is guaranteed to be the one
 overwritten at runtime -- and writes ``pos``/``quat``/``axis`` into ``last_joint_mount.<arm>.v<N>``
@@ -27,6 +32,7 @@ introduced across all six gripper configs without hand-editing them.
 Usage:
     python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <arm>.xml [--arm NAME] [--version N] [--config-dir DIR] [--dry-run]
 """
+
 from __future__ import annotations
 
 import os
@@ -196,7 +202,9 @@ def main(
         if status.startswith(("MISSING", "ERROR")):
             errors += 1
     if errors:
-        print(f"  [error] {errors} config(s) missing/malformed for '{arm}.v{version}' -- composition would use a stale/missing mount at runtime.")
+        print(
+            f"  [error] {errors} config(s) missing/malformed for '{arm}.v{version}' -- composition would use a stale/missing mount at runtime."
+        )
         return 1
     return 0
 

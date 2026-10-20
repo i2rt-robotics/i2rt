@@ -14,6 +14,7 @@ from i2rt.motor_drivers.dm_driver import (
 )
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
+from i2rt.robots.teaching_handle_robot import MotorlessCanChain, TeachingHandleRobot
 from i2rt.robots.utils import (
     ArmType,
     GripperType,
@@ -22,6 +23,19 @@ from i2rt.robots.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def wrap_around_offset(pos: float, direction: int) -> float:
+    """Offset step that pulls a motor's reported position back inside (-pi, pi].
+
+    The chain reports ``(raw - offset) * direction``, so raising the offset lowers the reported
+    position only on a ``+1`` motor; on a reversed one the same step pushes it the other way. The
+    step therefore carries ``direction``, or a ``-1`` motor sitting past pi is driven *further*
+    out -- and a gripper whose stroke then leaves the MIT position range (+-12.5 rad) has its
+    commands silently clamped by ``float_to_uint``, which stalls the motor at full torque the
+    first time a non-zero kp is applied to it.
+    """
+    return round(pos / (2 * np.pi)) * 2 * np.pi * direction
 
 
 def _load_joint_limits_from_xml(*xml_paths: str) -> np.ndarray:
@@ -58,6 +72,38 @@ def get_encoder_chain(can_interface: CanInterface) -> EncoderChain:
     return EncoderChain([0x50E], passive_encoder_reader)
 
 
+def _get_teaching_handle_robot(
+    channel: str = "can0",
+    gripper_type: GripperType = GripperType.YAM_TEACHING_HANDLE_V1,
+    sim: bool = False,
+) -> "Robot":
+    """Create a standalone teaching handle (no arm).
+
+    The handle is passive: it has no gripper motor, so it contributes no commandable DOF
+    here any more than it does when bolted to an arm.  On real hardware its trigger and
+    buttons come from the passive encoder alone -- there is no motor chain to build.  In
+    sim there is no encoder to read, so the trigger just sits at the model's rest angle.
+
+    Args:
+        channel: CAN interface name (e.g. "can0"). Ignored in sim mode.
+        gripper_type: Which teaching-handle variant to load.
+        sim: If True, return a SimRobot instead of connecting to real hardware.
+    """
+    xml_path = gripper_type.get_xml_path()
+
+    if sim:
+        from i2rt.robots.sim_robot import SimRobot
+
+        return SimRobot(xml_path=xml_path, n_dofs=0)
+
+    motor_chain = MotorlessCanChain(
+        channel=channel,
+        get_same_bus_device_driver=get_encoder_chain,
+        name="teaching_handle",
+    )
+    return TeachingHandleRobot(motor_chain=motor_chain, xml_path=xml_path, gripper_type=gripper_type)
+
+
 def _get_gripper_only_robot(
     channel: str = "can0",
     gripper_type: GripperType = GripperType.LINEAR_4310,
@@ -75,6 +121,9 @@ def _get_gripper_only_robot(
     """
     if gripper_type == GripperType.NO_GRIPPER:
         raise ValueError("gripper_type cannot be NO_GRIPPER when arm_type is NO_ARM")
+
+    if gripper_type.is_teaching_handle:
+        return _get_teaching_handle_robot(channel=channel, gripper_type=gripper_type, sim=sim)
 
     xml_path = gripper_type.get_xml_path()
     # One motor drives the gripper; extra XML joints are coupled via equality constraints.
@@ -161,7 +210,7 @@ def get_yam_robot(
         channel: CAN interface name (e.g. "can0"). Ignored in sim mode.
         arm_type: Which arm variant to use. A hardware revision is its own variant
             (e.g. ``ArmType.YAM_ULTRA_2``). Use ``ArmType.NO_ARM`` for gripper-only.
-        gripper_type: Which gripper (or NO_GRIPPER / YAM_TEACHING_HANDLE).
+        gripper_type: Which gripper (or NO_GRIPPER / a teaching handle).
         zero_gravity_mode: Start in gravity-compensation mode.
         ee_mass: Optional end-effector mass override (kg) for MuJoCo inertial.
         ee_inertia: Optional 10-element inertia override [ipos(3), quat(4), diaginertia(3)].
@@ -183,8 +232,8 @@ def get_yam_robot(
             channel=channel, gripper_type=gripper_type, sim=sim, enable_auto_recovery=enable_auto_recovery
         )
 
-    with_gripper = gripper_type not in (GripperType.YAM_TEACHING_HANDLE, GripperType.NO_GRIPPER)
-    with_teaching_handle = gripper_type == GripperType.YAM_TEACHING_HANDLE
+    with_teaching_handle = gripper_type.is_teaching_handle
+    with_gripper = not with_teaching_handle and gripper_type != GripperType.NO_GRIPPER
 
     hw = _load_arm_config(arm_type)
     effective_gravity_comp = hw.gravity_comp_factor if gravity_comp_factor is None else gravity_comp_factor
@@ -219,10 +268,21 @@ def get_yam_robot(
         default_kp, default_kd = gripper_type.get_motor_kp_kd(arm_type)
         _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
         _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
-        logging.info(f"adding gripper motor type={motor_type}, kp={_gripper_kp}, kd={_gripper_kd}")
-        motor_list.append([0x07, motor_type])
+        # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
+        # arm with seven joints has taken that id already and declares its own. Its polarity comes
+        # from the gripper config unless the arm overrides it.
+        gripper_direction = (
+            gripper_type.get_motor_direction(arm_type)
+            if hw.gripper_motor_direction is None
+            else hw.gripper_motor_direction
+        )
+        logging.info(
+            f"adding gripper motor type={motor_type}, id={hex(hw.gripper_can_id)}, "
+            f"kp={_gripper_kp}, kd={_gripper_kd}, direction={gripper_direction:+d}"
+        )
+        motor_list.append([hw.gripper_can_id, motor_type])
         motor_offsets.append(0.0)
-        directions.append(gripper_type.get_motor_direction(arm_type))
+        directions.append(gripper_direction)
         kp = np.append(kp, _gripper_kp)
         kd = np.append(kd, _gripper_kd)
         grav_comp_kd = np.append(grav_comp_kd, 0.0)
@@ -272,18 +332,18 @@ def get_yam_robot(
         # motor_list already has the gripper motor appended, so both cover it too.
         check_motor_types=True,
         check_motor_config=True,
+        # The arm config's motor_registers (e.g. KT_Value/GREF on a 7-DOF arm); arm motors only.
+        expected_registers=hw.motor_registers,
     )
     motor_states = motor_chain.read_states()
     logging.debug(f"motor_states: {motor_states}")
 
     logging.info(f"current_pos: {[m.pos for m in motor_states]}")
     for idx, state in enumerate(motor_states):
-        if state.pos < -np.pi:
-            logging.info(f"motor {idx} pos={state.pos:.3f}, offset -2π")
-            motor_chain.motor_offset[idx] -= 2 * np.pi
-        elif state.pos > np.pi:
-            logging.info(f"motor {idx} pos={state.pos:.3f}, offset +2π")
-            motor_chain.motor_offset[idx] += 2 * np.pi
+        step = wrap_around_offset(state.pos, motor_chain.motor_direction[idx])
+        if step:
+            logging.info(f"motor {idx} pos={state.pos:.3f}, offset {step:+.3f}")
+            motor_chain.motor_offset[idx] += step
 
     logging.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
 

@@ -14,10 +14,21 @@ from i2rt.motor_drivers.dm_driver import (
     MotorInfo,
     PassiveEncoderInfo,
 )
+from i2rt.robots.four_bar import YAM_7DOF_JOINT6_LINKAGE, FourBarLinkage
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import ArmType, GripperForceLimiter, GripperType, JointMapper, detect_gripper_limits
+from i2rt.robots.utils import (
+    ArmName,
+    ArmType,
+    GripperForceLimiter,
+    GripperType,
+    JointMapper,
+    detect_gripper_limits,
+)
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 from i2rt.utils.recording import RobotMcapRecorder
+
+# joint6 on the 7-DOF arms, the one joint on any of these arms driven through a linkage.
+JOINT6_INDEX = 5
 
 
 @dataclass
@@ -64,6 +75,12 @@ class JointCommands:
 class MotorChainRobot(Robot):
     """A generic Robot protocol."""
 
+    # Joints whose motor drives them through a linkage rather than directly, by joint index. Direct
+    # drive is the norm: only the 7-DOF arms' joint6 sits behind a linkage, and ``__init__`` rebinds
+    # this for those two. Declared on the class so the conversion is a no-op by default and never an
+    # AttributeError; never mutated.
+    _transmissions: Dict[int, FourBarLinkage] = {}
+
     def __init__(
         self,
         motor_chain: MotorChain,
@@ -107,67 +124,6 @@ class MotorChainRobot(Robot):
         self._arm_type = arm_type
         self._gripper_type = gripper_type
         self.temp_record_flag = temp_record_flag
-        if gripper_index is not None:
-            assert gripper_index == len(motor_chain) - 1, (
-                "Gripper index should be the last one, but got {gripper_index}"
-            )
-
-            # Auto-detect gripper limits if enabled and gripper_limits is None
-            print(
-                f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
-            )
-            if gripper_limits is None and enable_gripper_calibration:
-                logger = logging.getLogger(__name__)
-                logger.info("Auto-detecting gripper limits...")
-                detected_limits = detect_gripper_limits(
-                    motor_chain=motor_chain,
-                    gripper_index=gripper_index,
-                    test_torque=test_torque,
-                    max_duration=test_duration,
-                    position_threshold=position_threshold,
-                    check_interval=check_interval,
-                )
-                gripper_limits = np.array(detected_limits)
-                logger.info(f"Gripper limits auto-detected: {gripper_limits}")
-            elif gripper_limits is None:
-                raise ValueError(
-                    f"{self}: Gripper limits are required if gripper index is provided and auto-calibration is disabled."
-                )
-            else:
-                # Use the provided gripper_limits
-                logger = logging.getLogger(__name__)
-                logger.info(f"Using provided gripper limits: {gripper_limits}")
-
-        self._last_gripper_command_qpos = 1  # initialize as fully open
-        assert clip_motor_torque >= 0.0
-        self._clip_motor_torque = clip_motor_torque
-        self.motor_chain = motor_chain
-        # None means inherit whatever the chain was constructed with; an explicit value overrides it.
-        # The chain reads this flag live each control-loop iteration, so a late set is safe.
-        if enable_auto_recovery is not None:
-            self.motor_chain.enable_auto_recovery = enable_auto_recovery
-        self.use_gravity_comp = use_gravity_comp
-        self.gravity_comp_factor = (
-            gravity_comp_factor if gravity_comp_factor is not None else np.ones(len(motor_chain))
-        )
-
-        # variables for gripper effort limiting
-        self._gripper_index = gripper_index
-        self.remapper = JointMapper({}, len(motor_chain))  # so it works without gripper
-        self._gripper_limits = gripper_limits
-        self._gripper_force_limiter: Optional[GripperForceLimiter] = None
-        self._limit_gripper_force: float = -1.0
-
-        if self._gripper_index is not None:
-            self._gripper_force_limiter = GripperForceLimiter(
-                max_force=limit_gripper_force, gripper_type=gripper_type, arm_type=arm_type, kp=kp[gripper_index]
-            )  # force in newton
-            self._limit_gripper_force = limit_gripper_force
-
-            self.remapper = JointMapper(
-                index_range_map={gripper_index: gripper_limits},
-                total_dofs=len(motor_chain),
-            )
 
         # make sure kp, kd are float number not int
         self._kp = (
@@ -203,6 +159,78 @@ class MotorChainRobot(Robot):
         assert len(self._coulomb_friction) == len(motor_chain), (
             f"coulomb_friction length {len(self._coulomb_friction)} != motor_chain length {len(motor_chain)}"
         )
+
+        if gripper_index is not None:
+            assert gripper_index == len(motor_chain) - 1, (
+                "Gripper index should be the last one, but got {gripper_index}"
+            )
+
+            # Auto-detect gripper limits if enabled and gripper_limits is None
+            print(
+                f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
+            )
+            if gripper_limits is None and enable_gripper_calibration:
+                logger = logging.getLogger(__name__)
+                logger.info("Auto-detecting gripper limits...")
+                detected_limits = detect_gripper_limits(
+                    motor_chain=motor_chain,
+                    gripper_index=gripper_index,
+                    # The control loop is not running yet, so the arm hangs on this PD hold alone.
+                    # The configured gains are what keep the droop at gravity_torque / kp.
+                    hold_kp=self._kp,
+                    hold_kd=self._kd,
+                    test_torque=test_torque,
+                    max_duration=test_duration,
+                    position_threshold=position_threshold,
+                    check_interval=check_interval,
+                )
+                gripper_limits = np.array(detected_limits)
+                logger.info(f"Gripper limits auto-detected: {gripper_limits}")
+            elif gripper_limits is None:
+                raise ValueError(
+                    f"{self}: Gripper limits are required if gripper index is provided and auto-calibration is disabled."
+                )
+            else:
+                # Use the provided gripper_limits
+                logger = logging.getLogger(__name__)
+                logger.info(f"Using provided gripper limits: {gripper_limits}")
+
+        self._last_gripper_command_qpos = 1  # initialize as fully open
+        assert clip_motor_torque >= 0.0
+        self._clip_motor_torque = clip_motor_torque
+        self.motor_chain = motor_chain
+        # None means inherit whatever the chain was constructed with; an explicit value overrides it.
+        # The chain reads this flag live each control-loop iteration, so a late set is safe.
+        if enable_auto_recovery is not None:
+            self.motor_chain.enable_auto_recovery = enable_auto_recovery
+        self.use_gravity_comp = use_gravity_comp
+        # What ``enter_gravity_comp_idle`` restores to. A robot built without an XML path has no
+        # KDL to compute gravity torques with, so "back to gravity comp" must stay off for it.
+        self._gravity_comp_available = use_gravity_comp
+        self.gravity_comp_factor = (
+            gravity_comp_factor if gravity_comp_factor is not None else np.ones(len(motor_chain))
+        )
+
+        if arm_type in (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT):
+            self._transmissions = {JOINT6_INDEX: YAM_7DOF_JOINT6_LINKAGE}
+
+        # variables for gripper effort limiting
+        self._gripper_index = gripper_index
+        self.remapper = JointMapper({}, len(motor_chain))  # so it works without gripper
+        self._gripper_limits = gripper_limits
+        self._gripper_force_limiter: Optional[GripperForceLimiter] = None
+        self._limit_gripper_force: float = -1.0
+
+        if self._gripper_index is not None:
+            self._gripper_force_limiter = GripperForceLimiter(
+                max_force=limit_gripper_force, gripper_type=gripper_type, arm_type=arm_type, kp=self._kp[gripper_index]
+            )  # force in newton
+            self._limit_gripper_force = limit_gripper_force
+
+            self.remapper = JointMapper(
+                index_range_map={gripper_index: gripper_limits},
+                total_dofs=len(motor_chain),
+            )
 
         self._joint_limits: Optional[np.ndarray] = None
         if xml_path is not None:
@@ -240,6 +268,14 @@ class MotorChainRobot(Robot):
         self._commands = JointCommands.init_all_zero(len(motor_chain))
         if zero_gravity_mode:
             self._commands.kd = self._grav_comp_kd.copy()
+        else:
+            # Hold the startup pose from the loop's very first iteration. init_all_zero leaves kp at
+            # zero, so the window this closes was not a lunge toward zero -- the MIT controller
+            # ignores a position target at kp=0 -- but the arm was briefly unheld, carried only by
+            # gravity comp, until the post-start command landed a few milliseconds later.
+            self._commands.pos = self.remapper.to_robot_joint_pos_space(self._joint_state.pos)
+            self._commands.kp = self._kp.copy()
+            self._commands.kd = self._kd.copy()
         # For SWE-454, check if the current qpos is in the joint limits
         self._check_current_qpos_in_joint_limits()
 
@@ -247,10 +283,6 @@ class MotorChainRobot(Robot):
         self._stop_event = threading.Event()  # Add a stop event
         self._server_thread = threading.Thread(target=self.start_server, name="robot_server")
         self._server_thread.start()
-
-        if not zero_gravity_mode:
-            # set current qpos as target pos with the default PD parameters
-            self.command_joint_pos(self._joint_state.pos)
 
     def __repr__(self) -> str:
         return f"MotorChainRobot(arm_type={self._arm_type}, gripper_type={self._gripper_type}, motor_chain={self.motor_chain})"
@@ -364,6 +396,13 @@ class MotorChainRobot(Robot):
                 self._coulomb_friction * np.sign(self._joint_state.vel) if self.use_coulomb_friction else 0.0
             )
             motor_torques = joint_commands.torques + g * self.gravity_comp_factor + friction_comp
+            # Everything summed above is a torque on the *joint*: the caller's commanded torque, the
+            # model's gravity term and the friction term alike. Behind a linkage the motor sees that
+            # scaled by the transmission ratio -- on joint6 a ~30% correction mid-travel, and ~7x
+            # near the upper stop where the ratio falls to 0.14. Scaled before the motor-side clip,
+            # which is a limit on what the motor may be asked for.
+            for idx, linkage in self._transmissions.items():
+                motor_torques[idx] *= linkage.ratio(linkage.motor_from_joint(self._joint_state.pos[idx]))
             motor_torques = np.clip(motor_torques, -self._clip_motor_torque, self._clip_motor_torque)
             self._last_motor_torques = motor_torques.copy()
 
@@ -448,7 +487,14 @@ class MotorChainRobot(Robot):
             )
             ee_pos = ee_vel = ee_eff = None
             if has_gripper_encoder:
-                ee_pos = np.array([info.position for info in encoder_infos])
+                # gripper_pos, not position: this channel has to be in the arm convention
+                # (0 = closed, 1 = open) to match the gripper_index branch below, which
+                # records the already-remapped joint position.  The raw encoder reads the
+                # other way round, so recording it here mirrored teaching-handle episodes
+                # against motorized-gripper ones.
+                ee_pos = np.array([info.gripper_pos for info in encoder_infos])
+                # Still the raw signed rad/s, unlike the normalized units/s the
+                # gripper_index branch records -- needs range_rad and a bench sign check.
                 ee_vel = np.array([info.velocity for info in encoder_infos])
             elif self._gripper_index is not None:
                 ee_pos = self._joint_state.pos[self._gripper_index]
@@ -474,6 +520,29 @@ class MotorChainRobot(Robot):
                 ee_eff=ee_eff,
             )
 
+    def _joint_to_motor_pos(self, pos: np.ndarray) -> np.ndarray:
+        """Invert the transmissions, so what reaches the CAN frames is motor angles.
+
+        The inverse is bracketed inside each linkage's usable travel, so a command can never be
+        solved onto the far side of a dead point -- which would send the motor most of a turn from
+        where it is. Returns the input untouched on a direct-drive arm.
+        """
+        if not self._transmissions:
+            return pos
+        pos = np.asarray(pos, dtype=float).copy()
+        for idx, linkage in self._transmissions.items():
+            pos[idx] = linkage.motor_from_joint(pos[idx])
+        return pos
+
+    def _joint_to_motor_vel(self, vel: np.ndarray) -> np.ndarray:
+        """Joint rates to motor rates, the ratio taken at the joint's present position."""
+        if not self._transmissions:
+            return vel
+        vel = np.asarray(vel, dtype=float).copy()
+        for idx, linkage in self._transmissions.items():
+            vel[idx] /= linkage.ratio(linkage.motor_from_joint(self._joint_state.pos[idx]))
+        return vel
+
     def _motor_state_to_joint_state(self, motor_state: List[MotorInfo]) -> JointStates:
         """Convert motor state to joint state.
 
@@ -487,10 +556,18 @@ class MotorChainRobot(Robot):
         if self._gripper_index is not None:
             names[self._gripper_index] = "gripper"
         pos = np.array([motor.pos for motor in motor_state])
-        pos = self.remapper.to_command_joint_pos_space(pos)
         vel = np.array([motor.vel for motor in motor_state])
-        vel = self.remapper.to_command_joint_vel_space(vel)
         eff = np.array([motor.eff for motor in motor_state])
+        # Joints driven through a linkage read their motor's angle, not their own. Convert here, at
+        # the one place motor feedback becomes joint state, so everything above -- the observations,
+        # the joint limits, gravity comp's `q`, MCAP -- is in joint space without knowing about it.
+        for idx, linkage in self._transmissions.items():
+            ratio = linkage.ratio(pos[idx])
+            pos[idx] = linkage.joint_from_motor(pos[idx])
+            vel[idx] *= ratio
+            eff[idx] /= ratio
+        pos = self.remapper.to_command_joint_pos_space(pos)
+        vel = self.remapper.to_command_joint_vel_space(vel)
         temp_mos = np.array([motor.temp_mos for motor in motor_state])
         temp_rotor = np.array([motor.temp_rotor for motor in motor_state])
         timestamp = motor_state[0].timestamp
@@ -571,7 +648,7 @@ class MotorChainRobot(Robot):
         pos = self._clip_robot_joint_pos_command(joint_pos)
         with self._command_lock:
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
-            self._commands.pos = self.remapper.to_robot_joint_pos_space(pos)
+            self._commands.pos = self._joint_to_motor_pos(self.remapper.to_robot_joint_pos_space(pos))
             self._commands.kp = self._kp
             self._commands.kd = self._kd
 
@@ -587,8 +664,8 @@ class MotorChainRobot(Robot):
         kp = joint_state.get("kp", self._kp)
         kd = joint_state.get("kd", self._kd)
         with self._command_lock:
-            self._commands.pos = self.remapper.to_robot_joint_pos_space(pos)
-            self._commands.vel = self.remapper.to_robot_joint_vel_space(vel)
+            self._commands.pos = self._joint_to_motor_pos(self.remapper.to_robot_joint_pos_space(pos))
+            self._commands.vel = self._joint_to_motor_vel(self.remapper.to_robot_joint_vel_space(vel))
             self._commands.kp = kp
             self._commands.kd = kd
 
@@ -598,6 +675,21 @@ class MotorChainRobot(Robot):
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._kp = np.zeros(len(self.motor_chain))
             self._kd = np.zeros(len(self.motor_chain))
+
+    def _handle_gripper_pos(self) -> Optional[float]:
+        """Teaching-handle trigger squeeze as a normalized 0..1 gripper position.
+
+        Reported in the arm convention (0 = closed, 1 = open) via
+        ``PassiveEncoderInfo.gripper_pos``, so a consumer reading ``gripper_pos`` cannot
+        tell a squeezed trigger from a closed motorized gripper.  None on robots without
+        a passive encoder on the same CAN bus.
+        """
+        if getattr(self.motor_chain, "same_bus_device_driver", None) is None:
+            return None
+        states = self.motor_chain.get_same_bus_device_states()
+        if not states:
+            return None
+        return float(np.clip(states[0].gripper_pos, 0.0, 1.0))
 
     def get_observations(self) -> Dict[str, np.ndarray]:
         """Get the current observations of the robot.
@@ -609,6 +701,9 @@ class MotorChainRobot(Robot):
         Returns:
             Dict[str, np.ndarray]: A dictionary of observations.
         """
+        # Outside _state_lock: it takes the chain's encoder lock, and nesting the two would let a
+        # slow encoder read stall update(), which needs _state_lock every control cycle.
+        handle_pos = self._handle_gripper_pos() if self._gripper_index is None else None
         with self._state_lock:
             if self._gripper_index is None:
                 result = {
@@ -616,6 +711,8 @@ class MotorChainRobot(Robot):
                     "joint_vel": self._joint_state.vel,
                     "joint_eff": self._joint_state.eff,
                 }
+                if handle_pos is not None:
+                    result["gripper_pos"] = np.array([handle_pos])
             else:
                 result = {
                     "joint_pos": self._joint_state.pos[: self._gripper_index],
@@ -671,10 +768,32 @@ class MotorChainRobot(Robot):
         grav-comp idle without leaving the previous target pose/gains active.
         Leaves ``self._kp`` / ``self._kd`` unchanged so subsequent control
         commands still use the configured control gains.
+
+        Also turns gravity compensation back on, so this is the way back from
+        ``enter_zero_torque_idle``. A robot built without a model never had it and stays off.
         """
         with self._command_lock:
+            self.use_gravity_comp = self._gravity_comp_available
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._commands.kd = self._grav_comp_kd.copy()
+
+    def enter_zero_torque_idle(self) -> None:
+        """Command literally nothing: zero torque, zero PD gains, and no gravity compensation.
+
+        The same frame ``dm_driver.py``'s bring-up loop sends. The motors stay enabled and keep
+        answering, so joint state still streams, but **nothing holds the arm** -- it is carried by
+        its own friction alone and will sag or fall. Support the arm before calling this.
+
+        Distinct from the two neighbours it is easy to confuse it with:
+        ``enter_gravity_comp_idle`` still sends the gravity torque, and ``zero_torque_mode``
+        leaves ``use_gravity_comp`` on -- so it does *not* zero the torque -- while permanently
+        zeroing ``_kp``/``_kd``, which no later command restores. ``enter_gravity_comp_idle`` is
+        the way back from here.
+        """
+        logging.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
+        with self._command_lock:
+            self.use_gravity_comp = False
+            self._commands = JointCommands.init_all_zero(len(self.motor_chain))
 
     def start_recording(self, save_dir: str) -> bool:
         """Start recording joint state data asynchronously."""
@@ -714,8 +833,8 @@ class MotorChainRobot(Robot):
 class _CliArgs:
     """Drive a YAM-family arm over CAN."""
 
-    arm: str = "yam"
-    """Arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam)."""
+    arm: ArmName = "yam"
+    """Arm variant."""
     gripper: str = "linear_4310"
     """Gripper variant."""
     channel: str = "can0"
@@ -749,13 +868,17 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
         elif args.operation_mode == "test_gripper":
-            assert gripper_type != GripperType.YAM_TEACHING_HANDLE, (
-                "test_gripper is not supported for YAM_TEACHING_HANDLE, teaching handle is a passive device"
+            assert not gripper_type.is_teaching_handle, (
+                f"test_gripper is not supported for {gripper_type.name}, teaching handle is a passive device"
             )
             for _ in range(30):
                 for gripper_pos in [0.8, 0.0]:
                     print(f"gripper_pos: {gripper_pos}")
-                    robot.command_joint_pos(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, gripper_pos]))
+                    # Sized from the chain, not written out: the gripper is always the last motor,
+                    # but an arm with seven joints makes that index 7 rather than 6.
+                    command = np.zeros(robot.num_dofs())
+                    command[-1] = gripper_pos
+                    robot.command_joint_pos(command)
                     time.sleep(4)
                     print(robot.get_observations())
         elif args.operation_mode == "stay_current_qpos":

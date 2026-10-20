@@ -36,7 +36,7 @@ raw ONShape export
   2. python .claude/skills/transform-onshape-urdf/scripts/view_urdf.py <model.urdf>                # HUMAN CHECKPOINT: world axes
   3. python .claude/skills/transform-onshape-urdf/scripts/apply_urdf_heading.py <model.urdf> --axis z --deg N --apply   # user's heading
   4. python .claude/skills/align-urdf-mjcf/scripts/urdf_to_arm_mjcf.py <model.urdf> <model.xml>     # URDF -> arm MJCF
-  5. python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <model.xml> --version N  # re-sync last_joint_mount.<arm>.v<N>
+  5. python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py <model.xml> --version N [--side S]  # re-sync last_joint_mount.<arm>[.<side>].v<N>
 ```
 
 - Stages 1 and 3 were one script (`transform_onshape_urdf.py`); they were split so the heading
@@ -244,9 +244,11 @@ Use the complete YAM end-effector contract when changing shared arm mounts or co
 | `crank_4310` | Active crank | 0 | `tcp_site`, `grasp_site` | Root offset, mass, inertia, crank limiter |
 | `flexible_4310` | Active flexible linear | 2 | `tcp_site`, `grasp_site` | Root offset, geometry, dynamics, motor direction, linear limiter |
 | `no_gripper` | Passive mount placeholder | 0 | `tcp_site`, `grasp_site` | No motor, no calibration, no limiter, six arm DOFs |
-| `yam_teaching_handle` | Passive physical handle | 0 | `tcp_site` | Root offset, mass, inertia, no motor, six arm DOFs |
+| `yam_teaching_handle_v1`, `yam_teaching_handle_v2` | Passive physical handle | 1 | `tcp_site` | Root offset, mass, inertia, no motor, six arm DOFs |
 
 Count only compiled body joints; an equality-section `<joint>` element does not add a MuJoCo joint. Do not add joints, sites, motors, or limiter settings merely to make variants structurally identical.
+
+The teaching handles' one joint is the exception that proves the rule: the trigger hinge, named `gripper`, is *passive* -- the operator squeezes it, and it has no motor and no actuator. It is deliberately not named `joint7` -- `get_robot._load_joint_limits_from_xml` collects every joint whose name starts with `joint`, and the handle robot must stay at six DOFs. It shares its name with the root body, which MuJoCo allows because body and joint names live in separate namespaces. Its `range="-0.680678 0"` is oriented so the standard `q = lo + n*(hi - lo)` mapping of a normalized command `n` follows the repo's "0 = closed, 1 = open" convention. It is also the only gripper joint that is a hinge rather than a slide, so code must not infer "arm DOFs" from the model's hinge count.
 
 Use `linear_4310` as the arm-side mount-frame reference for all four arm variants: `yam`, `yam_pro`, `yam_ultra`, and `big_yam`. Move each end-effector-specific rigid offset into its XML root body, but preserve every target-specific property listed above. Do not modify an unaffected variant unless the user requests it or a shared change requires it.
 
@@ -256,7 +258,9 @@ When a shared mount or composition change is in scope, compile the full four-arm
 
 Keep the arm's terminal joint frame independent of the selected gripper. `combine_arm_and_gripper_xml` (`i2rt/robots/utils.py`) finds the arm's deepest body (`gripper`) and **overwrites** its `pos`, `quat`, and first joint's `axis` from the selected gripper config's `last_joint_mount.<arm>` block before attaching the gripper. Treat those fields as arm mount data, not gripper-specific offsets: the block is identical across every gripper config for a given arm.
 
-The arm's mount body and the gripper model's root body are both named `gripper`, and MuJoCo body names must be unique, so composition **merges** them instead of nesting: the gripper model's children are transplanted into the mount body under a `<frame>` carrying the gripper root's own `pos`/`quat`. The gripper's `<inertial>` is the one exception -- MuJoCo does not apply an enclosing `<frame>` to an inertial, so it is composed into the mount frame explicitly and replaces the mount's `mass=1e-6` placeholder. A gripper XML root body may therefore keep a non-identity `pos`/`quat` (as `crank_4310`, `flexible_4310`, and `yam_teaching_handle` do) without any change to composition.
+The block is keyed by arm **and** model version, and by **side** as well for an arm that ships as a mirrored pair (`yam_7dof`), whose two mount poses genuinely differ. It may also carry an optional `gripper_pos`/`gripper_quat`, composed into the `<frame>` below: an arm whose last joint is a wrist pitch rather than the tool roll mounts its gripper *off* that axis, which the mount pose cannot express because moving it would move the joint's axis line. Composition additionally renumbers the gripper's own joints to continue the arm's count, since every gripper model names its fingers for a six-joint arm -- a no-op unless the arm has more.
+
+The arm's mount body and the gripper model's root body are both named `gripper`, and MuJoCo body names must be unique, so composition **merges** them instead of nesting: the gripper model's children are transplanted into the mount body under a `<frame>` carrying the gripper root's own `pos`/`quat`. The gripper's `<inertial>` is the one exception -- MuJoCo does not apply an enclosing `<frame>` to an inertial, so it is composed into the mount frame explicitly and replaces the mount's `mass=1e-6` placeholder. A gripper XML root body may therefore keep a non-identity `pos`/`quat` (as `crank_4310`, `flexible_4310`, and both teaching handles do) without any change to composition.
 
 ### Sync gripper mounts after regenerating the arm MJCF
 
@@ -266,16 +270,18 @@ the `gripper` mount (and can flip the joint axis, inverting the gripper motor di
 misplacing every gripper on that arm. So after stage 4:
 
 ```bash
-python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py i2rt/robot_models/arm/<arm>/v<N>/<arm>.xml --version N   # add --dry-run to preview
+python .claude/skills/align-urdf-mjcf/scripts/sync_gripper_mounts.py i2rt/robot_models/arm/<arm>/v<N>/<arm>.xml --version N [--side S]   # add --dry-run to preview
 ```
 
-It reads the `gripper` body's `pos`/`quat` and `joint6`'s `axis` from the arm MJCF -- using the same
+It reads the `gripper` body's `pos`/`quat` and its joint's `axis` from the arm MJCF -- using the same
 `_find_deepest_body` composition uses, so the body it reads is the body composition overwrites --
 and writes them into `last_joint_mount.<arm>` in every gripper config that has such a block
-(`linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `no_gripper`, `yam_teaching_handle`).
+(`linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `no_gripper`, `yam_teaching_handle_v1`, `yam_teaching_handle_v2`).
 It edits only the target arm's three scalar lines, leaving the other arms' blocks and all comments
 intact, and skips a block that already matches within `1e-9` (so it is idempotent and produces a
-clean diff).
+clean diff). Add `--side left|right` for a mirrored pair, once per side. `gripper_pos`/`gripper_quat`
+are **not** managed by this script -- the MJCF cannot express them -- so they are passed through
+untouched and have to be written by hand when a block is first seeded.
 
 ### Rebasing a gripper mount frame (when moving offsets into gripper XML)
 

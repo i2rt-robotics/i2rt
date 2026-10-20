@@ -248,6 +248,10 @@ check first, and that
 verdict is what keeps the config check from advising a `PMAX` rewrite — or writing `CTRL_MODE` to
 Flash — on a motor that should be swapped instead.
 
+The same check also compares any registers an arm config declares under `motor_registers`, one value per
+arm joint: today the 7-DOF arms' `KT_Value` and `GREF`, which scale every MIT torque and so the gravity
+tune with it. They are read-only to the check too, and a mismatch refuses the launch.
+
 ## Code reference
 
 ```python

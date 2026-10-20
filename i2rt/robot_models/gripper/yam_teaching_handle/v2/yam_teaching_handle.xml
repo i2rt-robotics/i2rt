@@ -1,0 +1,58 @@
+<!-- YAM teaching handle v2: the v1 passive two-part pistol grip with the butt of the shell
+     truncated. Geometry, frames, masses and inertias come from the ONShape export of the YAM +
+     short-teaching-handle assembly ("YAM  handle short"), whose arm chain carries the same
+     link1..link5 masses and inertias as arm/yam/v1/yam.urdf, so its `dof_joint6` transform is
+     exactly this file's flange to handle transform.
+
+     What differs from v1, and nothing else does:
+
+       * the shell is 38.2 mm shorter. Its bounding box is identical in x and y (79.13 x 99.11 mm)
+         and identical at the flange end; the whole difference is at the butt, where min z moves
+         from -214.452 mm to -176.247 mm in the handle frame. Mass drops 14.0 g to 0.238592 kg and
+         the shell COM moves 17.2 mm back toward the flange.
+       * the trigger is the *same part*, re-clocked +16 deg about the hinge axis. Its mass agrees
+         to five digits, its principal moments to 1e-5 relative, and rotating the v1 trigger's
+         vertex cloud by Rx(+16 deg) about the pivot reproduces this one's bounding box to
+         0.006 mm. Only its rest orientation changed.
+       * the trigger pivot sits 0.51 mm further out: 0.1019915745 m from the flange rather than
+         0.1014822104 m.
+       * total mass is 0.243591 kg rather than 0.257594 kg.
+       * `tcp_site` follows the shorter butt: defined as for v1 (the shell's furthest point along
+         the approach axis), it sits 176.0 mm from the flange rather than 208.4 mm.
+
+     Everything else is identical to v1 and derived in ../v1/yam_teaching_handle.xml's header:
+     the root body named `gripper` and rotated Rx(+135 deg) from the flange, the `tcp_site`
+     definition and orientation, and the passive trigger hinge named `gripper` with the same axis
+     and range.
+     Masses and inertias are this export's verbatim values; the assembly carries real materials.
+
+     The trigger's `quat` below is its principal-axis frame with the export's `ixy` and `ixz`
+     zeroed first: at 3e-14 and 1e-13 against a largest moment of 7e-07 those are CAD symmetry
+     noise, and zeroing them makes x exactly a principal axis. That yields `diaginertia`'s middle
+     entry exactly equal to the export's `ixx`, and a quat with x == y and w == -z. That symmetry
+     is preserved exactly by any rotation about x, which is why v1's trigger quat has the same
+     structure. The shell's off-diagonals are real coupling and are kept.
+
+     Geom colours are this export's own materials, so the v2 shell renders orange where v1's is
+     blue. -->
+<mujoco model="yam_teaching_handle">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="handle" file="handle.stl"/>
+    <mesh name="trigger" file="trigger.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="gripper" pos="0 0 0" quat="0.38268 0.92388 0 0">
+      <inertial pos="0.00222058 0.0206182 -0.0630398" quat="0.700697371576107 -0.0328033925254197 -0.705130845057546 -0.103622498780861" mass="0.238592" diaginertia="0.000163745821426384 0.000681758302639947 0.000760314875933669"/>
+      <geom pos="-0.0106413 -0.0134314 -0.183525" quat="1 0 0 0" type="mesh" rgba="1 0.6 0 1" mesh="handle" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="-0.000241398 0.0187737 -0.174953" quat="0.2705980500730985 -0.6532814824381883 0.6532814824381882 0.2705980500730985" size="0.005" rgba="1 0 0 1"/>
+      <body name="trigger" pos="1e-05 0.0542396 -0.0863733" quat="1 0 0 0">
+        <inertial pos="-2.88511e-09 0.000787745 -0.0050943" quat="0.456755099233804 0.539791422054777 0.539791422054777 -0.456755099233804" mass="0.00499911" diaginertia="2.23966163220921e-07 6.57726e-07 7.14066836779079e-07"/>
+        <joint name="gripper" pos="0 0 0" axis="1 0 0" range="-0.680678 0"/>
+        <geom pos="-0.0106913 -0.0680085 -0.0984379" quat="1 0 0 0" type="mesh" rgba="0.764706 0.878431 0.945098 1" mesh="trigger" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
