@@ -269,13 +269,8 @@ def get_yam_robot(
         _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
         _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
         # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
-        # arm with seven joints has taken that id already and declares its own. Its polarity comes
-        # from the gripper config unless the arm overrides it.
-        gripper_direction = (
-            gripper_type.get_motor_direction(arm_type)
-            if hw.gripper_motor_direction is None
-            else hw.gripper_motor_direction
-        )
+        # arm with seven joints has taken that id already and declares its own.
+        gripper_direction = gripper_type.get_motor_direction(arm_type)
         logging.info(
             f"adding gripper motor type={motor_type}, id={hex(hw.gripper_can_id)}, "
             f"kp={_gripper_kp}, kd={_gripper_kd}, direction={gripper_direction:+d}"
@@ -364,6 +359,10 @@ def get_yam_robot(
         coulomb_friction=coulomb_friction,
         use_coulomb_friction=use_coulomb_friction,
         zero_gravity_mode=zero_gravity_mode,
+        # Both on the shared builder, so a gripperless arm (no_gripper, a teaching handle) keeps its
+        # identity and its linkages too -- dropping them silently runs a linkage joint as direct drive.
+        arm_type=arm_type,
+        transmissions=hw.transmissions,
         joint_state_saver_factory=joint_state_saver_factory,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,
     )
@@ -374,7 +373,6 @@ def get_yam_robot(
             gripper_limits=gripper_limits,
             enable_gripper_calibration=gripper_needs_cal,
             gripper_type=gripper_type,
-            arm_type=arm_type,
             limit_gripper_force=50.0,
         )
     return get_robot()

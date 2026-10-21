@@ -25,14 +25,17 @@ What is left here is what no ``ArmType``-parametrized test can express:
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from functools import partial
+from types import SimpleNamespace
+from typing import Any, Dict, List, Tuple
 
 import mujoco
 import numpy as np
 import pytest
 
-from i2rt.robots.four_bar import YAM_7DOF_JOINT6_LINKAGE
+from i2rt.robots import get_robot
 from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import ArmType, GripperType, _load_arm_config, combine_arm_and_gripper_xml
 from i2rt.utils.mujoco_utils import MuJoCoKDL
@@ -327,10 +330,10 @@ def test_sides_share_hardware_config() -> None:
     left_hw = _load_arm_config(LEFT)
     assert right_hw.motor_list == left_hw.motor_list
     assert right_hw.gripper_can_id == left_hw.gripper_can_id
-    assert right_hw.gripper_motor_direction == left_hw.gripper_motor_direction
     for field in ("kp", "kd", "gravity_comp_factor", "grav_comp_kd", "coulomb_friction"):
         assert np.array_equal(getattr(right_hw, field), getattr(left_hw, field)), field
     assert right_hw.motor_registers == left_hw.motor_registers
+    assert right_hw.transmissions == left_hw.transmissions
 
 
 def test_config_matches_model(arm: ArmType) -> None:
@@ -484,6 +487,9 @@ def test_sim_joint_limits_are_the_model_limits_plus_buffer(arm: ArmType, sim_rob
 J6_MOTOR_AT_STOPS = (-77.91, 66.22)  # deg
 J6_JOINT_AT_STOPS = (-55.0, 45.0)  # deg, the URDF's joint6 range
 J6_STOP_TOL = 0.2  # deg
+JOINT6 = 5  # joint index
+# Both sides declare the same linkage (test_sides_share_hardware_config), so the right's stands in.
+LINKAGE = _load_arm_config(RIGHT).transmissions[JOINT6]
 
 
 def test_joint6_linkage_maps_the_measured_stops_onto_the_urdf_limits() -> None:
@@ -492,7 +498,7 @@ def test_joint6_linkage_maps_the_measured_stops_onto_the_urdf_limits() -> None:
     This is the evidence the URDF's joint6 range is right: the motor travels 144.13 deg where the
     joint travels 100, because the four-bar is a reduction averaging about 0.69.
     """
-    linkage = YAM_7DOF_JOINT6_LINKAGE
+    linkage = LINKAGE
     for motor_deg, joint_deg in zip(J6_MOTOR_AT_STOPS, J6_JOINT_AT_STOPS, strict=True):
         got = np.degrees(linkage.joint_from_motor(np.radians(motor_deg)))
         assert abs(got - joint_deg) < J6_STOP_TOL, f"motor {motor_deg} -> {got}, expected {joint_deg}"
@@ -500,7 +506,7 @@ def test_joint6_linkage_maps_the_measured_stops_onto_the_urdf_limits() -> None:
 
 def test_joint6_zero_maps_to_zero() -> None:
     """The motor is zeroed with joint6 at zero, so the two origins coincide by construction."""
-    assert abs(YAM_7DOF_JOINT6_LINKAGE.joint_from_motor(0.0)) < 1e-12
+    assert abs(LINKAGE.joint_from_motor(0.0)) < 1e-12
 
 
 def test_joint6_linkage_inverse_round_trips() -> None:
@@ -509,7 +515,7 @@ def test_joint6_linkage_inverse_round_trips() -> None:
     The inverse is what the command path relies on, and the map is nonlinear enough that a
     small-angle approximation would not do.
     """
-    linkage = YAM_7DOF_JOINT6_LINKAGE
+    linkage = LINKAGE
     lo, hi = linkage.motor_range
     for motor in np.linspace(lo, hi, 200):
         assert abs(linkage.motor_from_joint(linkage.joint_from_motor(motor)) - motor) < 1e-9
@@ -522,8 +528,119 @@ def test_joint6_linkage_is_a_reduction_and_never_reverses() -> None:
     would leave the inverse ambiguous; a linkage that does not close gives NaN and fails too. This is
     the guard motor_from_joint's bracketed bisection relies on.
     """
-    linkage = YAM_7DOF_JOINT6_LINKAGE
+    linkage = LINKAGE
     lo, hi = linkage.motor_range
     ratios = np.array([linkage.ratio(m) for m in np.linspace(lo, hi, 300)])
     assert np.all(ratios > 0), "joint6 reverses inside its travel"
     assert np.all(ratios < 1.0), "the four-bar should reduce, not multiply"
+
+
+# --------------------------------------------------------------------------- real-hardware wiring
+# get_yam_robot's real path against a stand-in for the CAN chain. Everything above the chain is the
+# real code -- model composition, KDL, MotorChainRobot and its joint6 conversion -- which is where
+# a linkage joint can be silently run as direct drive.
+class _FakeChain:
+    """A motionless chain: every motor reads zero except joint6's, which reads ``joint6_motor``."""
+
+    def __init__(
+        self,
+        motor_list: List[Any],
+        offsets: List[float],
+        directions: List[int],
+        *_: Any,
+        joint6_motor: float,
+        **__: Any,
+    ) -> None:
+        self.motor_direction = np.array(directions)
+        self.motor_offset = np.array(offsets, dtype=float)
+        self.running = True
+        self._states = [
+            SimpleNamespace(
+                pos=joint6_motor if i == JOINT6 else 0.0, vel=0.0, eff=0.0, temp_mos=0.0, temp_rotor=0.0, timestamp=0.0
+            )
+            for i in range(len(motor_list))
+        ]
+
+    def __len__(self) -> int:
+        return len(self._states)
+
+    def read_states(self) -> List[SimpleNamespace]:
+        return self._states
+
+    def set_commands(self, *_: Any, **__: Any) -> List[SimpleNamespace]:
+        return self._states
+
+    def start_thread(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.running = False
+
+
+def _real_robot(
+    monkeypatch: pytest.MonkeyPatch,
+    arm: ArmType,
+    gripper: GripperType = GripperType.NO_GRIPPER,
+    joint6_motor_deg: float = 0.0,
+    **kwargs: Any,
+) -> MotorChainRobot:
+    monkeypatch.setattr(
+        get_robot, "DMChainCanInterface", partial(_FakeChain, joint6_motor=np.radians(joint6_motor_deg))
+    )
+    return get_yam_robot(arm_type=arm, gripper_type=gripper, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "gripper",
+    [GripperType.NO_GRIPPER, GripperType.YAM_TEACHING_HANDLE_V1, GripperType.LINEAR_4310],
+    ids=lambda g: g.value,
+)
+def test_real_robot_keeps_the_joint6_linkage(
+    arm: ArmType, gripper: GripperType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every build carries joint6's linkage, with a gripper or without.
+
+    The gripperless builds once fell back to ``ArmType.YAM`` and ran joint6 as direct drive: its
+    state was the raw motor angle, gravity comp ran at the wrong q, and its torque was 1.15-7x off.
+    """
+    kwargs = {"gripper_limits_override": np.array([0.0, 1.0])} if gripper == GripperType.LINEAR_4310 else {}
+    robot = _real_robot(monkeypatch, arm, gripper, **kwargs)
+    try:
+        assert robot._transmissions == _load_arm_config(arm).transmissions
+        assert JOINT6 in robot._transmissions
+        assert robot.get_robot_info()["arm_type"] == arm
+    finally:
+        robot.close()
+
+
+def test_startup_hold_targets_the_motor_angle(arm: ArmType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without zero-gravity mode the arm holds its startup pose -- in motor angles, as sent.
+
+    The joint state is joint space. Sent unconverted, joint6 at its lower stop would be pulled
+    ~16 deg off where it stands until the caller's first command.
+    """
+    motor_deg = J6_MOTOR_AT_STOPS[0]
+    robot = _real_robot(monkeypatch, arm, joint6_motor_deg=motor_deg, zero_gravity_mode=False)
+    try:
+        assert np.degrees(robot._commands.pos[JOINT6]) == pytest.approx(motor_deg, abs=1e-6)
+    finally:
+        robot.close()
+
+
+@pytest.mark.parametrize("motor_deg", [-90.0, -85.0, 75.0, 77.91])
+def test_out_of_range_joint6_reading_refuses(arm: ArmType, motor_deg: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A joint6 motor reading past its travel refuses startup instead of converting.
+
+    Each one gets past the joint-limit check otherwise. -90 converts to NaN, which fails every
+    comparison. -85 gives -61.6 deg, inside the buffered limits. +75 is past the dead point, where the
+    joint folds back to 45.3 deg and the ratio turns negative. And +77.91 is the lower stop read with
+    a flipped ``directions`` sign.
+    """
+    with pytest.raises(RuntimeError, match="outside its linkage's travel"):
+        _real_robot(monkeypatch, arm, joint6_motor_deg=motor_deg).close()  # if it builds, stop its thread
+
+
+@pytest.mark.parametrize("motor_deg", [J6_MOTOR_AT_STOPS[0], 0.0, J6_MOTOR_AT_STOPS[1]])
+def test_in_range_joint6_reading_builds(arm: ArmType, motor_deg: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both measured hard stops and zero are inside the travel."""
+    _real_robot(monkeypatch, arm, joint6_motor_deg=motor_deg).close()

@@ -1,5 +1,6 @@
 import enum
 import logging
+import math
 import os
 import re
 import tempfile
@@ -15,6 +16,7 @@ import numpy as np
 import yaml
 
 from i2rt.motor_drivers.dm_driver import DMChainCanInterface
+from i2rt.robots.four_bar import FourBarLinkage
 
 I2RT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
@@ -138,12 +140,11 @@ class _ArmHWConfig:
     # The gripper motor sits after the arm joints on the same chain. 0x07 on every six-joint YAM;
     # a seven-joint arm has already taken that id, so it declares its own.
     gripper_can_id: int = 0x07
-    # Optional per-arm override of the gripper motor's polarity, for an arm whose gripper is wired
-    # against the gripper config's own sense. None = use the gripper config's.
-    gripper_motor_direction: Optional[int] = None
     # Registers each arm motor must hold, {can_id: {register name: value}}, compared by the startup
     # config check. Arm motors only: the gripper is appended later and never appears here.
     motor_registers: Dict[int, Dict[str, float]] = field(default_factory=dict)
+    # Joints driven through a linkage, {joint index: linkage}. Empty on a direct-drive arm.
+    transmissions: Dict[int, FourBarLinkage] = field(default_factory=dict)
 
 
 _ARM_CONFIG_RE = re.compile(r"^(?P<arm>.+)_v(?P<version>\d+)\.yml$")
@@ -182,7 +183,6 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         f"coulomb_friction values must be non-negative in {config_path}: {coulomb_friction}"
     )
     gripper_can_id = int(raw.get("gripper_can_id", 0x07))
-    gripper_motor_direction = raw.get("gripper_motor_direction")
     # The YAML lists one value per arm joint; re-keyed by CAN id, which is how the check addresses motors.
     motor_registers: Dict[int, Dict[str, float]] = {}
     for name, values in raw.get("motor_registers", {}).items():
@@ -191,6 +191,20 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         )
         for (can_id, _), value in zip(motor_list, values, strict=True):
             motor_registers.setdefault(int(can_id), {})[name] = float(value)
+    transmissions: Dict[int, FourBarLinkage] = {}
+    for joint, p in raw.get("transmissions", {}).items():
+        idx = int(joint.removeprefix("joint")) - 1
+        assert 0 <= idx < len(motor_list), f"transmissions.{joint} is not an arm joint in {config_path}"
+        transmissions[idx] = FourBarLinkage(
+            ground=float(p["ground"]),
+            crank=float(p["crank"]),
+            coupler=float(p["coupler"]),
+            rocker=float(p["rocker"]),
+            phase=math.radians(p["phase_deg"]),
+            motor_range=(math.radians(p["motor_range_deg"][0]), math.radians(p["motor_range_deg"][1])),
+            branch=int(p["branch"]),
+            sign=int(p["sign"]),
+        )
 
     logger.info(f"  motor_list:          {motor_list}")
     logger.info(f"  directions:          {directions}")
@@ -200,8 +214,8 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
     logger.info(f"  grav_comp_kd:        {grav_comp_kd}")
     logger.info(f"  coulomb_friction:    {coulomb_friction}")
     logger.info(f"  gripper_can_id:      {hex(gripper_can_id)}")
-    logger.info(f"  gripper_motor_dir:   {gripper_motor_direction}")
     logger.info(f"  motor_registers:     {motor_registers}")
+    logger.info(f"  transmissions:       {transmissions}")
 
     return _ArmHWConfig(
         motor_list=motor_list,
@@ -212,8 +226,8 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         grav_comp_kd=grav_comp_kd,
         coulomb_friction=coulomb_friction,
         gripper_can_id=gripper_can_id,
-        gripper_motor_direction=None if gripper_motor_direction is None else int(gripper_motor_direction),
         motor_registers=motor_registers,
+        transmissions=transmissions,
     )
 
 

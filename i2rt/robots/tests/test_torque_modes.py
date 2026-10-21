@@ -1,8 +1,8 @@
 """The two idle regimes a viewer can put a robot in: gravity-comp, and literally zero torque.
 
-``MotorChainRobot.update`` sends ``commands.torques + g * gravity_comp_factor``, so zeroing the
-command alone is not zero torque -- gravity compensation keeps flowing. Both halves have to move
-together, which is what these tests pin. The distinction matters at the motor: one regime holds the
+``MotorChainRobot.update`` sends ``commands.torques + g * gravity_comp_factor + friction``, so
+zeroing the command alone is not zero torque -- gravity and friction compensation keep flowing. All
+three have to move together, which is what these tests pin. The distinction matters at the motor: one regime holds the
 arm up, the other lets it fall.
 """
 
@@ -36,22 +36,38 @@ def _bare_robot(gravity_comp_available: bool = True) -> Any:
     robot._kd = np.full(N_MOTORS, 5.0)
     robot.use_gravity_comp = gravity_comp_available
     robot._gravity_comp_available = gravity_comp_available
+    robot.use_coulomb_friction = True
+    robot._coulomb_friction_configured = True
+    robot._coulomb_friction = np.full(N_MOTORS, 0.2)
+    robot.gravity_comp_factor = np.ones(N_MOTORS)
+    robot._clip_motor_torque = np.inf
+    robot._gripper_index = None
+    # Moving, so the friction term -- coulomb_friction * sign(q_dot) -- would fire if left on.
+    robot._joint_state = SimpleNamespace(pos=np.zeros(N_MOTORS), vel=np.full(N_MOTORS, 0.5))
     robot._command_lock = threading.Lock()
+    robot._state_lock = threading.Lock()
     return robot
 
 
+def _sent_torques(robot: Any) -> np.ndarray:
+    """What one ``update()`` hands to the motors, captured instead of sent."""
+    sent = []
+    robot._update_joint_state = lambda torques, _commands: sent.append(torques)
+    robot.update()
+    return sent[0]
+
+
 def test_zero_torque_idle_commands_nothing() -> None:
-    """Zero torque, zero PD gains, and gravity comp off -- the frame dm_driver.py's loop sends."""
+    """Zero torque, zero PD gains, gravity and friction comp off -- the frame dm_driver.py's loop sends."""
     robot = _bare_robot()
     robot.enter_zero_torque_idle()
 
     assert robot.use_gravity_comp is False, "gravity comp still on: the motors would hold the arm"
+    assert robot.use_coulomb_friction is False, "friction comp still on: it would push the sag along"
     for field in ("torques", "pos", "vel", "kp", "kd"):
         assert np.array_equal(getattr(robot._commands, field), np.zeros(N_MOTORS)), field
-    # What update() would add on top of the command, with the arm at any pose.
-    assert np.array_equal(
-        robot._compute_gravity_compensation(SimpleNamespace(pos=np.zeros(N_MOTORS))), np.zeros(N_MOTORS)
-    )
+    # Everything update() sums on top of the command, with the arm moving.
+    assert np.array_equal(_sent_torques(robot), np.zeros(N_MOTORS))
 
 
 def test_gravity_comp_idle_is_the_way_back() -> None:
@@ -61,6 +77,7 @@ def test_gravity_comp_idle_is_the_way_back() -> None:
     robot.enter_gravity_comp_idle()
 
     assert robot.use_gravity_comp is True
+    assert robot.use_coulomb_friction is True, "the configured friction comp should come back too"
     assert np.array_equal(robot._commands.torques, np.zeros(N_MOTORS))
     assert np.array_equal(robot._commands.kd, robot._grav_comp_kd), "grav-comp idle keeps its damping"
 

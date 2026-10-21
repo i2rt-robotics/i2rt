@@ -2,7 +2,7 @@
 
 Most joints on these arms are direct-drive, so the motor's encoder reading *is* the joint angle.
 ``yam_7dof``'s joint6 is not: its motor turns an input crank, and the joint follows through a
-four-bar. The two angles are related by the linkage's geometry, which is nonlinear -- on that joint
+four-bar, declared under ``transmissions:`` in the arm's config. The two angles are related by the linkage's geometry, which is nonlinear -- on that joint
 the ratio runs from about 0.81 down to 0.14 across the travel -- so no single gear ratio or lookup
 stands in for it. There is no encoder on the joint itself, so the joint angle is *computed* from the
 motor's.
@@ -16,7 +16,6 @@ positive sense to match the URDF's axis. Both are geometry, not tuning: get eith
 is a mirror of the truth, which is invisible at zero and grows from there.
 """
 
-import math
 from dataclasses import dataclass
 from typing import Tuple
 
@@ -103,22 +102,3 @@ class FourBarLinkage:
         a = self.joint_from_motor(motor_angle - step)
         b = self.joint_from_motor(motor_angle + step)
         return (b - a) / (2 * step)
-
-
-# The joint6 linkage on both 7-DOF arms. Lengths are the as-built mechanism's. ``phase`` was fitted
-# on the bench: driving joint6 to both hard stops puts the motor at -77.91 deg and +66.22 deg (five
-# runs, identical to 0.00 deg), and -55.554 deg of crank phase is what carries those onto the URDF's
-# joint limits of -55 deg and +45 deg -- to within 0.15 deg, with the motor turning the crank 1:1 and
-# nothing else fitted. That agreement is also the evidence the URDF's joint6 limits are right:
-# measured motor travel is 144.13 deg where the joint's is 100 deg, because the linkage is a
-# reduction averaging ~0.69.
-YAM_7DOF_JOINT6_LINKAGE = FourBarLinkage(
-    ground=106.98920,
-    crank=30.71742,
-    coupler=95.02321,
-    rocker=38.33059,
-    phase=math.radians(-55.5540),
-    motor_range=(math.radians(-77.91), math.radians(66.22)),
-    branch=1,
-    sign=-1,
-)

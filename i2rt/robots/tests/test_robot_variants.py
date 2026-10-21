@@ -234,8 +234,8 @@ def test_grasp_site_consistent_across_grippers(arm_type: ArmType) -> None:
 
 # --------------------------------------------------------------------- wrap-around offsets
 # The chain reports ``(raw - offset) * direction``, so an offset step that pulls a ``+1`` motor
-# toward zero pushes a ``-1`` motor away from it. Bench case: yam_7dof_right's gripper reads raw
-# -5.5526 rad with ``gripper_motor_direction: -1``, which reports as +5.5526 and so trips the
+# toward zero pushes a ``-1`` motor away from it. Bench case: a gripper motor at direction -1 (as
+# ``flexible_4310`` declares) reads raw -5.5526 rad, which reports as +5.5526 and so trips the
 # correction. Sent the wrong way it lands at +11.84, putting most of the gripper's 5.68 rad stroke
 # past the MIT position range -- where ``float_to_uint`` clamps the command and the motor stalls at
 # full torque as soon as the first non-zero kp reaches it.

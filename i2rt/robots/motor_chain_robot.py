@@ -14,7 +14,7 @@ from i2rt.motor_drivers.dm_driver import (
     MotorInfo,
     PassiveEncoderInfo,
 )
-from i2rt.robots.four_bar import YAM_7DOF_JOINT6_LINKAGE, FourBarLinkage
+from i2rt.robots.four_bar import FourBarLinkage
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import (
     ArmName,
@@ -27,8 +27,11 @@ from i2rt.robots.utils import (
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 from i2rt.utils.recording import RobotMcapRecorder
 
-# joint6 on the 7-DOF arms, the one joint on any of these arms driven through a linkage.
-JOINT6_INDEX = 5
+# How far past its measured travel a linkage joint's motor may read before it is refused. A reading
+# beyond the hard stops means a wrong zero or a wrong `directions` sign, and the map stops meaning
+# anything there: NaN a few degrees below joint6's lower stop, folding back past the dead point ~6 deg
+# above its upper one. Kept clear of that dead point, where the ratio already falls toward zero.
+TRANSMISSION_MOTOR_MARGIN = np.radians(3.0)
 
 
 @dataclass
@@ -76,9 +79,9 @@ class MotorChainRobot(Robot):
     """A generic Robot protocol."""
 
     # Joints whose motor drives them through a linkage rather than directly, by joint index. Direct
-    # drive is the norm: only the 7-DOF arms' joint6 sits behind a linkage, and ``__init__`` rebinds
-    # this for those two. Declared on the class so the conversion is a no-op by default and never an
-    # AttributeError; never mutated.
+    # drive is the norm: the arm config declares any linkage (the 7-DOF arms' joint6) and ``__init__``
+    # rebinds this from its ``transmissions`` argument. Declared on the class so the conversion is a
+    # no-op by default and never an AttributeError; never mutated.
     _transmissions: Dict[int, FourBarLinkage] = {}
 
     def __init__(
@@ -102,6 +105,7 @@ class MotorChainRobot(Robot):
         clip_motor_torque: float = np.inf,  # clip the offset motor torque, real motor torque can still still be larger than this setting depending on the motor onboard PID loop
         gripper_type: GripperType = GripperType.LINEAR_4310,
         arm_type: ArmType = ArmType.YAM,
+        transmissions: Optional[Dict[int, FourBarLinkage]] = None,  # {joint index: linkage}, from the arm config
         temp_record_flag: bool = False,  # whether record the motor's temperature
         enable_gripper_calibration: bool = False,  # whether to auto-detect gripper limits
         zero_gravity_mode: bool = True,
@@ -153,6 +157,8 @@ class MotorChainRobot(Robot):
             f"grav_comp_kd length {len(self._grav_comp_kd)} != motor_chain length {len(motor_chain)}"
         )
         self.use_coulomb_friction = use_coulomb_friction
+        # What ``enter_gravity_comp_idle`` restores to after ``enter_zero_torque_idle`` turned it off.
+        self._coulomb_friction_configured = use_coulomb_friction
         self._coulomb_friction = (
             np.array(coulomb_friction, dtype=float) if coulomb_friction is not None else np.zeros(len(motor_chain))
         )
@@ -211,8 +217,8 @@ class MotorChainRobot(Robot):
             gravity_comp_factor if gravity_comp_factor is not None else np.ones(len(motor_chain))
         )
 
-        if arm_type in (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT):
-            self._transmissions = {JOINT6_INDEX: YAM_7DOF_JOINT6_LINKAGE}
+        if transmissions:
+            self._transmissions = transmissions
 
         # variables for gripper effort limiting
         self._gripper_index = gripper_index
@@ -272,8 +278,11 @@ class MotorChainRobot(Robot):
             # Hold the startup pose from the loop's very first iteration. init_all_zero leaves kp at
             # zero, so the window this closes was not a lunge toward zero -- the MIT controller
             # ignores a position target at kp=0 -- but the arm was briefly unheld, carried only by
-            # gravity comp, until the post-start command landed a few milliseconds later.
-            self._commands.pos = self.remapper.to_robot_joint_pos_space(self._joint_state.pos)
+            # gravity comp, until the post-start command landed a few milliseconds later. The state is
+            # in joint space, so it is converted back to motor angles like any other command.
+            self._commands.pos = self._joint_to_motor_pos(
+                self.remapper.to_robot_joint_pos_space(self._joint_state.pos)
+            )
             self._commands.kp = self._kp.copy()
             self._commands.kd = self._kd.copy()
         # For SWE-454, check if the current qpos is in the joint limits
@@ -562,6 +571,16 @@ class MotorChainRobot(Robot):
         # the one place motor feedback becomes joint state, so everything above -- the observations,
         # the joint limits, gravity comp's `q`, MCAP -- is in joint space without knowing about it.
         for idx, linkage in self._transmissions.items():
+            lo, hi = linkage.motor_range
+            # Checked before converting: past the travel the converted angle can still land inside the
+            # joint limits, and NaN fails every comparison, so neither later guard would see it.
+            if not lo - TRANSMISSION_MOTOR_MARGIN <= pos[idx] <= hi + TRANSMISSION_MOTOR_MARGIN:
+                self.motor_chain.running = False
+                raise RuntimeError(
+                    f"{self}: joint{idx + 1}'s motor reads {np.degrees(pos[idx]):.2f} deg, outside its linkage's "
+                    f"travel [{np.degrees(lo):.2f}, {np.degrees(hi):.2f}] deg. Check the motor's zero and its "
+                    f"`directions` sign."
+                )
             ratio = linkage.ratio(pos[idx])
             pos[idx] = linkage.joint_from_motor(pos[idx])
             vel[idx] *= ratio
@@ -588,7 +607,7 @@ class MotorChainRobot(Robot):
             q = joint_state.pos[: self._gripper_index] if self._gripper_index is not None else joint_state.pos
             t = self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
             # print gravity torque to 2f
-            if np.max(np.abs(t)) > 25.0:
+            if not np.all(np.isfinite(t)) or np.max(np.abs(t)) > 25.0:
                 print([f"{s:.2f}" for s in t])
                 raise RuntimeError(f"{self}: too large torques")
             if self._gripper_index is None:
@@ -769,18 +788,21 @@ class MotorChainRobot(Robot):
         Leaves ``self._kp`` / ``self._kd`` unchanged so subsequent control
         commands still use the configured control gains.
 
-        Also turns gravity compensation back on, so this is the way back from
-        ``enter_zero_torque_idle``. A robot built without a model never had it and stays off.
+        Also turns gravity compensation and the configured Coulomb friction feedforward back on, so
+        this is the way back from ``enter_zero_torque_idle``. A robot built without a model never had
+        gravity comp and stays off.
         """
         with self._command_lock:
             self.use_gravity_comp = self._gravity_comp_available
+            self.use_coulomb_friction = self._coulomb_friction_configured
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._commands.kd = self._grav_comp_kd.copy()
 
     def enter_zero_torque_idle(self) -> None:
-        """Command literally nothing: zero torque, zero PD gains, and no gravity compensation.
+        """Command literally nothing: zero torque, zero PD gains, no gravity comp and no friction comp.
 
-        The same frame ``dm_driver.py``'s bring-up loop sends. The motors stay enabled and keep
+        Friction comp has to go too: it pushes along ``sign(q_dot)``, so on an unheld arm it would
+        help the sag along. The same frame ``dm_driver.py``'s bring-up loop sends. The motors stay enabled and keep
         answering, so joint state still streams, but **nothing holds the arm** -- it is carried by
         its own friction alone and will sag or fall. Support the arm before calling this.
 
@@ -793,6 +815,7 @@ class MotorChainRobot(Robot):
         logging.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
         with self._command_lock:
             self.use_gravity_comp = False
+            self.use_coulomb_friction = False
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
 
     def start_recording(self, save_dir: str) -> bool:
