@@ -22,9 +22,11 @@ Usage (use ``mjpython`` in place of ``python`` on macOS):
     python examples/control_with_mujoco/control_with_mujoco.py --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripper linear_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra_2 --sim
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_left --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0 --record
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --channel ecat:enp99s0
 """
 
 import logging
@@ -47,6 +49,8 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from i2rt.robots.utils import ArmName
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -57,6 +61,7 @@ logging.basicConfig(level=logging.INFO)
 _FIXED_FIELDS = (
     ("gripper_pos", 1),
     ("button_states", 2),
+    ("handle_gripper_pos", 1),
     ("loop_hz", 1),
     ("seq", 1),
 )
@@ -153,7 +158,14 @@ class _ProxyMotorChain:
         buttons = self._shared.view("button_states")
         if np.isnan(buttons[0]):
             return None
-        return [SimpleNamespace(io_inputs=[bool(buttons[0]), bool(buttons[1])])]
+        # gripper_pos is published in the same block as the buttons, so the NaN gate
+        # above covers it too. It drives the viewer's trigger geometry.
+        return [
+            SimpleNamespace(
+                gripper_pos=float(self._shared.view("handle_gripper_pos")[0]),
+                io_inputs=[bool(buttons[0]), bool(buttons[1])],
+            )
+        ]
 
 
 class ProxyRobot:
@@ -335,8 +347,10 @@ def _robot_worker(
                     states = chain.get_same_bus_device_states()
                     if states:
                         io_inputs = states[0].io_inputs
-                        shared.view("button_states")[0] = float(bool(io_inputs[0]))
+                        # button_states[0] goes last: it is the reader's NaN gate for all three.
+                        shared.view("handle_gripper_pos")[0] = float(states[0].gripper_pos)
                         shared.view("button_states")[1] = float(bool(io_inputs[1]))
+                        shared.view("button_states")[0] = float(bool(io_inputs[0]))
 
                 chain_freq = float(chain.comm_freq) if chain is not None and hasattr(chain, "comm_freq") else 0.0
                 shared.view("loop_hz")[0] = chain_freq if chain_freq > 0 else float(rate.last_rate)
@@ -406,7 +420,7 @@ def _viewer_worker(
 
     if site_arg is not None:
         site = site_arg
-    elif gripper_value == GripperType.YAM_TEACHING_HANDLE.value:
+    elif GripperType.from_string_name(gripper_value).is_teaching_handle:
         site = "tcp_site"
     else:
         site = "grasp_site"
@@ -430,12 +444,12 @@ def _viewer_worker(
 class _CliArgs:
     """MuJoCo control interface for i2rt robots."""
 
-    arm: str = "yam"
-    """Arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam, no_arm)."""
+    arm: ArmName = "yam"
+    """Arm variant. `no_arm` is gripper-only and cannot be combined with `--gripper no_gripper`."""
     gripper: str = "linear_4310"
     """Gripper variant."""
     channel: str = "can0"
-    """CAN channel."""
+    """CAN channel, or `ecat:<nic>` for an arm behind an EtherCAT-to-CAN board."""
     sim: bool = False
     """Use SimRobot."""
     dt: float = 0.02

@@ -2,9 +2,13 @@
 
 Starts in DISABLED (read-only) mode, mirroring the robot's joint state in a
 browser-based 3-D viewer.  Once the user confirms visual alignment with the
-real robot and clicks "Enable", three control modes become available:
+real robot and clicks "Enable", these control modes become available:
 
-  VIS         — continues mirroring without sending any commands.
+  VIZ (grav comp) — mirrors the robot while gravity compensation holds it up.
+  VIZ (no torque) — mirrors the robot while commanding literally zero: no torque,
+                    no PD gains, no gravity comp, the same frame ``dm_driver.py``'s
+                    bring-up loop sends. **Nothing holds the arm** — support it first.
+                    Offered only when the robot exposes ``enter_zero_torque_idle``.
   IK control  — drag the 6-DOF target frame to control via IK.
   Joint sliders — per-joint angle sliders (degrees).
 
@@ -14,7 +18,7 @@ See examples/control_with_viser/ for a runnable entry-point and README.
 """
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import mujoco
 import numpy as np
@@ -23,6 +27,7 @@ from i2rt.motor_drivers.dm_driver import PassiveEncoderInfo
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
+from i2rt.robots.utils import set_teaching_handle_trigger, teaching_handle_trigger_id
 
 # Teaching-handle button indicator visuals (mirrors mujoco_control_interface.py)
 _BTN_OFF_RGB = (89, 89, 89)
@@ -31,6 +36,10 @@ _BTN_RADIUS = 0.022
 # World-vertical offsets (meters along +Z) above the TCP. Index 0 = SYNC (top), 1 = RECORD (bottom).
 _BTN_Z_OFFSETS = [0.10, 0.04]
 _BTN_LABELS = ["SYNC", "RECORD"]
+
+# Initial client camera framing, suited to an arm standing up from the origin (every YAM variant).
+_DEFAULT_CAMERA_POSITION = (0.55, 0.55, 0.45)
+_DEFAULT_CAMERA_LOOK_AT = (0.0, 0.0, 0.2)
 
 
 class ViserControlInterface:
@@ -48,18 +57,21 @@ class ViserControlInterface:
         ee_site: str = "grasp_site",
         dt: float = 0.02,
         port: int = 8080,
+        camera_position: Tuple[float, float, float] = _DEFAULT_CAMERA_POSITION,
+        camera_look_at: Tuple[float, float, float] = _DEFAULT_CAMERA_LOOK_AT,
     ) -> None:
         self._robot = robot
         self._ee_site = ee_site
         self._dt = dt
         self._port = port
+        self._camera_position = camera_position
+        self._camera_look_at = camera_look_at
 
         self._model = mujoco.MjModel.from_xml_path(xml_path)
         self._data = mujoco.MjData(self._model)
         self._kin = Kinematics(xml_path, ee_site)
 
         self._nq = self._model.nq
-        self._n_arm = sum(1 for j in range(self._model.njnt) if self._model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE)
 
         self._ee_site_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SITE, ee_site)
         if self._ee_site_id == -1:
@@ -73,6 +85,10 @@ class ViserControlInterface:
         self._gripper_index: Optional[int] = info.get("gripper_index")
         self._gripper_limits: Optional[np.ndarray] = info.get("gripper_limits")
         self._is_sim: bool = info.get("sim", False)
+        # Arm DOFs the robot can actually command. Counting the model's hinge joints happened to
+        # give the same answer while every gripper's extra joints were slides, but a model can
+        # carry passive hinges the robot has no motor for (the teaching handle's trigger).
+        self._n_arm = self._gripper_index if self._gripper_index is not None else n
         # tcp_site is exclusive to the teaching handle; covers sim where motor_chain is absent.
         self._with_teaching_handle: bool = ee_site == "tcp_site" or self._has_teaching_handle(robot)
 
@@ -82,7 +98,13 @@ class ViserControlInterface:
         self._mesh_local_faces: Dict[int, np.ndarray] = {}
 
         self._check_data = mujoco.MjData(self._model)
+        # The zero-torque mode is offered only when the robot can actually deliver it. Showing it
+        # otherwise would be worse than not showing it: the operator would read "no torque" off the
+        # GUI while the arm was still held up.
+        self._supports_zero_torque = hasattr(self._robot, "enter_zero_torque_idle")
         self._in_collision = False
+
+        self._handle_joint_id = teaching_handle_trigger_id(self._model)
 
     @classmethod
     def from_robot(
@@ -91,8 +113,10 @@ class ViserControlInterface:
         ee_site: str = "grasp_site",
         dt: float = 0.02,
         port: int = 8080,
+        camera_position: Tuple[float, float, float] = _DEFAULT_CAMERA_POSITION,
+        camera_look_at: Tuple[float, float, float] = _DEFAULT_CAMERA_LOOK_AT,
     ) -> "ViserControlInterface":
-        return cls(robot, robot.xml_path, ee_site, dt, port)
+        return cls(robot, robot.xml_path, ee_site, dt, port, camera_position, camera_look_at)
 
     # ---- MuJoCo helpers -------------------------------------------------------
 
@@ -103,7 +127,15 @@ class ViserControlInterface:
         self._data.qpos[:n] = qpos[:n]
         self._denormalize_slide_joints(n)
         self._enforce_eq_constraints()
+        self._mirror_trigger_from_encoder()
         mujoco.mj_forward(self._model, self._data)
+
+    def _mirror_trigger_from_encoder(self) -> None:
+        """Drive the teaching handle's trigger hinge from the live encoder, if any."""
+        state = self._get_teaching_handle_state()
+        set_teaching_handle_trigger(
+            self._model, self._data, self._handle_joint_id, getattr(state, "gripper_pos", None)
+        )
 
     def _denormalize_slide_joints(self, n_set: int) -> None:
         self._denormalize_slide_joints_on(self._data, n_set)
@@ -159,18 +191,33 @@ class ViserControlInterface:
         return False
 
     def _enter_vis_grav_comp(self) -> None:
-        """Restore grav-comp on returning to VIS — sim resumes physics, real
-        clears any lingering PD command."""
+        """Restore grav-comp on leaving control or zero-torque — sim resumes applying it, real
+        clears any lingering PD command and turns gravity comp back on."""
         if hasattr(self._robot, "enable_gravity_comp"):
             self._robot.enable_gravity_comp()
         elif hasattr(self._robot, "enter_gravity_comp_idle"):
             self._robot.enter_gravity_comp_idle()
 
+    def _enter_zero_torque(self) -> None:
+        """Stop holding the arm at all: zero torque, zero PD, no gravity comp.
+
+        Only reached when ``_supports_zero_torque`` is true, so this never silently does nothing --
+        a no-op here would tell the operator torque is off while the arm is still being held.
+        """
+        self._robot.enter_zero_torque_idle()
+        self._in_collision = False
+
     def _enter_control_grav_comp(self) -> None:
-        """Pause sim grav-comp so CONTROL mode can teleport. On real, the next
-        ``command_joint_pos`` implicitly switches to PD — no call needed here."""
+        """Pause sim grav-comp so CONTROL mode can teleport; on real, make sure it is *on*.
+
+        The next ``command_joint_pos`` supplies the PD gains, but PD alone does not carry the arm.
+        Entering IK straight out of VIZ (no torque) would otherwise drive it with gravity still
+        uncompensated, so the real path restores gravity comp on the way in.
+        """
         if hasattr(self._robot, "disable_gravity_comp"):
             self._robot.disable_gravity_comp()
+        elif hasattr(self._robot, "enter_gravity_comp_idle"):
+            self._robot.enter_gravity_comp_idle()
         self._in_collision = False
 
     @staticmethod
@@ -328,14 +375,16 @@ class ViserControlInterface:
         # ---- Initial camera — start zoomed in on the arm ---------------------
         # Viser's default framing sits far back; pull each new client's camera
         # close to the arm so the robot fills the view on first load. Users can
-        # still orbit/zoom freely afterwards.
+        # still orbit/zoom freely afterwards. The default framing suits an arm
+        # standing up from the origin; a differently-mounted arm (the 7-DOF arm
+        # is plate-mounted and hangs along -Z) passes its own.
         @server.on_client_connect
         def _set_initial_camera(client: viser.ClientHandle) -> None:
-            client.camera.position = (0.55, 0.55, 0.45)
-            client.camera.look_at = (0.0, 0.0, 0.2)
+            client.camera.position = self._camera_position
+            client.camera.look_at = self._camera_look_at
 
         # ---- Shared mutable state (read by loop, written by callbacks) --------
-        state: Dict[str, Any] = {"enabled": False, "mode": "vis"}
+        state: Dict[str, Any] = {"enabled": False, "mode": "vis_grav"}
 
         n_dofs = self._robot.num_dofs()
         info: Dict[str, Any] = self._robot.get_robot_info()
@@ -350,10 +399,13 @@ class ViserControlInterface:
 
         # ---- GUI — mode ------------------------------------------------------
         with server.gui.add_folder("Mode"):
+            viz_options = ["VIZ (grav comp)"]
+            if self._supports_zero_torque:
+                viz_options.append("VIZ (no torque)")
             mode_dd = server.gui.add_dropdown(
                 "Control mode",
-                options=["VIS (mirror)", "IK control", "Joint sliders"],
-                initial_value="VIS (mirror)",
+                options=[*viz_options, "IK control", "Joint sliders"],
+                initial_value="VIZ (grav comp)",
             )
             mode_dd.disabled = True
 
@@ -428,13 +480,15 @@ class ViserControlInterface:
         @mode_dd.on_update
         def _(_: object) -> None:
             sel = mode_dd.value
-            if sel == "VIS (mirror)":
-                state["mode"] = "vis"
+            if sel in ("VIZ (grav comp)", "VIZ (no torque)"):
+                state["mode"] = "vis_zero" if sel == "VIZ (no torque)" else "vis_grav"
                 ik_ctrl.visible = False
                 for s in joint_sliders:
                     s.disabled = True
                 if gripper_slider is not None:
                     gripper_slider.disabled = True
+                if state["mode"] == "vis_zero":
+                    print("[viser] VIZ (no torque) — nothing is holding the arm")
             elif sel == "IK control":
                 state["mode"] = "ik"
                 ik_ctrl.visible = True
@@ -478,7 +532,7 @@ class ViserControlInterface:
                 print(f"[viser] Gains applied: kp={new_kp.tolist()}, kd={new_kd.tolist()}")
 
         # ---- Main loop -------------------------------------------------------
-        prev_controlled = False
+        prev_regime = "grav_comp"
         try:
             while True:
                 self._mirror_robot()
@@ -505,16 +559,27 @@ class ViserControlInterface:
                         btn_spheres_off[i].visible = not pressed
                         btn_spheres_on[i].visible = pressed
                     if handle_grip_slider is not None and handle_state is not None:
-                        handle_grip_slider.value = float(np.clip(1.0 - float(handle_state.position), 0.0, 1.0))
+                        handle_grip_slider.value = float(np.clip(float(handle_state.gripper_pos), 0.0, 1.0))
 
                 mode = state["mode"]
-                controlled = state["enabled"] and mode in ("ik", "joint")
-                if controlled != prev_controlled:
-                    if controlled:
+                # Three regimes, applied once on entry rather than every iteration: PD control,
+                # zero torque, and gravity-comp idle (which is also where a disabled robot sits).
+                if not state["enabled"]:
+                    regime = "grav_comp"
+                elif mode in ("ik", "joint"):
+                    regime = "control"
+                elif mode == "vis_zero":
+                    regime = "zero_torque"
+                else:
+                    regime = "grav_comp"
+                if regime != prev_regime:
+                    if regime == "control":
                         self._enter_control_grav_comp()
+                    elif regime == "zero_torque":
+                        self._enter_zero_torque()
                     else:
                         self._enter_vis_grav_comp()
-                    prev_controlled = controlled
+                    prev_regime = regime
 
                 if not state["enabled"]:
                     # Read-only: update sliders to reflect live robot state
@@ -525,8 +590,9 @@ class ViserControlInterface:
                     if gripper_slider is not None and self._gripper_index is not None:
                         gripper_slider.value = float(q[self._gripper_index])
 
-                elif mode == "vis":
-                    # Mirror only — no commands
+                elif mode in ("vis_grav", "vis_zero"):
+                    # Mirror only. The regime switch above is what decides whether the robot is
+                    # held by gravity comp or commanded zero; neither sends a pose command.
                     q = self._robot.get_joint_pos()
                     for i, s in enumerate(joint_sliders):
                         if i < len(q):

@@ -494,7 +494,7 @@ BUS_ERRORS = (RuntimeError, can.CanError, OSError, AssertionError)
 
 @contextmanager
 def _open_bus(channel: str) -> Iterator[RawCanInterface]:
-    """Open ``channel`` as a SocketCAN ``RawCanInterface`` and shut it down on the way out."""
+    """Open ``channel`` (SocketCAN, or ``ecat:<nic>``) as a ``RawCanInterface``; shut it down on the way out."""
     iface = RawCanInterface(channel=channel, bustype="socketcan", name="dm_motor_registers")
     try:
         yield iface
@@ -556,7 +556,7 @@ def read(reg: Annotated[str, tyro.conf.Positional], motor_id: int, channel: str 
     Args:
         reg: Register name (e.g. sw_ver) or decimal address (e.g. 14); see list-registers.
         motor_id: CAN id of the motor.
-        channel: SocketCAN channel the motor chain is on.
+        channel: SocketCAN channel the motor chain is on, or ``ecat:<nic>`` through an EtherCAT-to-CAN board.
     """
     spec = _resolve_cli(reg)
     with _open_bus(channel) as iface:
@@ -572,7 +572,7 @@ def read_all(motor_id: int, channel: str = "can0") -> None:
 
     Args:
         motor_id: CAN id of the motor.
-        channel: SocketCAN channel the motor chain is on.
+        channel: SocketCAN channel the motor chain is on, or ``ecat:<nic>`` through an EtherCAT-to-CAN board.
     """
     values: dict[int, str] = {}
     with _open_bus(channel) as iface:
@@ -608,7 +608,7 @@ def write(
         value: New value. Read as an integer when typed without a "." or an exponent, otherwise as a
             float; uint32 registers only accept the integer form.
         motor_id: CAN id of the motor.
-        channel: SocketCAN channel the motor chain is on.
+        channel: SocketCAN channel the motor chain is on, or ``ecat:<nic>`` through an EtherCAT-to-CAN board.
     """
     spec = _resolve_cli(reg)
     if not spec.rw:
@@ -625,7 +625,7 @@ def save(reg: Annotated[str, tyro.conf.Positional], motor_id: int, channel: str 
     Args:
         reg: Register name (e.g. MAX_SPD) or decimal address (e.g. 6); see list-registers.
         motor_id: CAN id of the motor.
-        channel: SocketCAN channel the motor chain is on.
+        channel: SocketCAN channel the motor chain is on, or ``ecat:<nic>`` through an EtherCAT-to-CAN board.
     """
     spec = _resolve_cli(reg)
     if not spec.rw:

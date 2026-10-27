@@ -13,6 +13,7 @@ ActionSpec = Union[Array, Dict[str, "ActionSpec"]]
 class RobotType(enum.Enum):
     ARM = "arm"
     MOBILE_BASE = "mobile_base"
+    TEACHING_HANDLE = "teaching_handle"
 
 
 @runtime_checkable

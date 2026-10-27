@@ -4,6 +4,8 @@ from typing import Any, List, Optional
 
 import can
 
+from i2rt.motor_drivers.can_interface import open_can_bus
+
 
 class RawCanInterface:
     def __init__(
@@ -13,7 +15,7 @@ class RawCanInterface:
         bitrate: int = 1000000,
         name: str = "default_can_interface",
     ):
-        self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
+        self.bus = open_can_bus(channel, bustype, bitrate)
         self.busstate = self.bus.state
         self.name = name
 

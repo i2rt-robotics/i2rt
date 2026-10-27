@@ -49,6 +49,14 @@ dev = [
 # install (e.g. CI). Its build fails under scikit-build-core >= 0.10, which rejects the
 # package's deprecated `cmake.targets`. Pin the build backend below that so it builds.
 build-constraint-dependencies = ["scikit-build-core<0.10"]
+# `uv sync` also builds the EtherCAT transport (a compiled extension, Linux only). A group rather than
+# a dependency, so `pip install` / `uv pip install -e .` stay pure Python and never need a compiler.
+default-groups = ["dev", "ethercat"]
+
+[tool.uv.sources]
+# Non-editable: an editable scikit-build install points the package at this source tree while the
+# built library lands in site-packages.
+i2rt-ecat = { path = "i2rt-ecat", editable = false }
 
 [tool.flit.module]
 name = "i2rt"
@@ -121,3 +129,4 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+ethercat = ["i2rt-ecat; sys_platform == 'linux'"]

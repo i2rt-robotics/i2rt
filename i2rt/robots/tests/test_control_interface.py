@@ -17,7 +17,8 @@ GRIPPER_COMBOS = [
     (GripperType.LINEAR_4310, "grasp_site"),
     (GripperType.LINEAR_3507, "grasp_site"),
     (GripperType.NO_GRIPPER, "grasp_site"),
-    (GripperType.YAM_TEACHING_HANDLE, "tcp_site"),
+    (GripperType.YAM_TEACHING_HANDLE_V1, "tcp_site"),
+    (GripperType.YAM_TEACHING_HANDLE_V2, "tcp_site"),
 ]
 
 

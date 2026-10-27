@@ -1,15 +1,19 @@
 """Viser control interface for i2rt robots.
 
 Opens a browser-based 3-D viewer.  The robot stays in read-only mode until
-the user confirms visual alignment and clicks "Enable".  Three control modes
-are then available: mirror (VIS), IK drag, and per-joint sliders.
+the user confirms visual alignment and clicks "Enable".  Four control modes are
+then available: two mirroring modes -- VIZ (grav comp), which holds the arm up,
+and VIZ (no torque), which commands the motors literally nothing so the arm is
+carried by nothing -- plus IK drag and per-joint sliders.
 
 Usage:
     python examples/control_with_viser/control_with_viser.py --sim
     python examples/control_with_viser/control_with_viser.py --arm big_yam --gripper linear_4310 --sim
     python examples/control_with_viser/control_with_viser.py --arm yam_ultra_2 --sim
+    python examples/control_with_viser/control_with_viser.py --arm yam_7dof_left --sim
     python examples/control_with_viser/control_with_viser.py --channel can0
     python examples/control_with_viser/control_with_viser.py --channel can0 --record
+    python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --channel ecat:enp99s0
 """
 
 import sys
@@ -22,12 +26,21 @@ from typing import Optional
 import tyro
 
 from i2rt.robots.get_robot import get_yam_robot
-from i2rt.robots.utils import ArmType, GripperType
+from i2rt.robots.utils import ArmName, ArmType, GripperType
 from i2rt.utils.viser_control_interface import ViserControlInterface
+
+# The 7-DOF arms are plate-mounted: the mounting face is the world x-z plane and the arm hangs along -Z,
+# reaching z = -0.79 at home, so the interface's default framing -- which suits an arm standing up
+# from the origin -- would open with the arm below the viewport. Look at the middle of the arm from
+# the side it hangs toward; the left arm is the right one mirrored in y, and so is its camera.
+_CAMERAS = {
+    ArmType.YAM_7DOF_RIGHT: {"camera_position": (0.5, -0.53, 0.0), "camera_look_at": (0.0, -0.1, -0.37)},
+    ArmType.YAM_7DOF_LEFT: {"camera_position": (0.5, 0.53, 0.0), "camera_look_at": (0.0, 0.1, -0.37)},
+}
 
 
 def main(
-    arm: str = "yam",
+    arm: ArmName = "yam",
     gripper: str = "linear_4310",
     channel: str = "can0",
     sim: bool = False,
@@ -40,9 +53,9 @@ def main(
     """Viser control interface for i2rt robots.
 
     Args:
-        arm: arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam).
+        arm: arm variant.
         gripper: gripper variant.
-        channel: CAN channel.
+        channel: CAN channel, or `ecat:<nic>` for an arm behind an EtherCAT-to-CAN board.
         sim: Use SimRobot.
         dt: Loop timestep (s).
         port: Viser server port.
@@ -54,7 +67,7 @@ def main(
     gripper_type = GripperType.from_string_name(gripper)
 
     if site is None:
-        site = "tcp_site" if gripper_type == GripperType.YAM_TEACHING_HANDLE else "grasp_site"
+        site = "tcp_site" if gripper_type.is_teaching_handle else "grasp_site"
     if record and sim:
         raise SystemExit("--record requires real hardware motor feedback; remove --sim")
 
@@ -69,7 +82,7 @@ def main(
     try:
         if record:
             print(f"Recording motor feedback to {robot.start_mcap_recording()}")
-        iface = ViserControlInterface.from_robot(robot, ee_site=site, dt=dt, port=port)
+        iface = ViserControlInterface.from_robot(robot, ee_site=site, dt=dt, port=port, **_CAMERAS.get(arm_type, {}))
         iface.run()
     finally:
         robot.close()

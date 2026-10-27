@@ -1,0 +1,74 @@
+<!-- YAM teaching handle v1: a passive two-part pistol grip (handle shell + squeeze trigger) that
+     replaces a gripper on the arm flange. Geometry, frames, masses and inertias come from the
+     ONShape export of the YAM + teaching-handle assembly ("YAM handle long"), whose arm chain is
+     bit-identical to arm/yam/v1/yam.urdf down to link5, so its `dof_joint6` transform is exactly
+     this file's flange -> handle transform.
+
+     The root body must stay named `gripper`: combine_arm_and_gripper_xml merges it into the arm's
+     terminal mount body of that name, replaying this body's pos/quat as a <frame> over the
+     children and composing the <inertial> into the mount frame by hand. Only <asset>, that body,
+     <equality> and <contact> survive composition; <actuator>, <keyframe> and <default> are
+     dropped, so every attribute here is written inline and the trigger carries no actuator. It
+     does not need one: MuJoCo's viewer drives unactuated hinges from its Joint panel, which
+     writes qpos directly.
+
+     Root rotation is Rx(+135 deg). The export seats the handle at Rz(+90 deg) Rx(-45 deg) from
+     joint6's child frame, the exact intent behind its `rpy "-0.785398 0 1.5708"`, since ONShape
+     truncates rpy to 6 significant digits, which would otherwise tilt the whole handle by
+     2.1e-4 deg and split two quaternion components that are equal by symmetry. That frame is no
+     longer the flange: the flange now reads +X right, +Y down, +Z forward, which is R_fix
+     (180 deg about (1,1,0)/sqrt(2)) from the export's, and R_fix Rz(+90 deg) Rx(-45 deg)
+     collapses to a single rotation about x. Translation is zero either way: the handle root
+     coincides with the flange, and R_fix fixes the origin.
+
+     `tcp_site` sits at the shell's furthest point along the approach axis (flange +Z), the same
+     way every gripper's `grasp_site` sits at its fingertips: the one mesh vertex with the largest
+     flange z, on the front of the butt, 208.4 mm from the flange. It is on the shell body, not
+     the trigger, so squeezing does not move it. Its orientation is the shared end-effector
+     convention every other gripper uses (X down, Y and Z horizontal at qpos=0), which
+     test_robot_variants' grasp-site tests enforce; only the position is handle-specific.
+
+     The trigger hinge is named `gripper`, the repo's name for a normalized gripper command, and
+     shares that name with the root body (MuJoCo keeps body and joint names in separate
+     namespaces). It is deliberately not named joint7: get_robot._load_joint_limits_from_xml picks
+     up every joint whose name starts with "joint", and this handle has no gripper motor; the
+     robot stays at 6 DOF.
+
+     Its `axis` and `range` are the export's verbatim, chosen so the standard normalized mapping
+     `q = lo + n*(hi - lo)` over a command n in [0, 1] lands the right way round for the repo's
+     "0 = closed, 1 = open" convention (sim_robot._cmd_to_mj_qpos):
+
+         n = 0  ->  q = -0.680678 rad  (-39 deg, trigger fully squeezed = CLOSED)
+         n = 1  ->  q =  0 rad         (trigger at rest              = OPEN)
+
+     The control interfaces feed n from PassiveEncoderInfo.gripper_pos, so the rendered trigger
+     follows the operator's finger; without a live encoder the viewer's Joint panel drives it.
+
+     Masses and inertias are the export's verbatim values: handle 0.252595 kg plus trigger
+     0.0049991 kg, 0.257594 kg total (README.md has their provenance). This is real load on the
+     flange, and MotorChainRobot hands the composed model to MuJoCoKDL, so the handle shows up in
+     gravity compensation.
+
+     Both geoms are non-colliding, matching the previous geom-less model and the gripper-base
+     convention; nothing here is meant to grasp. -->
+<mujoco model="yam_teaching_handle">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="handle" file="handle.stl"/>
+    <mesh name="trigger" file="trigger.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="gripper" pos="0 0 0" quat="0.38268 0.92388 0 0">
+      <inertial pos="0.0018575 0.02106 -0.0802638" quat="0.7059392426719 -0.057289184102795 -0.704380485114871 -0.0470729989484305" mass="0.252595" diaginertia="0.000177304388462799 0.000970897959001009 0.00105535865253619"/>
+      <geom pos="-0.0106413 -0.0134314 -0.183525" quat="1 0 0 0" type="mesh" rgba="0.301961 0.427451 0.701961 1" mesh="handle" contype="0" conaffinity="0"/>
+      <site name="tcp_site" pos="-0.000490393 0.0231556 -0.207129" quat="0.2705980500730985 -0.6532814824381883 0.6532814824381882 0.2705980500730985" size="0.005" rgba="1 0 0 1"/>
+      <body name="trigger" pos="1e-05 0.0533184 -0.0863469" quat="1 0 0 0">
+        <inertial pos="-1.91766e-09 -0.000646924 -0.00511405" quat="0.527433056094875 0.470971730933418 0.470971730933418 -0.527433056094875" mass="0.0049991" diaginertia="2.23965486366579e-07 6.5772e-07 7.14059513633421e-07"/>
+        <joint name="gripper" pos="0 0 0" axis="1 0 0" range="-0.680678 0"/>
+        <geom pos="-0.0106913 -0.0680085 -0.0984379" quat="1 0 0 0" type="mesh" rgba="0.94902 0.94902 0.94902 1" mesh="trigger" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
