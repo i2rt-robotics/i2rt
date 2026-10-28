@@ -8,7 +8,7 @@ half runs against the real compiled master in loopback.
 import functools
 import sys
 import time
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pytest
@@ -223,6 +223,139 @@ def test_close_releases_then_disables_and_is_idempotent(fake: type) -> None:
     assert not chain.running
     with pytest.raises(RuntimeError, match="closed"):
         chain.set_commands(np.zeros(3))
+
+
+class TwoChainBus(FakeBus):
+    """The fake master carrying ``MOTORS`` on each of a board's two CAN channels."""
+
+    def __init__(self, *a: object, **k: object) -> None:
+        super().__init__(*a, **k)  # type: ignore[arg-type]
+        self.types = [t for _, t in MOTORS] * 2
+
+
+def _two_chains(watchdog_ms: int = 100) -> Tuple[EtherCATMotorChain, EtherCATMotorChain]:
+    slices = ethercat_chain.open_shared_master("eth9", [(0, 1, MOTORS), (0, 2, MOTORS)], watchdog_ms=watchdog_ms)
+    left = EtherCATMotorChain(MOTORS, interface="eth9", channel=1, bus=slices[0])
+    return left, EtherCATMotorChain(MOTORS, interface="eth9", channel=2, bus=slices[1])
+
+
+def test_two_chains_share_one_master_each_on_its_own_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ethercat_chain, "_bus_class", lambda: TwoChainBus)
+    left, right = _two_chains()
+    bus = FakeBus.last
+    assert bus is not None and bus.n == 6
+    bus.pos[:] = [0.1, 0.2, 0.3, -0.1, -0.2, -0.3]
+    np.testing.assert_allclose([i.pos for i in right.read_states()], [-0.1, -0.2, -0.3], atol=1e-3)
+
+    left.set_commands(np.ones(3), get_state=False)
+    assert bytes(bus.frames[0]) != bytes(left._release[0])
+    assert bytes(bus.frames[3]) == bytes(right._release[0]), "the right arm's rows are untouched"
+
+    left.close()
+    assert not bus.closed, "the right arm still runs on it"
+    right.set_commands(np.ones(3), get_state=False)
+    assert bytes(bus.frames[0]) == DM_DISABLE, "a closed chain stays disabled"
+    right.close()
+    assert bus.closed
+
+
+def test_a_chain_that_stops_commanding_is_released_while_the_other_feeds_the_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ethercat_chain, "_bus_class", lambda: TwoChainBus)
+    left, right = _two_chains(watchdog_ms=20)
+    try:
+        bus = FakeBus.last
+        assert bus is not None
+        left.set_commands(np.ones(3), get_state=False)
+        torque = bytes(bus.frames[0])
+        time.sleep(0.05)
+        right.set_commands(np.ones(3), get_state=False)
+        assert bytes(bus.frames[0]) == bytes(left._release[0])
+        left.set_commands(np.ones(3), get_state=False)
+        assert bytes(bus.frames[0]) == torque, "a fresh command takes the rows back"
+    finally:
+        left.close()
+        right.close()
+
+
+def test_a_slice_for_another_motor_count_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ethercat_chain, "_bus_class", lambda: TwoChainBus)
+    slices = ethercat_chain.open_shared_master("eth9", [(0, 1, MOTORS), (0, 2, MOTORS)])
+    with pytest.raises(ValueError, match="carries 3 motors, not 2"):
+        EtherCATMotorChain(MOTORS[:2], interface="eth9", bus=slices[0])
+
+
+def _arms_bus(opened: list) -> type:
+    from i2rt.robots.utils import ArmType, _load_arm_config
+
+    types = [t for arm in (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT) for _, t in _load_arm_config(arm).motor_list]
+
+    class ArmsBus(FakeBus):
+        def __init__(self, interface: str, motors: Sequence[Tuple[int, int, int]], *a: object, **k: object) -> None:
+            super().__init__(interface, motors, *a, **k)  # type: ignore[arg-type]
+            self.types = types
+            self.slots = list(motors)
+            opened.append(self)
+
+    return ArmsBus
+
+
+def _bimanual_ecat() -> List[dict]:
+    from i2rt.robots.utils import ArmType
+
+    return [
+        {"channel": "ecat:eth9:0:1", "arm_type": ArmType.YAM_7DOF_LEFT},
+        {"channel": "ecat:eth9:0:2", "arm_type": ArmType.YAM_7DOF_RIGHT},
+    ]
+
+
+def test_get_yam_robots_checks_both_arms_then_opens_one_master(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The raw path the checks use cannot open beside a cyclic master, so both run before it opens."""
+    from i2rt.robots import get_robot
+    from i2rt.robots.utils import GripperType
+
+    opened: list = []
+    checked: List[Tuple[str, int]] = []
+    monkeypatch.setattr(ethercat_chain, "_bus_class", lambda: _arms_bus(opened))
+    monkeypatch.setattr(
+        get_robot, "run_startup_checks", lambda channel, *_, **__: checked.append((channel, len(opened)))
+    )
+    monkeypatch.setattr(get_robot, "MotorChainRobot", lambda **kw: kw["motor_chain"])
+    left, right = get_robot.get_yam_robots(_bimanual_ecat(), gripper_type=GripperType.NO_GRIPPER)
+    try:
+        assert checked == [("ecat:eth9:0:1", 0), ("ecat:eth9:0:2", 0)]
+        assert len(opened) == 1
+        assert opened[0].slots == [(0, 1, i) for i in range(1, 8)] + [(0, 2, i) for i in range(1, 8)]
+        assert (left.channel, right.channel) == (1, 2) and left.running and right.running
+    finally:
+        left.close()
+        right.close()
+    assert opened[0].closed
+
+
+def test_get_yam_robots_closes_the_built_arm_and_the_master_when_the_next_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from i2rt.robots import get_robot
+    from i2rt.robots.utils import GripperType
+
+    opened: list = []
+    built: List[EtherCATMotorChain] = []
+
+    def robot(**kw: Any) -> EtherCATMotorChain:
+        if built:
+            raise RuntimeError("right arm refused")
+        built.append(kw["motor_chain"])
+        return kw["motor_chain"]
+
+    monkeypatch.setattr(ethercat_chain, "_bus_class", lambda: _arms_bus(opened))
+    monkeypatch.setattr(get_robot, "run_startup_checks", lambda *_, **__: None)
+    monkeypatch.setattr(get_robot, "MotorChainRobot", robot)
+    with pytest.raises(RuntimeError, match="right arm refused"):
+        get_robot.get_yam_robots(_bimanual_ecat(), gripper_type=GripperType.NO_GRIPPER)
+    assert not built[0].running
+    assert opened[0].closed
 
 
 def test_a_missing_extension_says_how_to_build_it(monkeypatch: pytest.MonkeyPatch) -> None:

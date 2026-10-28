@@ -33,7 +33,7 @@ import gc
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import mujoco
 import numpy as np
@@ -385,6 +385,10 @@ class Arm7OSC(Robot):
             ``DAMPED``: that still takes :meth:`resume`.
         owns_chain: :meth:`close` closes ``motor_chain`` too, as ``MotorChainRobot`` does. Off, the
             caller that built the chain tears it down.
+        joint_state_saver_factory: builds the saver :meth:`start_recording` drives, as
+            ``MotorChainRobot`` takes it. The loop hands it each fresh feedback frame -- the arm's
+            joint-space position, velocity and motor torque, and the normalized gripper -- stamped
+            with the newest motor reply in it.
     """
 
     def __init__(
@@ -422,6 +426,7 @@ class Arm7OSC(Robot):
         command_timeout_s: Optional[float] = COMMAND_TIMEOUT_S,
         engage_on_command: bool = False,
         owns_chain: bool = False,
+        joint_state_saver_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.motor_chain = motor_chain
         self.xml_path = xml_path
@@ -503,6 +508,8 @@ class Arm7OSC(Robot):
         self._command_timeout_s = command_timeout_s
         self._engage_on_command = engage_on_command
         self._owns_chain = owns_chain
+        self._joint_state_saver = None if joint_state_saver_factory is None else joint_state_saver_factory()
+        self._saved_stamp = 0.0
 
         self._gripper_limits = None if gripper_limits is None else np.asarray(gripper_limits, dtype=float)
         if self._gripper_limits is not None and self._n_motors <= ARM_DOF:
@@ -749,6 +756,20 @@ class Arm7OSC(Robot):
             time.sleep(duration / steps)
         self.command_joint_pos(np.concatenate([target, tail]))
 
+    def start_recording(self, save_dir: str) -> bool:
+        """Start the joint-state saver, as ``MotorChainRobot.start_recording`` does."""
+        if self._joint_state_saver is None:
+            raise RuntimeError("Joint state saver factory not provided, recording not available")
+        self._joint_state_saver.start_recording(save_dir)
+        return True
+
+    def stop_recording(self, prefix: str = "") -> Tuple[bool, str]:
+        """Stop the joint-state saver, as ``MotorChainRobot.stop_recording`` does."""
+        if self._joint_state_saver is None:
+            raise RuntimeError("Joint state saver not available")
+        succ = self._joint_state_saver.stop_recording(prefix)
+        return succ, "Recording stopped successfully" if succ else "Recording failed to stop"
+
     def get_observations(self) -> Dict[str, np.ndarray]:
         """Joint state plus task-space error, using the repo's observation key names.
 
@@ -904,6 +925,7 @@ class Arm7OSC(Robot):
                     self._gripper_state[:] = (g.pos, g.vel, g.eff)
                 q = self._q.copy()
                 dq = self._dq.copy()
+            self._save_joint_state()
         else:
             with self._state_lock:
                 q, dq = self._q.copy(), self._dq.copy()
@@ -972,6 +994,27 @@ class Arm7OSC(Robot):
             self._kd_vec[ARM_DOF] = self._gripper_kd if hold else 0.0
         with self._state_lock:
             self._tau[:] = tau
+
+    def _save_joint_state(self) -> None:
+        """Hand the saver this frame, once per fresh motor reply: the loop outruns CAN feedback."""
+        stamp = float(self._raw_time.max())
+        if self._joint_state_saver is None or stamp <= self._saved_stamp:
+            return
+        self._saved_stamp = stamp
+        ee_pos = ee_vel = ee_eff = None
+        if self._gripper_limits is not None:
+            lo, hi = self._gripper_limits
+            g_pos, g_vel, ee_eff = self._gripper_state
+            ee_pos, ee_vel = (g_pos - lo) / (hi - lo), g_vel / (hi - lo)
+        self._joint_state_saver.add(
+            timestamp=stamp,
+            pos=self._raw_pos.copy(),
+            vel=self._raw_vel.copy(),
+            eff=self._motor_eff.copy(),
+            ee_pos=ee_pos,
+            ee_vel=ee_vel,
+            ee_eff=ee_eff,
+        )
 
     def _track_refresh_intervals(self, now: float) -> None:
         """Learn how often each motor actually refreshes, from its own timestamps.

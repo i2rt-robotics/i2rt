@@ -1,7 +1,7 @@
 import logging
 import xml.etree.ElementTree as ET
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -204,6 +204,7 @@ def _get_arm7_osc_robot(
     gripper_kd: float,
     transmissions: Optional[dict],
     zero_gravity_mode: bool,
+    joint_state_saver_factory: Optional[Callable[[], Any]] = None,
 ) -> "Robot":
     """A 7-DOF chain under Arm7OSC, behaving through the Robot API as MotorChainRobot does.
 
@@ -227,6 +228,7 @@ def _get_arm7_osc_robot(
         command_timeout_s=None,
         engage_on_command=True,
         owns_chain=True,
+        joint_state_saver_factory=joint_state_saver_factory,
     )
     try:
         arm.wait_for_feedback()
@@ -236,6 +238,65 @@ def _get_arm7_osc_robot(
     if not zero_gravity_mode:
         arm.enable_arm()
     return arm
+
+
+def _yam_motor_list(arm_type: ArmType, gripper_type: GripperType) -> List[list]:
+    """``[can_id, motor_type]`` per motor on an arm's chain, the gripper motor (if any) last."""
+    hw = _load_arm_config(arm_type)
+    motor_list = [[can_id, mtype] for can_id, mtype in hw.motor_list]
+    if not gripper_type.is_teaching_handle and gripper_type != GripperType.NO_GRIPPER:
+        # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
+        # arm with seven joints has taken that id already and declares its own.
+        motor_list.append([hw.gripper_can_id, gripper_type.get_motor_type(arm_type)])
+    return motor_list
+
+
+def get_yam_robots(arms: Sequence[Dict[str, Any]], **common: Any) -> List["Robot"]:
+    """Several YAM-family robots in this process, each ``get_yam_robot(**common, **arm)``.
+
+    Arms on ``ecat:`` channels of one NIC share its EtherCAT master, since the master allows one per
+    process: every such arm's startup checks run first, over the board's raw frame path, and then one
+    master opens carrying all of their motors. If any arm fails, the ones already built are closed.
+    """
+    from i2rt.motor_drivers.ethercat_chain import open_shared_master, parse_ethercat_channel
+
+    specs = [{**common, **arm} for arm in arms]
+    by_nic: Dict[str, List[int]] = {}
+    for i, spec in enumerate(specs):
+        channel = spec.get("channel", "can0")
+        if not spec.get("sim") and channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+            by_nic.setdefault(parse_ethercat_channel(channel)[0], []).append(i)
+
+    buses: Dict[int, Any] = {}
+    robots: List[Robot] = []
+    try:
+        for nic, indices in by_nic.items():
+            if len(indices) < 2:
+                continue  # get_yam_robot opens its own
+            chains = []
+            for i in indices:
+                arm_type = specs[i].get("arm_type", ArmType.YAM)
+                motor_list = _yam_motor_list(arm_type, specs[i].get("gripper_type", GripperType.LINEAR_4310))
+                run_startup_checks(
+                    specs[i]["channel"],
+                    motor_list,
+                    check_motor_types=True,
+                    check_motor_config=True,
+                    control_mode=ControlMode.MIT,
+                    expected_registers=_load_arm_config(arm_type).motor_registers,
+                )
+                _, slave, can_channel = parse_ethercat_channel(specs[i]["channel"])
+                chains.append((slave, can_channel, motor_list))
+            buses.update(zip(indices, open_shared_master(nic, chains), strict=True))
+        for i, spec in enumerate(specs):
+            robots.append(get_yam_robot(**spec, ethercat_bus=buses.get(i)))
+    except BaseException:
+        for robot in robots:
+            robot.close()
+        for bus in buses.values():
+            bus.close()  # idempotent; frees the master once no chain holds it
+        raise
+    return robots
 
 
 def get_yam_robot(
@@ -255,6 +316,7 @@ def get_yam_robot(
     enable_auto_recovery: bool = False,
     use_coulomb_friction: bool = False,
     control_mode: ArmControlMode = "pd",
+    ethercat_bus: Optional[Any] = None,
 ) -> "Robot":
     """Create a YAM-family robot (real or sim).
 
@@ -283,26 +345,28 @@ def get_yam_robot(
             also take ``"osc"`` and ``"osc_full"``, Arm7OSC's ``kinematic`` and ``full``
             operational-space modes; in sim those run Arm7OSC against a SimMotorChain plant. The
             gripper stays a motor-side PD toward the same normalized command in every mode, but
-            OSC has no gripper force limiter, recording or Coulomb feedforward. ``"osc_full"``
+            OSC has no gripper force limiter or Coulomb feedforward. ``"osc_full"``
             tracks the tool pose of the commanded joints and reaches the joints themselves only
             through the nullspace, so from a singular pose -- the hanging home pose is one -- it
             can settle in another IK branch with the tool where it was sent.
+        ethercat_bus: this arm's slice of an EtherCAT master shared with other arms, for an
+            ``ecat:`` channel; :func:`get_yam_robots` opens it, after this arm's startup checks.
     """
     if control_mode != "pd":
         if arm_type not in (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT):
             raise ValueError(f"control_mode={control_mode!r} needs a 7-DOF arm; {arm_type.value} takes only 'pd'")
         if gripper_type.is_teaching_handle:
             raise ValueError(f"control_mode={control_mode!r} does not read a teaching handle; use 'pd'")
-        if joint_state_saver_factory is not None or use_coulomb_friction:
-            raise ValueError(
-                f"control_mode={control_mode!r} supports neither joint_state_saver_factory nor use_coulomb_friction"
-            )
+        if use_coulomb_friction:
+            raise ValueError(f"control_mode={control_mode!r} does not support use_coulomb_friction")
     ethercat = not sim and channel.startswith(ETHERCAT_CHANNEL_PREFIX)
     if ethercat and (arm_type == ArmType.NO_ARM or gripper_type.is_teaching_handle or enable_auto_recovery):
         raise ValueError(
             f"channel {channel!r} takes an arm only: the EtherCAT-to-CAN board needs >= 3 motors on a channel, "
             "reads no teaching-handle encoder and has no auto-recovery"
         )
+    if ethercat_bus is not None and not ethercat:
+        raise ValueError(f"ethercat_bus is for an ecat: channel on real hardware, not {channel!r}")
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
         return _get_gripper_only_robot(
@@ -332,7 +396,7 @@ def get_yam_robot(
     joint_limits[:, 1] += 0.15
 
     # Build mutable lists from the frozen arm config, then extend for gripper.
-    motor_list = [[can_id, mtype] for can_id, mtype in hw.motor_list]
+    motor_list = _yam_motor_list(arm_type, gripper_type)
     directions = list(hw.directions)
     kp = hw.kp.copy()
     kd = hw.kd.copy()
@@ -341,19 +405,15 @@ def get_yam_robot(
     motor_offsets = [0.0] * len(motor_list)
 
     if with_gripper:
-        motor_type = gripper_type.get_motor_type(arm_type)
+        motor_type = motor_list[-1][1]
         default_kp, default_kd = gripper_type.get_motor_kp_kd(arm_type)
         _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
         _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
-        # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
-        # arm with seven joints has taken that id already and declares its own.
         gripper_direction = gripper_type.get_motor_direction(arm_type)
         logging.info(
             f"adding gripper motor type={motor_type}, id={hex(hw.gripper_can_id)}, "
             f"kp={_gripper_kp}, kd={_gripper_kd}, direction={gripper_direction:+d}"
         )
-        motor_list.append([hw.gripper_can_id, motor_type])
-        motor_offsets.append(0.0)
         directions.append(gripper_direction)
         kp = np.append(kp, _gripper_kp)
         kd = np.append(kd, _gripper_kd)
@@ -390,6 +450,7 @@ def get_yam_robot(
             kd[-1] if with_gripper else 0.0,
             transmissions=None,  # the plant is already in joint space
             zero_gravity_mode=zero_gravity_mode,
+            joint_state_saver_factory=joint_state_saver_factory,
         )
 
     if sim:
@@ -419,15 +480,17 @@ def get_yam_robot(
         from i2rt.motor_drivers.ethercat_chain import EtherCATMotorChain, parse_ethercat_channel
 
         # The checks DMChainCanInterface runs in its constructor, over the board's raw frame path
-        # while it is still idle: opening the chain below energises every motor.
-        run_startup_checks(
-            channel,
-            motor_list,
-            check_motor_types=True,
-            check_motor_config=True,
-            control_mode=ControlMode.MIT,
-            expected_registers=hw.motor_registers,
-        )
+        # while it is still idle: opening the chain below energises every motor. A shared master's
+        # arms were checked before it opened, as the raw path cannot open beside it.
+        if ethercat_bus is None:
+            run_startup_checks(
+                channel,
+                motor_list,
+                check_motor_types=True,
+                check_motor_config=True,
+                control_mode=ControlMode.MIT,
+                expected_registers=hw.motor_registers,
+            )
         nic, slave, can_channel = parse_ethercat_channel(channel)
         motor_chain = EtherCATMotorChain(
             motor_list,
@@ -436,6 +499,7 @@ def get_yam_robot(
             interface=nic,
             slave=slave,
             channel=can_channel,
+            bus=ethercat_bus,
         )
     else:
         motor_chain = DMChainCanInterface(
@@ -502,6 +566,7 @@ def get_yam_robot(
             kd[-1] if with_gripper else 0.0,
             transmissions=hw.transmissions,
             zero_gravity_mode=zero_gravity_mode,
+            joint_state_saver_factory=joint_state_saver_factory,
         )
 
     get_robot = partial(

@@ -90,6 +90,73 @@ def test_osc_robot_without_a_gripper_has_seven_dofs() -> None:
         robot.close()
 
 
+class _Saver:
+    """The JointStateSaver calls a robot makes, recorded."""
+
+    def __init__(self) -> None:
+        self.rows: List[dict] = []
+        self.started: Optional[str] = None
+
+    def start_recording(self, save_dir: str) -> None:
+        self.started = save_dir
+
+    def stop_recording(self, prefix: str = "") -> bool:
+        self.started = None
+        return True
+
+    def add(self, timestamp: float, **fields: object) -> None:
+        self.rows.append({"timestamp": timestamp, **fields})
+
+
+@pytest.mark.parametrize("control_mode", ["osc", "osc_full"])
+def test_osc_robot_hands_its_saver_each_fresh_frame_like_a_pd_robot(control_mode: str) -> None:
+    saver = _Saver()
+    robot = get_yam_robot(
+        arm_type=ArmType.YAM_7DOF_LEFT,
+        gripper_type=GripperType.LINEAR_4310,
+        sim=True,
+        control_mode=control_mode,
+        joint_state_saver_factory=lambda: saver,
+    )
+    try:
+        assert robot.start_recording("/tmp/episode") and saver.started == "/tmp/episode"
+        _wait_until(lambda: len(saver.rows) >= 20)
+        assert robot.stop_recording() == (True, "Recording stopped successfully")
+    finally:
+        robot.close()
+    row = saver.rows[-1]
+    assert np.shape(row["pos"]) == np.shape(row["vel"]) == np.shape(row["eff"]) == (ARM_DOF,)
+    assert 0.0 <= float(row["ee_pos"]) <= 1.0, "the gripper is recorded normalized, as MotorChainRobot does"
+
+
+class _HeldReplyChain(SimMotorChain):
+    """``SimMotorChain`` whose motors' reply stamp moves only when the test moves it, as a CAN
+    chain's does when the 500 Hz loop reads it faster than the motors answer."""
+
+    stamp = 1.0
+
+    def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
+        infos = super().read_states(torques)
+        for info in infos:
+            info.timestamp = self.stamp
+        return infos
+
+
+def test_osc_saves_each_motor_reply_once_however_often_the_loop_reads_it() -> None:
+    xml = arm7_xml("left")
+    chain = _HeldReplyChain(xml, DEFAULT_MOTOR_LIST, initial_qpos=np.concatenate([Q_MID, [0.0, 0.0]]))
+    saver = _Saver()
+    arm = Arm7OSC(chain, xml, auto_start=False, joint_state_saver_factory=lambda: saver)
+    try:
+        for _ in range(3):
+            arm._step()
+        chain.stamp = 2.0
+        arm._step()
+    finally:
+        arm.close()
+    assert [row["timestamp"] for row in saver.rows] == [1.0, 2.0]
+
+
 class _FourBarChain(SimMotorChain):
     """``SimMotorChain`` with joint6 behind the real linkage: reports the motor's angle and rate,
     and applies MIT torque and kd as the motor would through it."""

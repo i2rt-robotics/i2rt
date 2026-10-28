@@ -78,6 +78,11 @@ def _frames(payload: bytes, n: int) -> np.ndarray:
     return np.tile(np.frombuffer(payload, dtype=np.uint8), (n, 1))
 
 
+def _release_frames(motor_list: Sequence[Tuple[int, str]], release_kd: float) -> np.ndarray:
+    consts = [MotorType.get_motor_constants(t) for _, t in motor_list]
+    return np.array([np.frombuffer(pack_mit(0, 0, 0, release_kd, 0, c), np.uint8) for c in consts])
+
+
 def _release_and_close(bus: Any, release: np.ndarray, disable: np.ndarray) -> None:
     """Release every motor, then disable it, then stop the bus. Loud if the release fails."""
     try:
@@ -127,6 +132,8 @@ class EtherCATMotorChain(MotorChain):
             ``set_commands``, then releases every motor until the next one.
         release_kd: motor-side kd in the release frame; see ``DEFAULT_RELEASE_KD``.
         enable: clear errors and enable the motors after detecting them.
+        bus: this chain's slice of a master shared with other chains, from :func:`open_shared_master`,
+            instead of opening one of its own; ``watchdog_ms`` and ``release_kd`` are then the master's.
     """
 
     def __init__(
@@ -141,6 +148,7 @@ class EtherCATMotorChain(MotorChain):
         watchdog_ms: int = 100,
         release_kd: float = DEFAULT_RELEASE_KD,
         enable: bool = True,
+        bus: Optional["_MasterSlice"] = None,
     ) -> None:
         if not interface:
             raise ValueError("interface is required: the NIC the EtherCAT-to-CAN board is wired to, e.g. enp99s0")
@@ -157,7 +165,9 @@ class EtherCATMotorChain(MotorChain):
         self.interface, self.slave, self.channel = interface, int(slave), int(channel)
         self._n = n
         self._consts = [MotorType.get_motor_constants(t) for _, t in self.motor_list]
-        self._release = np.array([np.frombuffer(pack_mit(0, 0, 0, release_kd, 0, c), np.uint8) for c in self._consts])
+        if bus is not None and bus.n != n:
+            raise ValueError(f"the shared master's slice carries {bus.n} motors, not {n}")
+        self._release = bus.release if bus is not None else _release_frames(self.motor_list, release_kd)
         self._disable = _frames(DM_DISABLE, n)
         self._derive_velocity = bool(derive_velocity)
         self._lock = threading.Lock()
@@ -170,13 +180,14 @@ class EtherCATMotorChain(MotorChain):
         self._reply_time = np.zeros(n)
         self._derived_vel = np.zeros(n)
 
-        bus_cls = _bus_class()
-        self._bus = bus_cls(
-            interface,
-            [(self.slave, self.channel, can_id) for can_id, _ in self.motor_list],
-            release=self._release,
-            watchdog_ms=watchdog_ms,
-        )
+        if bus is None:
+            bus = _bus_class()(
+                interface,
+                [(self.slave, self.channel, can_id) for can_id, _ in self.motor_list],
+                release=self._release,
+                watchdog_ms=watchdog_ms,
+            )
+        self._bus = bus
         self._opened_at = time.time()
         self._finalizer = weakref.finalize(self, _release_and_close, self._bus, self._release, self._disable)
         try:
@@ -338,6 +349,84 @@ class EtherCATMotorChain(MotorChain):
         self._closed = True
         self.running = False
         self._finalizer()
+
+
+# ---- one master for several chains --------------------------------------------------------------
+
+
+class _SharedMaster:
+    """One cyclic master carrying several chains' motors, each latching its own rows.
+
+    The master's watchdog trips only once no chain feeds it, so a chain that stops calling
+    ``set_frames`` for ``watchdog_ms`` is put back on its release frames by whichever chain still does.
+    """
+
+    def __init__(self, bus: Any, releases: Sequence[np.ndarray], watchdog_ms: int) -> None:
+        self.bus = bus
+        self._frames = np.concatenate(releases)
+        self._timeout_s = watchdog_ms / 1000
+        self._lock = threading.Lock()
+        ends = np.cumsum([len(r) for r in releases])
+        self.slices = [_MasterSlice(self, slice(end - len(r), end), r) for r, end in zip(releases, ends, strict=True)]
+
+    def latch(self, owner: "_MasterSlice", frames: np.ndarray) -> None:
+        with self._lock:
+            now = time.monotonic()
+            self._frames[owner.rows] = frames
+            owner.last_set = now
+            for s in self.slices:
+                # A closed chain keeps the disable frames it left latched.
+                if not s.closed and now - s.last_set > self._timeout_s:
+                    self._frames[s.rows] = s.release
+            self.bus.set_frames(self._frames)
+
+    def detach(self, owner: "_MasterSlice") -> None:
+        with self._lock:
+            owner.closed = True
+            if not all(s.closed for s in self.slices):
+                return
+        self.bus.close()
+
+
+class _MasterSlice:
+    """One chain's rows of a :class:`_SharedMaster`, behind the calls a chain makes on its own bus."""
+
+    def __init__(self, master: _SharedMaster, rows: slice, release: np.ndarray) -> None:
+        self.master, self.rows, self.release = master, rows, release
+        self.n = len(release)
+        self.last_set = 0.0
+        self.closed = False
+
+    def set_frames(self, frames: np.ndarray) -> None:
+        self.master.latch(self, frames)
+
+    def read(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        rx, stamp, count = self.master.bus.read()
+        return rx[self.rows], stamp[self.rows], count[self.rows]
+
+    def stats(self) -> Dict[str, int]:
+        return self.master.bus.stats()
+
+    def close(self) -> None:
+        self.master.detach(self)
+
+
+def open_shared_master(
+    interface: str,
+    chains: Sequence[Tuple[int, int, Sequence[Tuple[int, str]]]],
+    watchdog_ms: int = 100,
+    release_kd: float = DEFAULT_RELEASE_KD,
+) -> List[_MasterSlice]:
+    """One cyclic master on ``interface`` for several chains, each given as ``(slave, channel, motor_list)``.
+
+    The master allows one bus per process, so chains on one NIC -- the two CAN channels of a board, an
+    arm on each -- must share it. Returns one bus per chain, in order, for ``EtherCATMotorChain(bus=...)``;
+    every motor is on its release frame until its chain starts, and the master closes once every chain has.
+    """
+    releases = [_release_frames(motors, release_kd) for _, _, motors in chains]
+    slots = [(int(slave), int(channel), int(can_id)) for slave, channel, motors in chains for can_id, _ in motors]
+    bus = _bus_class()(interface, slots, release=np.concatenate(releases), watchdog_ms=watchdog_ms)
+    return _SharedMaster(bus, releases, watchdog_ms).slices
 
 
 # ---- a read-only scan -----------------------------------------------------------------------
