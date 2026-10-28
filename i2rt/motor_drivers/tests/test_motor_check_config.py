@@ -819,11 +819,11 @@ def test_an_empty_loop_id_set_blocks_on_nothing(bank: Any, caplog: pytest.LogCap
 
 
 def test_a_passive_row_is_skipped_rather_than_sent_to_get_motor_constants(bank: Any) -> None:
-    """``no_gripper`` and ``yam_teaching_handle`` are spelled ``motor_type: ""``, and neither is a motor.
+    """``no_gripper`` and the ``yam_teaching_handle_v*`` handles are spelled ``motor_type: ""``, and neither is a motor.
 
-    Reachable through ``_get_gripper_only_robot``, which rejects NO_GRIPPER but not the teaching handle,
-    so ``ArmType.NO_ARM`` + that handle builds a chain whose one row is ``[7, ""]``. Without the skip in
-    ``_motor_rows`` this check would call ``get_motor_constants("")`` and raise "Motor type '' not
+    No caller builds such a row today -- ``ArmType.NO_ARM`` + a teaching handle now builds no motor chain
+    at all (see ``robots/teaching_handle_robot.py``) -- so this pins the defensive skip in ``_motor_rows``.
+    Without it this check would call ``get_motor_constants("")`` and raise "Motor type '' not
     recognized" -- a table-gap message about a row that is not a motor at all.
     """
     fake = bank(healthy_arm())
@@ -895,3 +895,49 @@ def test_a_stock_vmax_on_an_arms_shoulder_motor_refuses_to_start(bank: Any, capl
 
     assert "VMAX" in caplog.text
     assert "NOT starting" in caplog.text
+
+
+# --------------------------------------------------------------------------------------------------
+# Declared registers: values the motor type does not determine (an arm config's motor_registers)
+# --------------------------------------------------------------------------------------------------
+
+KT, GREF = DMRegAddr.KT_VALUE, DMRegAddr.GREF
+DECLARED = {1: {"KT_Value": 0.044631, "GREF": 1.0}}
+"""A 7-DOF arm's joint 3-5 declaration, on the DM4340 at id 1. Motor 2 declares nothing."""
+
+
+def declared_arm() -> dict[int, dict[int, Scalar]]:
+    """``healthy_arm`` with motor 1 holding the declared values, after their float32 round trip."""
+    registers = healthy_arm()
+    registers[1][int(KT)] = as_stored(KT, 0.044631)
+    registers[1][int(GREF)] = as_stored(GREF, 1.0)
+    return registers
+
+
+def test_declared_registers_that_match_pass_and_only_the_declaring_motor_is_read(bank: Any) -> None:
+    fake = bank(declared_arm())
+    mc.verify_motor_config(CHANNEL, ARM_MOTOR_LIST, "MIT", expected_registers=DECLARED)
+    assert {("read", 1, int(KT)), ("read", 1, int(GREF))} <= set(fake.calls)
+    assert not [call for call in fake.calls_for(2) if call[2] in (int(KT), int(GREF))]
+    assert fake.writes() == []
+
+
+def test_a_declared_register_that_disagrees_refuses_to_start_and_is_not_written(
+    bank: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """GREF 0.87 is what the left 7-DOF arm held before its registers were declared: 13% less torque."""
+    registers = declared_arm()
+    registers[1][int(GREF)] = as_stored(GREF, 0.87)
+    fake = bank(registers)
+
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="do not hold the register values"):
+        mc.verify_motor_config(CHANNEL, ARM_MOTOR_LIST, "MIT", expected_registers=DECLARED)
+
+    assert fake.writes() == []
+    assert "write GREF --value 1 --motor-id 1" in caplog.text
+
+
+def test_a_misspelt_declared_register_fails_before_the_bus_opens() -> None:
+    """``KT_value`` is the motor_config_tool alias, not the register name; nothing has been patched to read."""
+    with pytest.raises(ValueError, match=r"'KT_value'.*not a register"):
+        mc.verify_motor_config(CHANNEL, ARM_MOTOR_LIST, "MIT", expected_registers={1: {"KT_value": 0.04}})

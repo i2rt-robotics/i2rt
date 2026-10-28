@@ -36,6 +36,9 @@ def available_arm_families() -> List[str]:
     ``v<N>/`` under it holds ``<arm>.xml``, so a raw CAD export staged ahead of the alignment
     pipeline is not yet a family. Scans the filesystem rather than any in-code registry, so a
     brand-new family is visible to callers that keep the registry and the models in sync.
+
+    A mirrored arm is two families, not one: ``yam_7dof_left`` and ``yam_7dof_right`` are separate
+    models with separate configs, so each is its own ``ArmType`` and resolves its own paths.
     """
     if not os.path.isdir(_ARM_ROOT):
         return []
@@ -69,6 +72,12 @@ ARM_BIG_YAM_XML_PATH = _arm_xml_path("big_yam", 1)
 GRIPPER_CRANK_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/crank_4310/crank_4310.xml")
 GRIPPER_LINEAR_3507_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/linear_3507/linear_3507.xml")
 GRIPPER_LINEAR_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/linear_4310/linear_4310.xml")
-GRIPPER_TEACHING_HANDLE_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/yam_teaching_handle/yam_teaching_handle.xml")
+GRIPPER_TEACHING_HANDLE_V1_PATH = os.path.join(
+    _ROBOT_MODELS_ROOT, "gripper/yam_teaching_handle/v1/yam_teaching_handle.xml"
+)
+GRIPPER_TEACHING_HANDLE_V2_PATH = os.path.join(
+    _ROBOT_MODELS_ROOT, "gripper/yam_teaching_handle/v2/yam_teaching_handle.xml"
+)
+GRIPPER_TEACHING_HANDLE_PATH = GRIPPER_TEACHING_HANDLE_V1_PATH  # deprecated v1 alias for downstream users
 GRIPPER_FLEXIBLE_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/flexible_4310/flexible_4310.xml")
 GRIPPER_NO_GRIPPER_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/no_gripper/no_gripper.xml")

@@ -51,8 +51,10 @@ sh scripts/reset_all_can.sh
 
 ### Arm variants
 
-Every arm is six-DOF. Pick one with `--arm` on any CLI, or `arm_type=` in Python. A hardware
-revision is its own variant — `yam_ultra_2` is revision 2 of the YAM Ultra.
+Every arm is six-DOF except the two `yam_7dof_*` arms. Pick one with `--arm` on any CLI, or
+`arm_type=` in Python. A hardware revision is its own variant — `yam_ultra_2` is revision 2 of the
+YAM Ultra — and so is each side of a mirrored pair: `yam_7dof_left` and `yam_7dof_right` are separate
+arms, not one arm with a side flag.
 
 | Arm | `--arm` value | Arm mass | Chain length | Notes |
 |-----|---------------|---------:|-------------:|-------|
@@ -61,11 +63,21 @@ revision is its own variant — `yam_ultra_2` is revision 2 of the YAM Ultra.
 | YAM Ultra | `yam_ultra` | 4.521 kg | 0.813 m | [Model docs](i2rt/robot_models/arm/yam_ultra/v1/README.md) |
 | YAM Ultra 2 | `yam_ultra_2` | 4.597 kg | 0.813 m | Revision 2 — kinematically identical to `yam_ultra`; revised link3/link4 inertials and a DM4340 on joint 4. [Model docs](i2rt/robot_models/arm/yam_ultra/v2/README.md) |
 | Big YAM | `big_yam` | 5.307 kg | 1.060 m | [Model docs](i2rt/robot_models/arm/big_yam/v1/README.md) |
-| *(none)* | `no_arm` | — | — | Gripper-only robot |
+| YAM 7-DOF (right) | `yam_7dof_right` | 5.844 kg | 0.822 m | Seven joints, plate-mounted. Its gripper is on CAN `0x08`. [See below](#7-dof-arm) |
+| YAM 7-DOF (left) | `yam_7dof_left` | 5.844 kg | 0.822 m | The right arm mirrored about the world x–z plane. [See below](#7-dof-arm) |
+| *(none)* | `no_arm` | — | — | End effector on its own. A motorized gripper keeps its motor; either teaching handle is passive, so it is read-only (trigger and buttons from its encoder) |
 
 "Arm mass" excludes the gripper and tips. "Chain length" is the sum of the parent-to-child
 joint-origin translation norms — a measure of the kinematic chain, not of reach. Each arm's
 model README tabulates full masses, COMs, inertias, joint frames, DH parameters, and screw axes.
+
+Whichever end effector you select adds its own mass at the flange, and gravity compensation sees
+it: `flexible_4310` 0.697 kg, `linear_4310` 0.695 kg, `crank_4310` 0.600 kg, `linear_3507`
+0.445 kg, `yam_teaching_handle_v1` 0.258 kg, and `yam_teaching_handle_v2` 0.244 kg (`no_gripper`
+is a bare mount and adds nothing). Each teaching handle has a model README of its own
+([v1](i2rt/robot_models/gripper/yam_teaching_handle/v1/README.md),
+[v2](i2rt/robot_models/gripper/yam_teaching_handle/v2/README.md)); the motorized grippers
+are documented by their MJCF files.
 
 ### Zero-gravity mode
 
@@ -100,7 +112,7 @@ robot.command_joint_pos(np.zeros(6))
 python examples/minimum_gello/minimum_gello.py --gripper linear_4310 --mode follower --can-channel can0 --bilateral-kp 0.2
 
 # Leader arm (teaching handle)
-python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle --mode leader --can-channel can1 --bilateral-kp 0.2
+python examples/minimum_gello/minimum_gello.py --gripper yam_teaching_handle_v1 --mode leader --can-channel can1 --bilateral-kp 0.2
 ```
 
 - **Top button (press once):** enable synchronisation — follower tracks leader
@@ -119,6 +131,86 @@ python scripts/run_yam_leader.py --channel $CAN_CHANNEL
 python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 ```
 
+## 7-DOF Arm
+
+Seven-DOF arms, built and composed exactly like the six-DOF ones: `arm_type=ArmType.YAM_7DOF_RIGHT`
+(or `..._LEFT`) on `get_yam_robot`, with any of the interchangeable grippers below. Two things set
+them apart — they are a **mirrored left/right pair**, registered as two arm types rather than one
+plus a side flag, and their gripper sits on CAN `0x08` because their own seven joints have taken
+`0x01`–`0x07`.
+
+| Property | Value |
+|----------|------:|
+| Arm DOF | 7 (`joint1`–`joint7`) |
+| Gripper DOF | 1 — two equality-coupled fingers (`joint8`/`joint9`), `q=0` closed |
+| Arm mass | 5.844 kg (`base`–`link6`; the end effector's mass arrives with the gripper) |
+| Total mass, with `linear_4310` | 6.539 kg |
+| Reach, origin → TCP at home | 0.808 m |
+| Motors | DM6248 ×2, DM4340 ×3, DM4310 ×2, plus the gripper's |
+| CAN ids | `0x01`–`0x07` arm, `0x08` gripper |
+| Mounting | Plate mount: mounting face is the world x–z plane through the origin; `joint1` about −Y; arm hangs along −Z at home. Face normal +Y on the right arm, −Y on the left |
+
+Model docs tabulate full masses, COMs, inertias, joint frames and screw axes, per arm:
+[right](i2rt/robot_models/arm/yam_7dof_right/v1/README.md),
+[left](i2rt/robot_models/arm/yam_7dof_left/v1/README.md).
+
+> **`gravity_comp_factor` is bench-tuned against this model**, replacing values found against an
+> earlier ONShape export whose links 2–5 were 0.536 kg lighter. The right arm's model docs tabulate
+> the per-joint ratios. The left arm has its own, fitted from torque sweeps on a left arm.
+
+```python
+from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import ArmType, GripperType
+
+robot = get_yam_robot(channel="can0", arm_type=ArmType.YAM_7DOF_RIGHT)            # or sim=True
+robot = get_yam_robot(channel="can1", arm_type=ArmType.YAM_7DOF_LEFT)              # the mirrored arm
+robot = get_yam_robot(channel="can0", arm_type=ArmType.YAM_7DOF_RIGHT,             # any gripper
+                      gripper_type=GripperType.CRANK_4310)
+robot.command_joint_pos([0, 0, 0, 0, 0, 0, 0, 0])   # 7 arm joints + gripper (0 closed, 1 open)
+```
+
+Drive it from an interactive MuJoCo viewer with
+[`examples/control_with_mujoco/`](examples/control_with_mujoco/) or from a browser with
+[`examples/control_with_viser/`](examples/control_with_viser/), in both cases with
+`--arm yam_7dof_right` or `--arm yam_7dof_left`.
+
+### Sides
+
+The left arm is the right one **reflected about the world x-z plane** (`y → -y`), generated by
+`.claude/skills/align-urdf-mjcf/scripts/mirror_arm_model.py`. It is the same hardware mounted on the
+opposite face of the plate, not a separate revision: masses, inertias, link lengths and every value in
+`yam_7dof_<side>_v1.yml` are shared. Each arm is nonetheless its own family, with its own model dir,
+config and gripper-mount block, so the two can carry different bench-tuned values.
+
+The two sides are **true mirror images**: an identical joint vector puts them in mirror-symmetric
+poses, so `q_left = q_right` joint for joint, and their joint ranges are identical. Their `directions`
+differ on joint3, joint5 and joint6, whose motors on the left do not reverse with their axes.
+What differs is the world direction each joint turns about, because a rotation axis is a pseudovector
+— the joints whose axis lies along the mirror normal (`±y`) agree between the sides, and those lying
+in the mirror plane oppose:
+
+| Joint | j1 | j2 | j3 | j4 | j5 | j6 | j7 |
+|-------|----|----|----|----|----|----|----|
+| Right, world axis at home | `-y` | `-x` | `-z` | `-y` | `-z` | `-x` | `-y` |
+| Left, world axis at home | `-y` | `+x` | `+z` | `-y` | `+z` | `+x` | `-y` |
+
+The [left model docs](i2rt/robot_models/arm/yam_7dof_left/v1/README.md) give the full derivation.
+
+The **gripper** is not mirrored: it is one physical part that bolts to either arm. So a left arm is
+the mirror of a right one through the mount frame and at the tool centre, but its two fingers are
+not each other's reflection.
+
+### Where the models live
+
+`i2rt/robot_models/arm/yam_7dof_right/v1/` and `.../yam_7dof_left/v1/` — two ordinary arm families,
+laid out exactly like every other: `<family>.urdf` is the source of truth, `<family>.xml` is
+generated from it and is arm-only, `assets/` sits beside them, and the terminal `gripper` body is a
+`mass=1e-6` mount placeholder that runtime composition fills in. A future hardware revision would be
+`v2` under both families.
+
+The file basenames and the MJCF `<mujoco model>` name must equal the family name: `get_arm_xml_path`
+builds the path from it, and `sync_gripper_mounts.py` keys the gripper-mount block off it.
+
 ## Gripper Types
 
 | Gripper | Motor | Notes |
@@ -127,7 +219,8 @@ python examples/minimum_gello/minimum_gello.py --mode visualizer_local
 | `linear_3507` | DM3507 | Lightweight linear; start closed or run calibration |
 | `linear_4310` | DM4310 | Standard linear; slightly more force than 3507 |
 | `flexible_4310` | DM4310 | Linear with flexible soft tips for compliant grasps |
-| `yam_teaching_handle` | — | Leader arm handle with trigger + 2 buttons. |
+| `yam_teaching_handle_v1` | — | Leader arm handle with trigger + 2 buttons. |
+| `yam_teaching_handle_v2` | — | The same handle with a 38 mm shorter shell. |
 | `no_gripper` | — | Bare terminal mount; no gripper motor on the chain |
 
 The linear grippers require calibration because their motor travels more than 2π radians over the full stroke — either start with the gripper fully closed, or run the calibration routine.

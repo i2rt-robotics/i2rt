@@ -8,6 +8,7 @@ Usage:
     python examples/record_replay_trajectory/record_replay_trajectory.py --channel can0
     python examples/record_replay_trajectory/record_replay_trajectory.py --arm yam_ultra_2
     python examples/record_replay_trajectory/record_replay_trajectory.py --arm big_yam --gripper linear_4310
+    python examples/record_replay_trajectory/record_replay_trajectory.py --arm yam_7dof_left
 """
 
 import curses
@@ -20,7 +21,7 @@ import numpy as np
 import tyro
 
 from i2rt.robots.get_robot import get_yam_robot
-from i2rt.robots.utils import ArmType, GripperType
+from i2rt.robots.utils import ArmName, ArmType, GripperType
 from i2rt.utils.recording import read_joint_positions
 
 
@@ -30,8 +31,8 @@ class _CliArgs:
 
     channel: str = "can0"
     """CAN channel."""
-    arm: str = "yam"
-    """Arm variant (yam, yam_pro, yam_ultra, yam_ultra_2, big_yam, no_arm)."""
+    arm: ArmName = "yam"
+    """Arm variant."""
     gripper: str = "linear_4310"
     """Yam gripper type so the gravity compensation can load the correct model."""
     load: Optional[Path] = None

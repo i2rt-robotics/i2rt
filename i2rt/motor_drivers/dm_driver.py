@@ -4,7 +4,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, Optional, Protocol, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple
 
 import can
 import numpy as np
@@ -62,11 +62,24 @@ class PassiveEncoderInfo:
     id: int
     """The device number, uint8."""
     position: float
-    """Position, in radian (encoder) or axis [-1, 1] center 0 (joystick analog)."""
+    """Trigger travel normalized to [0, 1] in the *encoder* convention:
+    0 = trigger at rest (gripper FULL OPEN), 1 = fully squeezed (FULL CLOSE).
+    This is the raw sensor convention and must not change -- scripts/read_encoder.py
+    prints it verbatim as the operator's zero check.  For anything with gripper
+    semantics use ``gripper_pos`` instead, which is the opposite way round."""
     velocity: float
-    """Velocity, in radian/s."""
+    """Velocity, in radian/s.  Signed raw rate, *not* the derivative of ``position``
+    (which is an absolute value, and normalized by range_rad)."""
     io_inputs: List[bool]
     """The discrete inputs, list of boolean."""
+
+    @property
+    def gripper_pos(self) -> float:
+        """``position`` in the *arm* convention every gripper uses: 0 = FULL CLOSE,
+        1 = FULL OPEN (see SimRobot._cmd_to_mj_qpos).  Use this to command, display,
+        record or animate a gripper value, so the teaching handle reads the same way
+        round as a motorized gripper."""
+        return 1.0 - self.position
 
 
 class PassiveEncoderReader:
@@ -399,6 +412,7 @@ class DMChainCanInterface(MotorChain):
         check_motor_types: bool = False,  # read Gr and refuse a chain not holding its declared motor types
         check_motor_config: bool = False,  # repair CTRL_MODE and compare PMAX/VMAX/TMAX; writes Flash
         loop_critical_motor_ids: Optional[Sequence[int]] = None,  # motors whose feedback the caller's loop acts on
+        expected_registers: Optional[Mapping[int, Mapping[str, float]]] = None,  # {can_id: {reg: value}}, config check
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -434,6 +448,7 @@ class DMChainCanInterface(MotorChain):
             # Stated rather than defaulted: this is the path that is about to run the chain, and a motor
             # left in the wrong mode cannot be commanded at all. --survey-only is the caller that says False.
             repair=True,
+            expected_registers=expected_registers,
         )
         if "can" in channel:
             self.motor_interface = DMSingleMotorCanInterface(

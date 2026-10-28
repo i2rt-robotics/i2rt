@@ -15,7 +15,7 @@ import tyro
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml
+from i2rt.robots.utils import ArmType, GripperType, combine_arm_and_gripper_xml, teaching_handle_trigger_id
 from i2rt.utils.utils import RateRecorder, override_log_level
 
 DEFAULT_ROBOT_PORT = 11333
@@ -77,7 +77,7 @@ class YAMLeaderRobot:
         if encoder_obs is None:
             # Populated only after the first CAN read in the background driver thread.
             raise RuntimeError("CAN device states not ready yet")
-        gripper_cmd = 1 - encoder_obs[0].position
+        gripper_cmd = encoder_obs[0].gripper_pos
         qpos_with_gripper = np.concatenate([qpos, [gripper_cmd]])
         return qpos_with_gripper, encoder_obs[0].io_inputs
 
@@ -98,8 +98,15 @@ class YAMLeaderRobot:
 class Args:
     arm: Literal["yam", "yam_pro", "yam_ultra", "yam_ultra_2", "big_yam", "no_arm"] = "yam"
     gripper: Literal[
-        "crank_4310", "linear_3507", "linear_4310", "flexible_4310", "yam_teaching_handle", "no_gripper"
-    ] = "yam_teaching_handle"
+        "crank_4310",
+        "linear_3507",
+        "linear_4310",
+        "flexible_4310",
+        "yam_teaching_handle_v1",
+        "yam_teaching_handle_v2",
+        "yam_teaching_handle",  # deprecated alias of yam_teaching_handle_v1
+        "no_gripper",
+    ] = "yam_teaching_handle_v1"
     mode: Literal["follower", "leader", "visualizer_local", "visualizer_remote"] = "follower"
     server_host: str = "localhost"
     server_port: int = DEFAULT_ROBOT_PORT
@@ -179,6 +186,13 @@ def _yam_polling_worker(
         try:
             pos = yam.get_joint_pos()
             pos_shared.array[: len(pos)] = pos
+            if gripper_type.is_teaching_handle:
+                # The teaching handle's trigger is not a commandable DOF, so it is absent
+                # from get_joint_pos(). Append it so the viewer can animate it; already
+                # normalized 0..1, which is what _run_viewer_loop expects.
+                gripper_pos = yam.get_observations().get("gripper_pos")
+                if gripper_pos is not None:
+                    pos_shared.array[len(pos)] = float(gripper_pos[0])
             rate.track()
         except Exception as e:
             logging.error(f"[{rate_name}] error: {e}")
@@ -296,9 +310,11 @@ def _leader_control_worker(
 
 
 def _wait_for_dof(n_dofs_value: Any, timeout_s: float = 30.0) -> int:
-    """Block until the background worker publishes the active DOF count."""
+    """Block until the background worker publishes the active DOF count.
+
+    Not-yet-published is -1, not 0: a standalone teaching handle really has 0 DOFs."""
     deadline = time.time() + timeout_s
-    while n_dofs_value.value == 0:
+    while n_dofs_value.value < 0:
         if time.time() > deadline:
             raise TimeoutError("worker did not publish DOF count within timeout")
         time.sleep(0.05)
@@ -411,6 +427,7 @@ def _run_viewer_loop(
     xml_path = combine_arm_and_gripper_xml(arm_type, gripper_type)
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
+    trigger_jid = teaching_handle_trigger_id(model)
 
     dt: float = 0.01
     with mujoco.viewer.launch_passive(
@@ -433,7 +450,11 @@ def _run_viewer_loop(
                 adr = model.jnt_qposadr[j]
                 if adr >= n:
                     continue
-                if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE:
+                # Normalized [0,1] -> physical. Gripper finger joints are slides; the
+                # teaching handle's trigger is the one hinge fed a normalized value,
+                # and it is the only joint named `gripper`.
+                is_normalized = model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE or j == trigger_jid
+                if is_normalized:
                     lo, hi = model.jnt_range[j]
                     data.qpos[adr] = lo + data.qpos[adr] * (hi - lo)
 
@@ -485,7 +506,7 @@ def run_follower(args: Args) -> None:
     )
     spawn = partial(_spawn_into, resources.processes)
 
-    n_dofs_value = portal.mp.Value("i", 0)
+    n_dofs_value = portal.mp.Value("i", -1)
     # maxsize=1 so the command queue holds only the latest setpoint; _cmd_pos/_cmd_state drop
     # stale commands on overflow (see _build_follower_server). A setpoint stream is latest-wins,
     # not a work queue — bounding it prevents any backlog from accumulating on this hop.
@@ -564,7 +585,7 @@ def run_visualizer_local(args: Args) -> None:
         pos_shared=portal.SharedArray(shape=(_MAX_DOFS,), dtype=np.float64),
         stop_event=portal.mp.Event(),
     )
-    n_dofs_value = portal.mp.Value("i", 0)
+    n_dofs_value = portal.mp.Value("i", -1)
 
     spawn = partial(_spawn_into, resources.processes)
     spawn(
@@ -582,8 +603,14 @@ def run_visualizer_local(args: Args) -> None:
     n_dofs = _wait_for_dof(n_dofs_value)
     logging.info(f"Viz YAM ready, num_dofs={n_dofs}")
 
+    # The teaching handle's trigger is rendered but not commanded, so it sits one slot
+    # past the joints (see _yam_polling_worker). For every other gripper that slot is unwritten.
+    n_viz = n_dofs + 1 if gripper_type.is_teaching_handle else n_dofs
+    if n_viz > n_dofs:
+        resources.pos_shared.array[n_dofs] = 1.0  # trigger starts open, not mid-squeeze
+
     def get_pos() -> np.ndarray:
-        return resources.pos_shared.array[:n_dofs].copy()
+        return resources.pos_shared.array[:n_viz].copy()
 
     try:
         _run_viewer_loop(arm_type, gripper_type, get_pos)

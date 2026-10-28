@@ -1,0 +1,68 @@
+# 7-DOF arm, right side.
+#
+# Seven joints and an interchangeable gripper, like every other arm: built by
+# get_yam_robot(arm_type=ArmType.YAM_7DOF_RIGHT, gripper_type=...).
+#
+# The left arm is the same hardware, so yam_7dof_left_v1.yml starts out identical to this file. The
+# two exist separately so a side can carry its own bench-tuned values.
+motor_list:
+  - [0x01, "DM6248"]
+  - [0x02, "DM6248"]
+  - [0x03, "DM4340"]
+  - [0x04, "DM4340"]
+  - [0x05, "DM4340"]
+  - [0x06, "DM4310"]
+  - [0x07, "DM4310"]
+
+# The model's joint axes are set to specified world directions at the home pose (-y, -x, -z, -y, -z,
+# -x, -y for joint1..joint7), which is not generally the motor's positive rotation -- so this line
+# carries a mixed sign, unlike the YAM arms' uniform +1. The model convention is the deliberate
+# choice and `directions` is what re-signs it at the motor boundary, which is exactly what it is
+# for: the model's joint limits and SimRobot both read the model, and both are already correct in
+# model coordinates. (Contrast a model/hardware sign mismatch, which has to be fixed in the model,
+# because a `directions` flip reaches neither.) The left arm's
+# values match these except joint3, joint5 and joint6, which are flipped there.
+# See the arm README's "Joint sign convention".
+directions: [-1, 1, 1, 1, 1, 1, 1]
+
+kp: [80.0, 80.0, 80.0, 40.0, 40.0, 10.0, 10.0]
+kd: [5.0, 5.0, 5.0, 3.0, 3.0, 1.5, 1.5]
+
+# Torque registers every arm motor must hold, one entry per joint (the gripper is not checked). The
+# motor turns an MIT torque into current through KT_Value * GREF, so changing either rescales that
+# motor's torque, and with it the gravity factor and the friction below. The startup config check
+# reads both and refuses to start on a mismatch; it never writes them.
+motor_registers:
+  GREF:     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  KT_Value: [0.0720294, 0.0720294, 0.044631, 0.044631, 0.044631, 0.0832, 0.0832]
+
+# Gravity comp, shared with the left arm (2026-10-13).
+gravity_comp_factor: [1.10, 1.08, 0.59, 0.56, 0.48, 0.97, 1.23]
+
+grav_comp_kd: [1.5, 1.75, 0.15, 0.15, 0.15, 0.45, 0.15]
+
+coulomb_friction: [0.12, 0.30, 0.17, 0.30, 0.25, 0.04, 0.03]
+
+# Joints whose motor drives them through a linkage rather than directly, keyed by joint name; every
+# other joint is direct drive. joint6's motor turns the input crank of a four-bar, so its encoder
+# reads the crank, not the joint, and MotorChainRobot converts between the two on every read and
+# write. Lengths are the as-built mechanism's, in mm (only their ratios matter). `phase_deg` was fitted
+# on the bench: driving joint6 to both hard stops puts the motor at `motor_range_deg` (five runs,
+# identical to 0.00 deg), and -55.554 deg of crank phase is what carries those onto the URDF's joint
+# limits of -55 deg and +45 deg -- to within 0.15 deg, with the motor turning the crank 1:1 and
+# nothing else fitted. The measured motor travel is 144.13 deg where the joint's is 100 deg: the
+# linkage is a reduction averaging ~0.69.
+transmissions:
+  joint6:
+    ground: 106.98920
+    crank: 30.71742
+    coupler: 95.02321
+    rocker: 38.33059
+    phase_deg: -55.5540
+    motor_range_deg: [-77.91, 66.22]
+    branch: 1
+    sign: -1
+
+# The arm's seven joints occupy CAN 0x01-0x07, so its gripper motor takes 0x08 -- the YAM
+# grippers sit at 0x07, which a seven-joint arm has already used.
+gripper_can_id: 0x08

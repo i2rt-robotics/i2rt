@@ -52,9 +52,15 @@ INERTIA_TOL = 1e-5
 RANGE_TOL = 1e-6
 
 ARM_JOINT_RE = re.compile(r"^(?:dof_)?joint(\d+)$")
-# MJCF bodies in chain order. The terminal ``gripper`` body is the mount (joint6's child), named
-# after the URDF link it represents.
-MJCF_BODIES = ["base", "link1", "link2", "link3", "link4", "link5", "gripper"]
+
+
+def mjcf_bodies(n_arm_joints: int) -> list[str]:
+    """MJCF bodies in chain order for an arm with ``n_arm_joints`` joints.
+
+    The terminal ``gripper`` body is the mount -- the last joint's child, named after the URDF link
+    it represents -- so an arm with N joints has N-1 real links before it.
+    """
+    return ["base"] + [f"link{i}" for i in range(1, n_arm_joints)] + ["gripper"]
 
 
 # --------------------------------------------------------------------------- math
@@ -201,20 +207,21 @@ def _load_arm_model(arm: ArmType) -> _ArmModel:
         if ARM_JOINT_RE.match(j.get("name")) and j.get("type") == "revolute"
     )
     arm_joints = [j for _, j in arm_joints]
+    n_arm = len(arm_joints)
     base = arm_joints[0].find("parent").get("link")
-    links = [base] + [arm_joints[i].find("child").get("link") for i in range(5)]
-    mount = arm_joints[5].find("child").get("link")
+    links = [base] + [arm_joints[i].find("child").get("link") for i in range(n_arm - 1)]
+    mount = arm_joints[n_arm - 1].find("child").get("link")
 
     urdf_w = _urdf_world_transforms(robot)
     mjcf_w, mjcf_el = _mjcf_world_transforms(mjcf)
     # MJCF body name -> corresponding URDF link name.
     urdf_link_of = {"base": base, "gripper": mount}
-    for i in range(1, 6):
+    for i in range(1, n_arm):
         urdf_link_of[f"link{i}"] = links[i]
 
     frames: list[_Frame] = []
     inertials: list[_Inertial] = []
-    for name in MJCF_BODIES:
+    for name in mjcf_bodies(n_arm):
         if name not in mjcf_w:  # e.g. big_yam has no `base` body (fixed static geom)
             continue
         urdf_link = urdf_link_of[name]
@@ -243,7 +250,7 @@ def _load_arm_model(arm: ArmType) -> _ArmModel:
             )
         )
 
-    return _ArmModel(arm.value, len(arm_joints), mount, "base" in mjcf_w, frames, inertials, joints)
+    return _ArmModel(arm.value, n_arm, mount, "base" in mjcf_w, frames, inertials, joints)
 
 
 def _link_by_name(robot: ET.Element, name: str) -> ET.Element:
@@ -265,9 +272,14 @@ def model(request: pytest.FixtureRequest) -> _ArmModel:
 
 # --------------------------------------------------------------------------- tests
 def test_arm_structure(model: _ArmModel) -> None:
-    """Six revolute arm joints and a terminal mount, as every README asserts (six-DOF)."""
-    assert model.n_arm_joints == 6, f"{model.arm}: expected 6 revolute arm joints"
-    assert model.mount_child, f"{model.arm}: no joint6 child (terminal mount) found"
+    """A chain of revolute arm joints ending in a terminal mount, as every README asserts.
+
+    Six for the YAM family, seven for yam_7dof; what is fixed is that the MJCF carries one body per
+    joint -- N-1 real links plus the mount -- which is what the rest of this file indexes by.
+    """
+    assert model.n_arm_joints >= 6, f"{model.arm}: expected at least 6 revolute arm joints"
+    assert model.mount_child, f"{model.arm}: no terminal-mount child found for the last joint"
+    assert len(model.joints) == model.n_arm_joints, f"{model.arm}: joint count disagrees with the MJCF"
 
 
 def test_home_pose_frames_aligned(model: _ArmModel) -> None:
