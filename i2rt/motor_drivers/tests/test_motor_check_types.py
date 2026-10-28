@@ -185,7 +185,7 @@ def test_every_shipped_config_motor_type_has_a_gear_ratio() -> None:
     """Adding a motor type to a config without its gear ratio must fail in CI, not on hardware.
 
     Covers both shapes: an arm config's ``motor_list`` rows and a gripper config's ``motor_type``.
-    The empty string is skipped -- no_gripper and yam_teaching_handle contribute no motor at all, so
+    The empty string is skipped -- no_gripper and the yam_teaching_handle_v* handles contribute no motor at all, so
     their type never reaches the check.
     """
     declared: dict[str, str] = {}
@@ -400,11 +400,11 @@ def test_every_read_is_logged(bank: Any, caplog: pytest.LogCaptureFixture) -> No
 
 
 def test_a_passive_device_row_is_not_treated_as_a_missing_gear_ratio(bank: Any) -> None:
-    """no_gripper and yam_teaching_handle are spelled ``motor_type: ""``, and neither is a motor.
+    """no_gripper and the yam_teaching_handle_v* handles are spelled ``motor_type: ""``, and neither is a motor.
 
-    Without the skip, a gripper-only robot built with a teaching handle -- the one path that can put
-    such a row here -- would be told to add "" to the gear-ratio table, which is the wrong file
-    entirely.
+    No caller builds such a row today -- a gripper-only teaching handle now builds no motor chain at
+    all -- so this pins the defensive skip. Without it, such a row would be told to add "" to the
+    gear-ratio table, which is the wrong file entirely.
     """
     fake = bank(matching_chain())
     mc.verify_motor_types(CHANNEL, [[7, ""]])
@@ -559,7 +559,8 @@ def test_the_config_check_gets_the_chains_control_mode_and_loop_ids(monkeypatch:
     """It cannot derive either: the mode decides whether TMAX blocks, the ids which motors can block.
 
     Also pins the shape of the whole call -- all four of those forwarded positionally, and ``repair``
-    as a keyword, since the chain path is the one that may write Flash.
+    as a keyword, since the chain path is the one that may write Flash, beside the chain's
+    ``expected_registers``.
     """
     from i2rt.motor_drivers import dm_driver
 
@@ -567,9 +568,22 @@ def test_the_config_check_gets_the_chains_control_mode_and_loop_ids(monkeypatch:
     monkeypatch.setattr(mc, "verify_motor_types", lambda *a, **k: None)  # the type check is now mandatory
     monkeypatch.setattr(mc, "verify_motor_config", lambda *args, **kwargs: seen.append((args, kwargs)))
     monkeypatch.setattr(dm_driver, "DMSingleMotorCanInterface", lambda *a, **k: (_ for _ in ()).throw(_SocketOpened()))
+    declared = {1: {"GREF": 1.0}}
     with pytest.raises(_SocketOpened):
-        _build(check_motor_types=True, check_motor_config=True, control_mode="VEL", loop_critical_motor_ids=(1,))
-    assert seen == [((CHANNEL, CHAIN, "VEL", (1,)), {"repair": True})]
+        _build(
+            check_motor_types=True,
+            check_motor_config=True,
+            control_mode="VEL",
+            loop_critical_motor_ids=(1,),
+            expected_registers=declared,
+        )
+    assert seen == [((CHANNEL, CHAIN, "VEL", (1,)), {"repair": True, "expected_registers": declared})]
+
+
+def test_declared_registers_without_the_config_check_are_refused() -> None:
+    """The config check is what reads them, so declaring them alone would start the robot unverified."""
+    with pytest.raises(ValueError, match="expected_registers needs check_motor_config"):
+        _build(check_motor_types=True, expected_registers={1: {"GREF": 1.0}})
 
 
 def test_the_config_check_cannot_be_asked_for_without_the_type_check() -> None:
@@ -674,6 +688,37 @@ def test_an_arm_chain_opts_into_both_checks(monkeypatch: pytest.MonkeyPatch, gri
     assert seen["check_motor_config"] is True
     assert "loop_critical_motor_ids" not in seen, "an arm names no subset: every motor is in its loop"
     assert "control_mode" not in seen, f"the chain default is MIT: {dm_driver.ControlMode.MIT}"
+
+
+@pytest.mark.parametrize(
+    "arm_name,gripper_id",
+    [("yam", 0x07), ("yam_7dof_right", 0x08), ("yam_7dof_left", 0x08)],
+)
+def test_the_gripper_follows_the_arm_on_its_own_can_id(
+    arm_name: str, gripper_id: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gripper motor is appended on the arm config's ``gripper_can_id``, 0x07 unless declared.
+
+    A seven-joint arm's own joints take 0x01-0x07, so its gripper cannot use the YAM grippers' id.
+    """
+    from i2rt.robots import get_robot
+    from i2rt.robots.utils import ArmType, GripperType
+
+    seen: dict[str, Any] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _capture(*args: Any, **_kwargs: Any) -> None:
+        seen["motor_list"] = args[0]
+        raise _Stop
+
+    monkeypatch.setattr(get_robot, "DMChainCanInterface", _capture)
+    with pytest.raises(_Stop):
+        get_robot.get_yam_robot(
+            arm_type=ArmType.from_string_name(arm_name), gripper_type=GripperType.LINEAR_4310, sim=False
+        )
+    assert [can_id for can_id, _ in seen["motor_list"]] == [*range(0x01, gripper_id), gripper_id]
 
 
 def test_a_gripper_only_chain_opts_into_both_checks(monkeypatch: pytest.MonkeyPatch) -> None:

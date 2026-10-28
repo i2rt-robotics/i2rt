@@ -1,0 +1,70 @@
+<mujoco model="yam_7dof_right">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="base"  file="base.stl"/>
+    <mesh name="link1" file="link1.stl"/>
+    <mesh name="link2" file="link2.stl"/>
+    <mesh name="link3" file="link3.stl"/>
+    <mesh name="link4" file="link4.stl"/>
+    <mesh name="link5" file="link5.stl"/>
+    <mesh name="link6" file="link6.stl"/>
+    <!-- The arm-side half of the as-built fused wrist+gripper mesh, cut at the gripper's own
+         mounting face. The distal half is the linear_4310 and arrives with the gripper. The
+         o38.08 mm locating spigot that seats in the gripper's bore is grafted from yam link5;
+         the as-built export fused it away. -->
+    <mesh name="wrist" file="wrist.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="base" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="1.95071e-05 -0.0497882 -3.13786e-05" quat="0.70851510052563571 -0.0017896619717432496 -0.0017430527002017986 -0.70569122936625728" mass="1.28789" diaginertia="0.0012991085550125424 0.0015348237593487489 0.0016070276856387084"/>
+      <geom pos="0 -0.1565 -0.112133" quat="0.50000000000244826 0.49999999999755174 0.5 -0.5" type="mesh" rgba="0.317647 0.121569 0.498039 1" mesh="base"/>
+      <body name="link1" pos="0.000116187 -0.0945 0" quat="0.49999933660450813 -0.50000066339461158 0.49999933660205986 0.50000066339705995">
+        <inertial pos="-0 -0.00383646 -0.0549694" quat="0.098746625020126183 0.70017790885398157 0.098746625020126183 0.70017790885398157" mass="1.0034" diaginertia="0.00083299978693632032 0.00094783421306367981 0.00109454"/>
+        <joint name="joint1" pos="0 0 0" axis="0 0 -1" type="hinge" range="-2.79253 2.79253" actuatorfrcrange="-10 10"/>
+        <geom pos="0.112133 -0 -0.062" quat="1.3267948966775328e-06 0.99999999999911982 0 0" type="mesh" rgba="0.72549 0.45098 0.317647 1" mesh="link1"/>
+        <body name="link2" pos="-0 -0.0501 -0.062" quat="-0.70710548251123628 0.70710807985947355 -3.5355274125561814e-13 -3.5355403992973672e-13">
+          <inertial pos="0.106908 8.70615e-07 0.0475462" quat="0.70671242783769805 0.70673638620141399 -0.02324988034588971 0.023252264892134458" mass="0.95628" diaginertia="0.0015928894120929024 0.0052780205873141101 0.0057733100005929877"/>
+          <joint name="joint2" pos="0 0 0" axis="0 0 1" type="hinge" range="-0.436332 3.57792" actuatorfrcrange="-10 10"/>
+          <geom pos="0.112133 0 0.0501" quat="-0.70710548251123628 0.70710807985947355 0 0" type="mesh" rgba="0 0.4 0.6 1" mesh="link2"/>
+          <body name="link3" pos="0.219 -0 0.0501" quat="-0.49999816339744835 -0.49999999999662681 0.50000183660255171 0.49999999999662681">
+            <inertial pos="-0.0011414 -2.4009e-05 -0.0698293" quat="0.51221945962595838 -0.5114587907497341 -0.48741162735600785 -0.48833496297467699" mass="0.83983" diaginertia="0.00045198981627686812 0.00095647835538883541 0.001093381828334297"/>
+            <joint name="joint3" pos="0 0 0" axis="0 0 -1" type="hinge" range="-1.832596 1.832596" actuatorfrcrange="-10 10"/>
+            <geom pos="-0 -0 0.106867" quat="-0.49999816339744835 -0.49999999999662681 -0.49999999999662681 0.50000183660255171" type="mesh" rgba="0.552941 0.580392 0.203922 1" mesh="link3"/>
+            <body name="link4" pos="0.03545 -0 -0.0894" quat="9.3818394560861272e-07 -0.70710548251061389 9.3818739175699882e-07 0.70710807985885127">
+              <inertial pos="0.0654359 9.05861e-07 0.0354242" quat="0.70711060492326228 0.70709960566907137 -0.0015343448312156711 0.0015446208728710858" mass="0.66056" diaginertia="0.0010558995973989971 0.0016045504023068024 0.0019968800002942004"/>
+              <joint name="joint4" pos="0 0 0" axis="0 0 1" type="hinge" range="-2.0944 2.0944" actuatorfrcrange="-10 10"/>
+              <geom pos="-0.196267 0 0.0354495" quat="-0.70710548251123628 0.70710807985947355 0 0" type="mesh" rgba="0.545098 0.52549 0.419608 1" mesh="link4"/>
+              <body name="link5" pos="0.1235 0 0.03545" quat="-9.3818394560861272e-07 -0.70710548251061389 -9.3818739175699882e-07 0.70710807985885127">
+                <inertial pos="-0.00468947 -0.000452694 -0.0656789" quat="0.65844958686859212 -0.031642794268654233 0.75178208007105296 0.01632725351958856" mass="0.6884" diaginertia="0.00085578081995821721 0.0012881954402741056 0.0013722487397676781"/>
+                <joint name="joint5" pos="0 0 0" axis="0 0 -1" type="hinge" range="-1.8326 1.8326" actuatorfrcrange="-10 10"/>
+                <geom pos="5.21807e-07 0 0.319767" quat="-0.49999816339744835 -0.49999999999662681 -0.49999999999662681 0.50000183660255171" type="mesh" rgba="0.827451 0.623529 0.784314 1" mesh="link5"/>
+                <body name="link6" pos="0 -0.0381 -0.1475" quat="-0.49999816339744835 -0.49999999999662681 -0.49999999999662681 0.50000183660255171">
+                  <inertial pos="-6.47372e-05 0.000188696 -0.038139" quat="0.72305729483435244 0.16792071202395215 -0.66694572817504316 -0.064607882872438641" mass="0.4074" diaginertia="0.00016752234457575402 0.00017210848430853029 0.0001840721711157158"/>
+                  <joint name="joint6" pos="0 0 0" axis="0 0 -1" type="hinge" range="-0.959931 0.785398" actuatorfrcrange="-10 10"/>
+                  <geom pos="-0.467267 5.21807e-07 -0.038" quat="1 0 0 0" type="mesh" rgba="0.611765 0.658824 0.670588 1" mesh="link6"/>
+                  <body name="gripper" pos="4.47332e-06 0.02565 -0.0380064" quat="-7.3122876473820652e-14 7.3123145069636984e-14 0.70710807985947355 -0.70710548251123628">
+                    <inertial pos="0 0 0" mass="1e-6" diaginertia="1e-9 1e-9 1e-9"/>
+                    <joint name="joint7" pos="0 0 0" axis="0 0 1" type="hinge" range="-1.5708 1.5708" actuatorfrcrange="-10 10"/>
+                    <geom pos="-0.398708 0.192838 -1.68458" quat="0.98945802137440864 0.062735853124356866 0.13026442459102697 -0.0082593193768037265" type="mesh" rgba="0.694118 0.458824 0.576471 1" mesh="wrist"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <!-- MuJoCo collides meshes by their convex hulls and only auto-excludes direct parent-child
+         body pairs. link5 and the wrist section on the `gripper` mount nest around the short link6
+         segment, so their hulls overlap by up to 38 mm at every reachable pose (verified by a
+         20k-sample sweep of the full joint ranges) even though the real parts never touch. It is the arm-side wrist mesh that does it,
+         not the end effector, so this holds for every gripper including no_gripper. Without the
+         exclude, any self-collision gate reports a permanent collision and blocks every command. -->
+    <exclude body1="link5" body2="gripper"/>
+  </contact>
+</mujoco>
