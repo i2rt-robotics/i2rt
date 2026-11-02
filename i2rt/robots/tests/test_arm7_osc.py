@@ -30,6 +30,7 @@ from i2rt.robots.arm7_osc import (
     KD_TASK_JOINT,
     KP_TASK_JOINT,
     MAX_FEEDBACK_AGE_S,
+    MAX_TORQUE_RATE,
     Arm7OSC,
     ArmState,
     ControlMode,
@@ -825,7 +826,8 @@ def test_a_command_that_stops_arriving_stops_the_arm() -> None:
         chain.close()
 
 
-def test_torque_slew_is_bounded_across_a_state_change() -> None:
+@pytest.mark.parametrize("rate", [MAX_TORQUE_RATE, [600.0] + [MAX_TORQUE_RATE] * 6])
+def test_torque_slew_is_bounded_across_a_state_change(rate: object) -> None:
     """Entering or leaving a state must not produce a torque step.
 
     The slew bound is applied after the state machine for exactly this reason: a jump between
@@ -834,7 +836,7 @@ def test_torque_slew_is_bounded_across_a_state_change() -> None:
     """
     chain = _chain()
     try:
-        arm = _arm(chain)
+        arm = _arm(chain, max_torque_rate=rate)
         arm._q[:] = chain.get_true_state()["pos"][:ARM_DOF]
         arm.enable_arm()
         for _ in range(500):
@@ -847,8 +849,10 @@ def test_torque_slew_is_bounded_across_a_state_change() -> None:
         arm.float_arm()
         for _ in range(20):
             arm._step()
-            step = np.abs(arm._prev_tau - prev).max()
-            assert step <= max_step + 1e-9, f"torque jumped {step:.3f} Nm in one tick, cap {max_step:.3f}"
+            step = np.abs(arm._prev_tau - prev)
+            assert np.all(step <= max_step + 1e-9), (
+                f"torque jumped {step.round(3)} Nm in one tick, cap {max_step.round(3)}"
+            )
             prev = arm._prev_tau.copy()
     finally:
         chain.close()

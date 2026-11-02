@@ -404,6 +404,11 @@ class Args:
     Above 1.0 it over-compensates and the joint creeps on its own. Step it 0.3, 0.6, 1.0 and watch
     for drift with the arm commanded to hold still."""
 
+    max_torque_rate: str = ""
+    """Torque slew bound per joint, 7 comma-separated values in N.m/s over joint1..joint7. Empty
+    keeps Arm7OSC's MAX_TORQUE_RATE on every joint. The bound applies in every state, so it is also
+    what keeps enable, float and fault transitions from stepping the torque: raise it on the joints
+    that hit it while moving (joint1 under fast z presses) and leave the rest where they are."""
     motor_kd: float = -1.0
     """Override the motor-side kd used while floating, for every joint. Negative keeps the
     per-joint defaults in MOTOR_KD_FLOAT. Pass 0 to float on the gravity term alone.
@@ -1313,6 +1318,12 @@ def _make_arm(
     args: Args, cfg: dict, xml: str, auto_start: bool = True, **kw: object
 ) -> Tuple[DMChainCanInterface, Arm7OSC]:
     chain = _build_chain(args, cfg, check=True)
+    if args.max_torque_rate:
+        vals = [float(x) for x in args.max_torque_rate.replace(" ", "").split(",") if x]
+        if len(vals) != ARM_DOF or min(vals) <= 0.0:
+            raise SystemExit(f"--max-torque-rate needs {ARM_DOF} positive values, got {args.max_torque_rate!r}")
+        kw = dict(kw)
+        kw["max_torque_rate"] = np.array(vals)
     if args.motor_kd >= 0.0:
         kw = dict(kw)
         kw["motor_kd_float"] = np.full(ARM_DOF, args.motor_kd)
@@ -1342,6 +1353,7 @@ def _make_arm(
     # Clamp below the application bound until the operator raises it deliberately.
     arm._torque_limit = np.minimum(arm._torque_limit, args.max_torque)
     print(f"torque clamp in force: {np.round(arm._torque_limit, 2).tolist()} N.m")
+    print(f"torque slew bound:     {np.round(arm.max_torque_rate, 1).tolist()} N.m/s")
     print(f"gravity_comp_factor:   {np.round(_gravity_factor(args, cfg), 3).tolist()}")
     if args.friction_ff != 0.0:
         print(f"friction feedforward:  {args.friction_ff:.2f} x {np.round(arm._kinetic_friction, 3).tolist()} N.m")

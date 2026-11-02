@@ -33,7 +33,7 @@ import gc
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import mujoco
 import numpy as np
@@ -365,7 +365,8 @@ class Arm7OSC(Robot):
         freeze_gc: call ``gc.freeze()`` when the control thread starts. Process-wide.
         motor_kd_active, motor_kd_float: per-joint MIT-mode kd sent to the motors while OSC is
             driving and while floating.
-        max_torque_rate: torque slew bound, Nm/s, applied in every state.
+        max_torque_rate: torque slew bound, Nm/s, applied in every state. Scalar or 7-vector, one
+            bound per joint.
         auto_start: start the control thread immediately, in ``FLOATING``.
         transmissions: joint index -> linkage, for joints whose motor drives them through one
             (joint6 on the 7-DOF arms). Feedback is converted to joint space on read and joint
@@ -413,7 +414,7 @@ class Arm7OSC(Robot):
         velocity_cutoff_hz: Optional[float] = None,
         align_feedback: bool = True,
         freeze_gc: bool = True,
-        max_torque_rate: float = MAX_TORQUE_RATE,
+        max_torque_rate: Union[float, np.ndarray] = MAX_TORQUE_RATE,
         motor_kd_active: Optional[np.ndarray] = None,
         kinetic_friction: Optional[np.ndarray] = None,
         friction_ff: float = 0.0,
@@ -475,7 +476,9 @@ class Arm7OSC(Robot):
         self.wrist_inertia_augmentation = float(
             WRIST_INERTIA_AUGMENTATION if wrist_inertia_augmentation is None else wrist_inertia_augmentation
         )
-        self.max_torque_rate = float(max_torque_rate)
+        self.max_torque_rate = np.broadcast_to(np.asarray(max_torque_rate, dtype=float), (ARM_DOF,)).copy()
+        if np.any(self.max_torque_rate <= 0.0):
+            raise ValueError(f"max_torque_rate must be positive, got {self.max_torque_rate.tolist()}")
         self.freeze_gc = bool(freeze_gc)
         self.motor_kd_active = np.array(MOTOR_KD_ACTIVE if motor_kd_active is None else motor_kd_active, dtype=float)
         self._kinetic_friction = (
