@@ -308,6 +308,10 @@ class Args:
     interface: str = ""
     """NIC the EtherCAT-to-CAN board is wired to, e.g. ``enp99s0``. Required with
     ``--transport ethercat``."""
+    board_channel: int = 1
+    """The board's CAN channel the arm is on, 1 or 2. The board carries one arm per channel, and the
+    channel -- not ``--arm``, which only picks the config -- decides which physical arm moves. Ignored
+    on ``--transport can``."""
     receive_mode: str = "p16"
     """Which CAN id a motor answers on: its own (``same``) or its own plus 16 (``p16``).
 
@@ -369,6 +373,23 @@ class Args:
     mm off the line, level with ``kinematic`` at 3.0x. On the arm 640 halves the line's error, but
     once the joints move, joints 1 and 4 oscillate at 24 Hz against the torque slew limit. A hold
     hides that, because stiction pins the joints, so judge a value on a moving trace."""
+
+    kp6_axes: str = ""
+    """``Kp6`` per task axis, as 6 comma-separated values over world ``x,y,z,rx,ry,rz`` (1/s^2).
+    Overrides ``--kp6``; empty uses ``--kp6`` on all six. ``Kd6`` follows each axis's own value,
+    ``2 * --cart-zeta * sqrt(Kp6_i)``.
+
+    Unequal values make the task stiffness ``Mx diag(Kp6)`` non-symmetric, since ``Mx`` couples the
+    axes: a push along one axis can then be answered along another. Keep the ratios modest and let
+    the modal check, which runs on these exact gains, say whether they hold."""
+
+    kd6_axes: str = ""
+    """``Kd6`` per task axis, 6 comma-separated values over world ``x,y,z,rx,ry,rz`` (1/s). Overrides
+    ``--cart-zeta``'s ``2 * zeta * sqrt(Kp6_i)``; empty keeps it.
+
+    For raising an axis's ``Kp6`` while holding its ``Kd6`` where the arm has already run: ``Kd6`` is
+    the term that reaches the joints through the velocity observer and the feedback delay, so it is
+    the one whose lag turns into negative damping at high frequency."""
 
     friction_ff: float = 0.0
     """Fraction of each joint's measured Coulomb friction fed forward as
@@ -433,6 +454,13 @@ def _ethercat_interface(args: Args) -> str:
     return args.interface
 
 
+def _ethercat_channel(args: Args) -> str:
+    """The ``ecat:<nic>:<board>:<can channel>`` spec the register tools take, always board 0."""
+    if args.board_channel not in (1, 2):
+        raise SystemExit(f"--board-channel must be 1 or 2, got {args.board_channel}")
+    return f"{ETHERCAT_CHANNEL_PREFIX}{_ethercat_interface(args)}:0:{args.board_channel}"
+
+
 def _build_chain(args: Args, cfg: dict, check: bool) -> MotorChain:
     """Open the motor chain, **energising every motor**.
 
@@ -448,7 +476,7 @@ def _build_chain(args: Args, cfg: dict, check: bool) -> MotorChain:
         interface = _ethercat_interface(args)
         if check:
             run_startup_checks(
-                f"{ETHERCAT_CHANNEL_PREFIX}{interface}",
+                _ethercat_channel(args),
                 [[mid, mtype] for mid, mtype in cfg["motor_list"]],
                 check_motor_types=True,
                 check_motor_config=True,
@@ -459,6 +487,7 @@ def _build_chain(args: Args, cfg: dict, check: bool) -> MotorChain:
             motor_offset=np.zeros(ARM_DOF),
             motor_direction=np.array(cfg["directions"], dtype=float),
             interface=interface,
+            channel=args.board_channel,
         )
     return DMChainCanInterface(
         cfg["motor_list"],
@@ -492,9 +521,9 @@ def stage_check(args: Args, cfg: dict, xml: str) -> None:
         from i2rt.motor_drivers.ethercat_chain import scan
 
         interface = _ethercat_interface(args)
-        channel = f"{ETHERCAT_CHANNEL_PREFIX}{interface}"
-        print(f"scanning {interface} (every motor stays disabled) ...")
-        rows, stats = scan(interface, cfg["motor_list"])
+        channel = _ethercat_channel(args)
+        print(f"scanning {interface} board CAN channel {args.board_channel} (every motor stays disabled) ...")
+        rows, stats = scan(interface, cfg["motor_list"], channel=args.board_channel)
         for r in rows:
             print(f"  id {r.can_id}  {r.replies:6d} replies  {r.rate_hz:6.1f} Hz  {r.state:<16s}  {r.temp_mos:3.0f} C")
         print(f"  master: {stats}")
@@ -1230,6 +1259,34 @@ def _kp6(args: Args) -> float:
     return args.kp6 or 40.0 * args.gain_scale
 
 
+def _cart_gains(args: Args) -> Tuple[np.ndarray, np.ndarray]:
+    """``(Kp6, Kd6)`` over ``x,y,z,rx,ry,rz``: ``--kp6-axes`` if given, else ``_kp6`` on every axis."""
+    if args.kp6_axes:
+        vals = [float(x) for x in args.kp6_axes.replace(" ", "").split(",") if x]
+        if len(vals) != 6 or min(vals) <= 0.0:
+            raise SystemExit(f"--kp6-axes needs 6 positive values over x,y,z,rx,ry,rz, got {args.kp6_axes!r}")
+        kp6 = np.array(vals)
+    else:
+        kp6 = np.full(6, _kp6(args))
+    if args.kd6_axes:
+        vals = [float(x) for x in args.kd6_axes.replace(" ", "").split(",") if x]
+        if len(vals) != 6 or min(vals) < 0.0:
+            raise SystemExit(f"--kd6-axes needs 6 non-negative values over x,y,z,rx,ry,rz, got {args.kd6_axes!r}")
+        return kp6, np.array(vals)
+    return kp6, 2.0 * args.cart_zeta * np.sqrt(kp6)
+
+
+def _cart_gains_text(kp6: np.ndarray, kd6: np.ndarray) -> str:
+    if np.ptp(kp6) == 0.0 and np.ptp(kd6) == 0.0:
+        return f"Kp6 {kp6[0]:.0f} (task bandwidth {np.sqrt(kp6[0]) / (2 * np.pi):.2f} Hz), Kd6 {kd6[0]:.1f} (zeta {kd6[0] / (2.0 * np.sqrt(kp6[0])):.2f})"
+    zeta = kd6 / (2.0 * np.sqrt(kp6))
+    axes = "  ".join(
+        f"{a} {k:.0f}/{d:.1f} (z{z:.2f})"
+        for a, k, d, z in zip(("x", "y", "z", "rx", "ry", "rz"), kp6, kd6, zeta, strict=True)
+    )
+    return f"Kp6/Kd6 per axis  {axes}"
+
+
 def _gravity_factor(args: Args, cfg: dict) -> np.ndarray:
     """Per-joint gravity multiplier: the command line if given, else the config."""
     if not args.gravity_factor:
@@ -1806,15 +1863,11 @@ def stage_task(args: Args, cfg: dict, xml: str) -> None:
     else:
         # Kp6 has units of 1/s^2, not N/m: Mx carries the mass, so the task bandwidth is sqrt(Kp6)
         # and critical damping is 2*sqrt(Kp6). `--cart-zeta` scales that.
-        kp6 = _kp6(args)
-        kd6 = 2.0 * args.cart_zeta * np.sqrt(kp6)
+        kp6, kd6 = _cart_gains(args)
         kp = KP_TASK_JOINT * args.gain_scale
-        kd = np.full(ARM_DOF, kd6)
-        kw = dict(kp_cartesian=np.full(6, kp6), kd_cartesian=np.full(6, kd6))
-        print(
-            f"\n  full mode: Kp6 {kp6:.0f} (task bandwidth {np.sqrt(kp6) / (2 * np.pi):.2f} Hz), "
-            f"Kd6 {kd6:.1f} (zeta {args.cart_zeta:.2f})"
-        )
+        kd = np.full(ARM_DOF, kd6.max())
+        kw = dict(kp_cartesian=kp6, kd_cartesian=kd6)
+        print(f"\n  full mode: {_cart_gains_text(kp6, kd6)}")
     _check_modes(
         xml,
         q_start,
@@ -1831,7 +1884,12 @@ def stage_task(args: Args, cfg: dict, xml: str) -> None:
     )
 
     # What the operator steps: --kp6 when it is set, else the --gain-scale multiplier.
-    level = f"Kp6 {_kp6(args):.0f}" if args.mode == "full" and args.kp6 else f"{args.gain_scale:.2f}x"
+    if args.mode == "full" and (args.kp6_axes or args.kd6_axes):
+        level = f"Kp6 {args.kp6_axes or _kp6(args)}" + (f", Kd6 {args.kd6_axes}" if args.kd6_axes else "")
+    elif args.mode == "full" and args.kp6:
+        level = f"Kp6 {_kp6(args):.0f}"
+    else:
+        level = f"{args.gain_scale:.2f}x"
     _confirm(args, f"enable OSC with task gains at {level}")
     chain, arm = _make_arm(args, cfg, xml, **kw)
     trace = _Trace(arm, args.trace or f"/tmp/arm7_task_{time.strftime('%Y%m%d_%H%M%S')}.csv", hz=args.trace_hz)
@@ -2272,11 +2330,10 @@ def stage_line(args: Args, cfg: dict, xml: str) -> None:
     kp_null = _cap_task_stiffness(KP_TASK_JOINT * args.gain_scale, friction)
     kd_null = _cap_host_damping(KD_TASK_JOINT * np.sqrt(args.gain_scale), friction, args.loop_hz)
     if args.mode == "full":
-        kp6 = _kp6(args)
-        kd6 = 2.0 * args.cart_zeta * np.sqrt(kp6)
-        kw: dict = dict(kp_cartesian=np.full(6, kp6), kd_cartesian=np.full(6, kd6), kp_null=kp_null, kd_null=kd_null)
-        kp_check, kd_check = KP_TASK_JOINT * args.gain_scale, np.full(ARM_DOF, kd6)
-        print(f"  full mode: Kp6 {kp6:.0f}, Kd6 {kd6:.1f} (zeta {args.cart_zeta:.2f})")
+        kp6, kd6 = _cart_gains(args)
+        kw: dict = dict(kp_cartesian=kp6, kd_cartesian=kd6, kp_null=kp_null, kd_null=kd_null)
+        kp_check, kd_check = KP_TASK_JOINT * args.gain_scale, np.full(ARM_DOF, kd6.max())
+        print(f"  full mode: {_cart_gains_text(kp6, kd6)}")
     else:
         kw = dict(kp_task=kp_null, kd_task=kd_null, kp_null=kp_null, kd_null=kd_null)
         kp_check, kd_check = kp_null, kd_null
@@ -2771,7 +2828,11 @@ def main() -> None:
     if not Path(xml).is_file():
         raise SystemExit(f"model not found at {xml}")
     cfg = _load_config(cfg_path)
-    where = f"interface={args.interface}" if args.transport == "ethercat" else f"channel={args.channel}"
+    where = (
+        f"interface={args.interface}  board_channel={args.board_channel}"
+        if args.transport == "ethercat"
+        else f"channel={args.channel}"
+    )
     print(f"arm={args.arm}  {where}  mode={args.mode}  torque clamp {args.max_torque:.1f} N.m")
     print(f"config {cfg_path}")
     STAGES[args.stage](args, cfg, xml)
