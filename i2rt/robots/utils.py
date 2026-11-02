@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache, partial
-from typing import Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import mujoco
 import numpy as np
@@ -145,6 +145,8 @@ class _ArmHWConfig:
     motor_registers: Dict[int, Dict[str, float]] = field(default_factory=dict)
     # Joints driven through a linkage, {joint index: linkage}. Empty on a direct-drive arm.
     transmissions: Dict[int, FourBarLinkage] = field(default_factory=dict)
+    # Arm7OSC keyword arguments for the OSC control modes, the YAML's `osc` section. Empty keeps its defaults.
+    osc: Dict[str, Any] = field(default_factory=dict)
 
 
 _ARM_CONFIG_RE = re.compile(r"^(?P<arm>.+)_v(?P<version>\d+)\.yml$")
@@ -205,6 +207,10 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
             branch=int(p["branch"]),
             sign=int(p["sign"]),
         )
+    osc = dict(raw.get("osc", {}))
+    if "friction_ff" in osc:
+        # A fraction of this file's kinetic_friction, which Arm7OSC otherwise takes as zero.
+        osc["kinetic_friction"] = raw["kinetic_friction"]
 
     logger.info(f"  motor_list:          {motor_list}")
     logger.info(f"  directions:          {directions}")
@@ -216,6 +222,7 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
     logger.info(f"  gripper_can_id:      {hex(gripper_can_id)}")
     logger.info(f"  motor_registers:     {motor_registers}")
     logger.info(f"  transmissions:       {transmissions}")
+    logger.info(f"  osc:                 {osc}")
 
     return _ArmHWConfig(
         motor_list=motor_list,
@@ -228,6 +235,7 @@ def _load_arm_config(arm_type: "ArmType") -> _ArmHWConfig:
         gripper_can_id=gripper_can_id,
         motor_registers=motor_registers,
         transmissions=transmissions,
+        osc=osc,
     )
 
 

@@ -15,7 +15,7 @@ import pytest
 
 from i2rt.motor_drivers.utils import MotorInfo
 from i2rt.robots.arm7_osc import ARM_DOF, COMMAND_TIMEOUT_S, DEFAULT_MOTOR_LIST, Arm7OSC, ArmState, arm7_xml
-from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.get_robot import _get_arm7_osc_robot, get_yam_robot
 from i2rt.robots.sim_motor_chain import SimMotorChain
 from i2rt.robots.utils import ArmType, GripperType, _load_arm_config
 
@@ -86,6 +86,35 @@ def test_osc_robot_without_a_gripper_has_seven_dofs() -> None:
     try:
         assert robot.num_dofs() == ARM_DOF
         assert "gripper_pos" not in robot.get_observations()
+    finally:
+        robot.close()
+
+
+def test_osc_robot_takes_the_arm_configs_osc_tuning() -> None:
+    """The right arm's bench-tuned ``osc`` section is what the hardware path builds Arm7OSC with,
+    the friction feedforward scaling the config's own kinetic_friction."""
+    hw = _load_arm_config(ArmType.YAM_7DOF_RIGHT)
+    osc = hw.osc
+    xml = arm7_xml("right")
+    robot = _get_arm7_osc_robot(
+        SimMotorChain(xml, DEFAULT_MOTOR_LIST, initial_qpos=np.concatenate([Q_MID, [0.0, 0.0]])),
+        xml,
+        "osc_full",
+        [list(m) for m in hw.motor_list],
+        hw.gravity_comp_factor,
+        None,
+        0.0,
+        0.0,
+        transmissions=None,
+        zero_gravity_mode=True,
+        osc_params=osc,
+    )
+    try:
+        for attr in ("kp_cartesian", "kd_cartesian", "motor_kd_active", "motor_kd_float"):
+            np.testing.assert_array_equal(getattr(robot, attr), osc[attr], err_msg=attr)
+        np.testing.assert_array_equal(robot._torque_limit, osc["torque_limit"])
+        assert robot.friction_ff == osc["friction_ff"] > 0.0
+        np.testing.assert_array_equal(robot._kinetic_friction, osc["kinetic_friction"])
     finally:
         robot.close()
 

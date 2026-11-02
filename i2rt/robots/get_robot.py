@@ -205,21 +205,23 @@ def _get_arm7_osc_robot(
     transmissions: Optional[dict],
     zero_gravity_mode: bool,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+    osc_params: Optional[Dict[str, Any]] = None,
 ) -> "Robot":
     """A 7-DOF chain under Arm7OSC, behaving through the Robot API as MotorChainRobot does.
 
     A command holds until the next one, with no streaming timeout, and the first one engages the
     arm out of gravity-comp float -- so switching ``control_mode`` asks nothing new of the caller.
-    Construct ``Arm7OSC`` directly to keep its command timeout.
+    Construct ``Arm7OSC`` directly to keep its command timeout. ``osc_params``, the arm config's
+    ``osc`` section, overrides Arm7OSC's defaults key by key, the torque limit included.
     """
     from i2rt.robots.arm7_osc import ARM_DOF, TORQUE_LIMIT_NM, Arm7OSC
 
+    tuning = {"torque_limit": TORQUE_LIMIT_NM, **(osc_params or {})}
     arm = Arm7OSC(
         motor_chain,
         model_path,
         mode="full" if control_mode == "osc_full" else "kinematic",
         motor_list=motor_list[:ARM_DOF],
-        torque_limit=TORQUE_LIMIT_NM,
         gravity_comp_factor=gravity_comp_factor[:ARM_DOF],
         transmissions=transmissions,
         gripper_limits=gripper_limits,
@@ -229,6 +231,7 @@ def _get_arm7_osc_robot(
         engage_on_command=True,
         owns_chain=True,
         joint_state_saver_factory=joint_state_saver_factory,
+        **tuning,
     )
     try:
         arm.wait_for_feedback()
@@ -451,6 +454,7 @@ def get_yam_robot(
             transmissions=None,  # the plant is already in joint space
             zero_gravity_mode=zero_gravity_mode,
             joint_state_saver_factory=joint_state_saver_factory,
+            # No osc_params: the arm config's tuning answers hardware friction the plant does not have.
         )
 
     if sim:
@@ -567,6 +571,7 @@ def get_yam_robot(
             transmissions=hw.transmissions,
             zero_gravity_mode=zero_gravity_mode,
             joint_state_saver_factory=joint_state_saver_factory,
+            osc_params=hw.osc,
         )
 
     get_robot = partial(
