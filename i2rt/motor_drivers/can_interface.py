@@ -48,6 +48,8 @@ class CanInterface:
             can.Message: The message that was sent.
         """
         message = can.Message(arbitration_id=id, data=data, is_extended_id=False)
+        if expected_id is None:
+            expected_id = self.receive_mode.get_receive_id(motor_id)
         for _ in range(max_retry):
             try:
                 # logging.info("Sending message: %s at %f", message, time.time())
@@ -55,11 +57,11 @@ class CanInterface:
                 response = self._receive_message(motor_id, timeout=0.01)
                 # logging.info("Received response: %s at %f", response, time.time())
 
-                if expected_id is None:
-                    expected_id = self.receive_mode.get_receive_id(motor_id)
                 if response and (expected_id == response.arbitration_id):
                     return response
-                self.try_receive_message(id)
+                response = self.try_receive_message(motor_id)
+                if response and (expected_id == response.arbitration_id):
+                    return response
             except (can.CanError, AssertionError) as e:
                 logging.warning(e)
                 logging.warning(
