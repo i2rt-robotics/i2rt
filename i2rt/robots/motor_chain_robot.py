@@ -27,6 +27,8 @@ from i2rt.robots.utils import (
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 from i2rt.utils.recording import RobotMcapRecorder
 
+logger = logging.getLogger(__name__)
+
 # How far past its measured travel a linkage joint's motor may read before it is refused. A reading
 # beyond the hard stops means a wrong zero or a wrong `directions` sign, and the map stops meaning
 # anything there: NaN a few degrees below joint6's lower stop, folding back past the dead point ~6 deg
@@ -176,7 +178,6 @@ class MotorChainRobot(Robot):
                 f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
             )
             if gripper_limits is None and enable_gripper_calibration:
-                logger = logging.getLogger(__name__)
                 logger.info("Auto-detecting gripper limits...")
                 detected_limits = detect_gripper_limits(
                     motor_chain=motor_chain,
@@ -198,7 +199,6 @@ class MotorChainRobot(Robot):
                 )
             else:
                 # Use the provided gripper_limits
-                logger = logging.getLogger(__name__)
                 logger.info(f"Using provided gripper limits: {gripper_limits}")
 
         self._last_gripper_command_qpos = 1  # initialize as fully open
@@ -368,7 +368,7 @@ class MotorChainRobot(Robot):
         iteration_count = 0
         self.update()
 
-        logging.info("initializing, ....")
+        logger.info("initializing, ....")
 
         while not self._stop_event.is_set():  # Check the stop event
             current_time = time.time()
@@ -383,9 +383,9 @@ class MotorChainRobot(Robot):
             if elapsed_time >= 10.0:
                 control_frequency = iteration_count / elapsed_time
                 # Overwrite the current line with the new frequency information
-                logging.info(f"{self}: Grav Comp Control Frequency: {control_frequency:.2f} Hz")
+                logger.info(f"{self}: Grav Comp Control Frequency: {control_frequency:.2f} Hz")
                 if control_frequency < 100:
-                    logging.warning(
+                    logger.warning(
                         f"{self}: Gravity compensation control loop is slow, current frequency: {control_frequency:.2f} Hz"
                     )
                 # Reset the counter and timer
@@ -484,7 +484,7 @@ class MotorChainRobot(Robot):
                         temp_rotor=self._joint_state.temp_rotor,
                     )
                 except RuntimeError:
-                    logging.exception("MCAP recording stopped after its writer failed")
+                    logger.exception("MCAP recording stopped after its writer failed")
                     self._mcap_recorder = None
 
         # For SWE-454: keep monitoring qpos during runtime
@@ -689,7 +689,7 @@ class MotorChainRobot(Robot):
             self._commands.kd = kd
 
     def zero_torque_mode(self) -> None:
-        logging.info(f"Entering zero_torque_mode for {self}")
+        logger.info(f"Entering zero_torque_mode for {self}")
         with self._command_lock:
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._kp = np.zeros(len(self.motor_chain))
@@ -812,7 +812,7 @@ class MotorChainRobot(Robot):
         zeroing ``_kp``/``_kd``, which no later command restores. ``enter_gravity_comp_idle`` is
         the way back from here.
         """
-        logging.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
+        logger.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
         with self._command_lock:
             self.use_gravity_comp = False
             self.use_coulomb_friction = False

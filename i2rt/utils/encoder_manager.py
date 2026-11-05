@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from i2rt.utils.can_flash import bl_list_connected_devices, encoder_list_devices, get_can_bus
 
+logger = logging.getLogger(__name__)
+
 ALL_DEVICE = 0xFF
 """All devices for broadcasting requests."""
 
@@ -53,7 +55,7 @@ def wait_for_quiet_bus(bus: BusABC, quiet_window_s: float = 0.1, timeout_s: floa
             return drained
         drained += 1
         if time.time() >= deadline:
-            logging.warning(f"Bus did not quiesce within {timeout_s}s; drained {drained} frames, returning anyway")
+            logger.warning(f"Bus did not quiesce within {timeout_s}s; drained {drained} frames, returning anyway")
             return drained
 
 
@@ -702,7 +704,7 @@ class PassiveJointEncoder:
         For nonzero target frequencies the encoder keeps streaming, so the quiesce
         step is skipped.
         """
-        logging.info(f"Validating encoders on {channel}")
+        logger.info(f"Validating encoders on {channel}")
 
         bus = get_can_bus(channel)
         encoder = PassiveJointEncoder(bus)
@@ -713,9 +715,7 @@ class PassiveJointEncoder:
                 raise RuntimeError(f"No encoders found on {channel}")
 
             encoder_summary = ", ".join(f"dev{f.device}:v{f.major}.{f.minor}.{f.patch}" for f in firmware_versions)
-            logging.info(
-                f"PassiveJointEncoder({channel}): found {len(firmware_versions)} encoders [{encoder_summary}]"
-            )
+            logger.info(f"PassiveJointEncoder({channel}): found {len(firmware_versions)} encoders [{encoder_summary}]")
 
             # Devices with firmware < 2.4.0 need manual ADC configuration.
             # Firmware >= 2.4.0 sets ADC to max speed by default, so we skip read/fix for those.
@@ -763,7 +763,7 @@ class PassiveJointEncoder:
                 dev for dev in devices_needing_adc_fix if all_data[dev]["adc_freq"] != expected_config.adc_freq
             ]
             if devices_to_adc_fix:
-                logging.info(
+                logger.info(
                     f"Auto-fixing ADC frequency to {expected_config.adc_freq} "
                     f"for legacy firmware devices: {devices_to_adc_fix}"
                 )
@@ -775,7 +775,7 @@ class PassiveJointEncoder:
                 all_data[device_id]["report_freq"] != expected_config.report_freq for device_id in all_data
             )
             if freq_mismatch:
-                logging.info(f"Auto-fixing report frequency to {expected_config.report_freq}")
+                logger.info(f"Auto-fixing report frequency to {expected_config.report_freq}")
                 encoder.set_report_frequency(expected_config.report_freq)
 
             if errors:
@@ -789,11 +789,11 @@ class PassiveJointEncoder:
                 if expected_config.report_freq == 0:
                     drained = wait_for_quiet_bus(bus)
                     if drained:
-                        logging.info(f"Drained {drained} frames during quiesce wait on {channel}")
+                        logger.info(f"Drained {drained} frames during quiesce wait on {channel}")
                 else:
                     time.sleep(0.1)
 
-            logging.info(f"All encoders on {channel} validated")
+            logger.info(f"All encoders on {channel} validated")
             return all_data
 
         finally:

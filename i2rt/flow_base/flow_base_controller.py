@@ -26,13 +26,7 @@ from threadpoolctl import threadpool_limits
 from i2rt.flow_base import caster_steering_check
 from i2rt.motor_drivers.dm_driver import ControlMode, DMChainCanInterface
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger("FlowBaseController")
+logger = logging.getLogger(__name__)
 
 BASE_DEFAULT_PORT = 11323
 POLICY_CONTROL_FREQ = 10
@@ -1132,6 +1126,11 @@ class LinearRailVehicle(Vehicle):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
     import os
     import sys
     import time
