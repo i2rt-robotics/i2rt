@@ -67,12 +67,12 @@
                   <site name="tcp_left" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
                   <body name="left_tip_left" pos="0.037 -0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                     <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
-                    <joint name="left_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>
+                    <joint name="left_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.0475"/>
                     <geom pos="0.03495 0.171097 -0.203301" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_left"/>
                   </body>
                   <body name="left_tip_right" pos="-0.037 0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                     <inertial pos="-0.03 -0.04 0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
-                    <joint name="left_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.039574"/>
+                    <joint name="left_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.0475"/>
                     <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
                   </body>
                   <body name="left_camera" pos="0.0016999000000607195 -0.07972864298920912 0.06602077467211452" quat="-0.906306513345646 0.4226209931651356 1.6645277061133612e-06 7.761806802841775e-07">
@@ -115,12 +115,12 @@
                     <site name="tcp_right" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
                     <body name="right_tip_left" pos="0.037 -0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                       <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
-                      <joint name="right_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>
+                      <joint name="right_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.0475"/>
                       <geom pos="0.03495 0.171097 -0.203301" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_left"/>
                     </body>
                     <body name="right_tip_right" pos="-0.037 0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                       <inertial pos="-0.03 -0.04 0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
-                      <joint name="right_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.039574"/>
+                      <joint name="right_joint8" pos="0 0 0" axis="-1 0 0" type="slide" range="0 0.0475"/>
                       <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
                     </body>
                     <body name="right_camera" pos="0.0016999000000607195 -0.07972864298920912 0.06602077467211452" quat="-0.906306513345646 0.4226209931651356 1.6645277061133612e-06 7.761806802841775e-07">
