@@ -2,6 +2,7 @@
 
 import xml.etree.ElementTree as ET
 
+import mujoco
 import numpy as np
 import pytest
 
@@ -175,9 +176,10 @@ def test_combine_xml_with_custom_ee_mass_inertia(arm: ArmType, gripper: GripperT
         f"mass mismatch: expected {ee_mass}, got {inertial.get('mass')}"
     )
 
-    # Check ipos (first 3 elements)
-    ipos_vals = [float(x) for x in inertial.get("ipos").split()]
-    np.testing.assert_allclose(ipos_vals, ee_inertia[:3], atol=1e-10)
+    # Check pos (first 3 elements; MJCF <inertial> names the center of mass "pos")
+    assert inertial.get("ipos") is None, "<inertial> must not carry the invalid 'ipos' attribute"
+    pos_vals = [float(x) for x in inertial.get("pos").split()]
+    np.testing.assert_allclose(pos_vals, ee_inertia[:3], atol=1e-10)
 
     # Check quat (elements 3-7)
     quat_vals = [float(x) for x in inertial.get("quat").split()]
@@ -196,6 +198,24 @@ def test_combine_xml_with_custom_ee_mass_inertia(arm: ArmType, gripper: GripperT
         if name == "gripper":
             continue
         assert combined_inertials[name] == arm_val, f"Body '{name}' inertial changed unexpectedly after ee override"
+
+
+@pytest.mark.parametrize("arm,gripper", ALL_ARM_GRIPPER_COMBOS, ids=_combo_id)
+def test_custom_ee_inertia_compiles_in_mujoco(arm: ArmType, gripper: GripperType) -> None:
+    """The ee_mass / ee_inertia override must load in MuJoCo with the requested mass and center of mass.
+
+    Checking the XML attributes alone does not catch an attribute MuJoCo rejects, so compile the model.
+    """
+    ee_mass = 0.63
+    ee_pos = np.array([-0.0097, 0.0008, -0.0348])
+    ee_inertia = np.concatenate([ee_pos, [1.0, 0.0, 0.0, 0.0], [4.0e-4, 3.7e-4, 3.2e-4]])
+
+    out_path = combine_arm_and_gripper_xml(arm, gripper, ee_mass=ee_mass, ee_inertia=ee_inertia)
+    model = mujoco.MjModel.from_xml_path(out_path)
+
+    body = model.body("gripper")
+    assert float(body.mass[0]) == pytest.approx(ee_mass)
+    np.testing.assert_allclose(body.ipos, ee_pos, atol=1e-9)
 
 
 def test_combine_xml_preserves_positional_ee_mass_argument() -> None:
