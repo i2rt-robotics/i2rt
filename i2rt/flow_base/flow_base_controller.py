@@ -249,38 +249,11 @@ class VehicleMotorController:
 
     def set_velocities(self, input_dict: Dict[str, Any]) -> None:
         steer_vel, drive_vel = input_dict["steer_vel"], input_dict["drive_vel"]
-        num_motors_in_chain = len(self.motor_interface)
-        num_base_motors = 2 * self.num_casters
-
-        # Build base motor velocities (steer and drive alternating)
-        vels = np.zeros(num_motors_in_chain)
+        updates = {}
         for i in range(self.num_casters):
-            vels[i * 2] = steer_vel[i]  # Steer motor
-            vels[i * 2 + 1] = drive_vel[i]  # Drive motor
-
-        if num_motors_in_chain > num_base_motors:
-            with self.motor_interface.command_lock:
-                current_commands = self.motor_interface.commands
-                if current_commands and len(current_commands) == num_motors_in_chain:
-                    vels[num_base_motors:] = [cmd.vel for cmd in current_commands[num_base_motors:]]
-                elif self.homing_check_callback is not None:
-                    try:
-                        if self.homing_check_callback():
-                            logger.warning(
-                                "Linear rail homing in progress but current_commands unavailable. "
-                                "Linear rail velocity may be set to zero."
-                            )
-                    except Exception as e:
-                        logger.warning(f"Error checking homing status: {e}")
-
-        self.motor_interface.set_commands(
-            torques=np.zeros(num_motors_in_chain),
-            pos=np.zeros(num_motors_in_chain),
-            vel=vels,
-            kp=np.zeros(num_motors_in_chain),
-            kd=2.0 * np.ones(num_motors_in_chain),
-            get_state=False,
-        )
+            updates[i * 2] = steer_vel[i]
+            updates[i * 2 + 1] = drive_vel[i]
+        self.motor_interface.update_command_velocities(updates)
 
     def set_neutral(self) -> None:
         num_motors_in_chain = len(self.motor_interface)

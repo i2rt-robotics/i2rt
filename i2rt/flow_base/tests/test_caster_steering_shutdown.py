@@ -77,6 +77,11 @@ class FakeChain:
         self.calls.append("set_commands")
         return None if not get_state else self.read_states()
 
+    def update_command_velocities(self, updates: dict[int, float]) -> None:
+        with self._lock:
+            for index, velocity in updates.items():
+                self._vel[index] = velocity
+
     def close(self) -> None:
         self.calls.append("close")
         self.running = False
