@@ -15,7 +15,7 @@ import threading
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import portal
@@ -314,6 +314,7 @@ class Vehicle(Robot):
         control_freq: float = CONTROL_FREQ,
         verify_motor_config: bool = True,
         check_caster_steering: bool = True,
+        state_callback: Optional[Callable[[], None]] = None,
     ):
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
@@ -404,6 +405,10 @@ class Vehicle(Robot):
         self._stop_deadline = math.inf
         # How long a healthy ramp may take at *this* caller's limits; see STOP_TIMEOUT_S.
         self._stop_budget = max(STOP_TIMEOUT_S, STOP_MARGIN * float(np.max(self.max_vel / self.max_accel)))
+
+        # Called by the control loop after every state update, e.g. to record state at the control rate (like
+        # MotorChainRobot's joint_state_saver). Runs on the control thread: keep it fast and never raise.
+        self._state_callback = state_callback
 
         # Control loop
         self.command_queue = queue.Queue(1)
@@ -528,6 +533,8 @@ class Vehicle(Robot):
 
             # Update state (integrate odometry against the measured loop period)
             self.update_state(step_time)
+            if self._state_callback is not None:
+                self._state_callback()
             # Global to local frame conversion
             theta = self.x[2]
             R = np.array(
@@ -865,6 +872,7 @@ class LinearRailVehicle(Vehicle):
         usb_gpio_device: Optional[str] = None,
         verify_motor_config: bool = True,
         check_caster_steering: bool = True,
+        state_callback: Optional[Callable[[], None]] = None,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -897,6 +905,7 @@ class LinearRailVehicle(Vehicle):
                 its commanded velocity, is reaching the heading the kinematics demand, and is not running
                 away. On a confirmed fault the base is ramped to a stop and caster_fault() is published.
                 See i2rt/flow_base/caster_steering_check.py.
+            state_callback: Called by the control loop after every state update; see Vehicle.
         """
         # Take the single-instance lock before opening CAN. Vehicle.__init__ also calls this, but only
         # from super().__init__() below -- by which point this constructor has already energized every
@@ -980,6 +989,7 @@ class LinearRailVehicle(Vehicle):
                 # constructor already ran the pre-chain register check itself and the base-class path
                 # would only repeat it. This check runs at runtime, so it has to be passed down.
                 check_caster_steering=check_caster_steering,
+                state_callback=state_callback,
             )
             # We built unified_motor_chain above, so we own it -- but Vehicle only saw a chain *object*
             # handed in, which it correctly reads as someone else's. Re-assert it, or close() leaves the
