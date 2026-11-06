@@ -31,24 +31,6 @@ sudo apt install build-essential python3-dev linux-headers-$(uname -r)
 uv pip install -e .
 ```
 
-## Logging
-
-Library messages use module loggers under `i2rt` and inherit the application's logging configuration.
-Importing the library does not configure the root logger. To keep application INFO messages while
-silencing i2rt's routine status output:
-
-```python
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("i2rt").setLevel(logging.WARNING)
-```
-
-Individual modules can be configured separately, for example
-`logging.getLogger("i2rt.motor_drivers.dm_driver").setLevel(logging.DEBUG)`.
-Rate reports use `i2rt.utils.utils`; CAN transport messages use
-`i2rt.motor_drivers.can_interface`. Standalone CLI entry points configure their own output.
-
 ## CAN Bus Setup
 
 ```bash
