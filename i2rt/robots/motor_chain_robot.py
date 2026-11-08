@@ -778,6 +778,31 @@ class MotorChainRobot(Robot):
         self._kp = kp
         self._kd = kd
 
+    def set_gripper_force_limit(self, force: float) -> float:
+        """Set the force (N) the gripper squeezes with once its fingers are blocked.
+
+        Takes effect on the next control-loop iteration and is what ``get_robot_info()`` reports as
+        ``limit_gripper_effort``. Only a robot built with a force limit (``limit_gripper_force > 0``)
+        has one to change.
+
+        Args:
+            force: The new limit in newtons; must be finite and positive.
+
+        Returns:
+            The previous limit in newtons.
+        """
+        if self._gripper_force_limiter is None or self._limit_gripper_force <= 0:
+            raise RuntimeError(
+                f"{self}: this robot has no gripper force limit to change; build it with limit_gripper_force > 0"
+            )
+        if not np.isfinite(force) or force <= 0:
+            raise ValueError(f"{self}: gripper force limit must be finite and positive (N), got {force}")
+        with self._state_lock:
+            previous = self._limit_gripper_force
+            self._gripper_force_limiter.set_max_force(float(force))
+            self._limit_gripper_force = float(force)
+        return previous
+
     def enter_gravity_comp_idle(self) -> None:
         """Reset active commands to gravity-comp idle.
 

@@ -875,7 +875,6 @@ class GripperForceLimiter:
         average_torque_window: float = 0.1,  # in seconds
         debug: bool = False,
     ):
-        self.max_force = max_force
         self.gripper_type = gripper_type
         self._is_clogged = False
         self._gripper_adjusted_qpos = None
@@ -883,13 +882,16 @@ class GripperForceLimiter:
         self._past_gripper_effort_buffer = LockFreeCircularBuffer(maxsize=1000)
         self.average_torque_window = average_torque_window
         self.debug = debug
-        (self.clog_force_threshold, self.clog_speed_threshold, self.sign, _gripper_force_torque_map) = (
+        (self.clog_force_threshold, self.clog_speed_threshold, self.sign, self._force_torque_map) = (
             self.gripper_type.get_gripper_limiter_params(arm_type)
         )
-        self.gripper_force_torque_map = partial(
-            _gripper_force_torque_map,
-            gripper_force=self.max_force,
-        )
+        self.set_max_force(max_force)
+
+    def set_max_force(self, max_force: float) -> None:
+        """Set the force (N) the gripper is held at once it is blocked."""
+        self.max_force = max_force
+        # Rebound in one assignment, so the control loop reads either the old map or the new one.
+        self.gripper_force_torque_map = partial(self._force_torque_map, gripper_force=max_force)
 
     def compute_target_gripper_torque(self, gripper_state: Dict[str, float]) -> float:
         current_speed = gripper_state["current_qvel"]
