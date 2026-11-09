@@ -72,7 +72,7 @@
     <parent link="base"/>
     <child link="linear_module"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-0.048" upper="3.46945e-18"/>
+    <limit effort="10" velocity="10" lower="-0.0475" upper="3.46945e-18"/>
   </joint>
   <!-- Link linear_module_2 -->
   <link name="linear_module_2">
@@ -120,6 +120,6 @@
     <parent link="base"/>
     <child link="linear_module_2"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-0.048" upper="2.42861e-17"/>
+    <limit effort="10" velocity="10" lower="-0.0475" upper="2.42861e-17"/>
   </joint>
 </robot>
