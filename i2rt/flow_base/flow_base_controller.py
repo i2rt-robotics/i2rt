@@ -316,6 +316,17 @@ class Vehicle(Robot):
         check_caster_steering: bool = True,
         state_callback: Optional[Callable[[], None]] = None,
     ):
+        """
+        Args:
+            state_callback: Called with no arguments once per control cycle, after that cycle's command is
+                sent, e.g. to record state at the control rate (like MotorChainRobot's joint_state_saver).
+                Runs on the control thread (SCHED_FIFO, max priority), so keep it well under 1 / control_freq
+                (5 ms at 200 Hz), and keep any lock it shares with other threads briefly held: Python locks
+                have no priority inheritance. No Vehicle lock is held, so it may call get_odometry(),
+                get_wheel_states() and get_linear_rail_state(), but never stop_control() or close(), which
+                join the control thread. With auto_start=True it starts before this constructor returns.
+                Exceptions are logged (at most every 5 s) and swallowed; calls continue.
+        """
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
         # Neither limit survives a non-positive component, and this is the only place either can be
@@ -406,9 +417,8 @@ class Vehicle(Robot):
         # How long a healthy ramp may take at *this* caller's limits; see STOP_TIMEOUT_S.
         self._stop_budget = max(STOP_TIMEOUT_S, STOP_MARGIN * float(np.max(self.max_vel / self.max_accel)))
 
-        # Called by the control loop after every state update, e.g. to record state at the control rate (like
-        # MotorChainRobot's joint_state_saver). Runs on the control thread: keep it fast and never raise.
         self._state_callback = state_callback
+        self._state_callback_logged_at = -math.inf
 
         # Control loop
         self.command_queue = queue.Queue(1)
@@ -533,8 +543,6 @@ class Vehicle(Robot):
 
             # Update state (integrate odometry against the measured loop period)
             self.update_state(step_time)
-            if self._state_callback is not None:
-                self._state_callback()
             # Global to local frame conversion
             theta = self.x[2]
             R = np.array(
@@ -550,6 +558,7 @@ class Vehicle(Robot):
                 # The command-timeout branch below must not run here -- it forces current_velocity and
                 # would hold pose instead of ramping velocity to zero.
                 if self._brake_to_stop():
+                    self._notify_state()  # once per update_state(), the exit cycle included
                     break
             else:
                 # Check for new command
@@ -634,6 +643,23 @@ class Vehicle(Robot):
                         self._caster_fault = fault
                         self._stop_deadline = time.monotonic() + self._stop_budget
                         logger.error("%s", fault.render())
+
+            # Last, so a slow callback delays the next cycle's read, not this cycle's command.
+            self._notify_state()
+
+    def _notify_state(self) -> None:
+        """Run the caller's state_callback, if any, without letting it end the control loop."""
+        if self._state_callback is None:
+            return
+        try:
+            self._state_callback()
+        except Exception:
+            # If this thread dies the chain keeps re-sending the last wheel velocities and nothing notices. Keep
+            # calling -- a failure can be transient, e.g. before the constructor returns -- and rate-limit the log.
+            now = time.monotonic()
+            if now - self._state_callback_logged_at >= 5.0:
+                self._state_callback_logged_at = now
+                logger.exception("state_callback raised; base control continues")
 
     def _brake_to_stop(self) -> bool:
         """Ride the OTG down to a stop after a caster fault. True once the base has stopped.

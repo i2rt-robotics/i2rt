@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -393,3 +394,36 @@ def test_wait_for_stop_does_not_join_itself() -> None:
     vehicle = _vehicle(chain)
     vehicle.control_loop_thread = threading.current_thread()
     vehicle.wait_for_stop(timeout=0.01)  # must simply return
+
+
+# --- state_callback ----------------------------------------------------------------------------------
+
+
+def test_a_raising_state_callback_runs_once_per_update_and_cannot_kill_the_loop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A dead control thread would leave the chain re-sending the last wheel velocities, unnoticed.
+    callback = Mock(side_effect=OSError(28, "No space left on device"))
+    vehicle = _vehicle(FakeChain(), state_callback=callback)
+    vehicle.update_state = Mock(wraps=vehicle.update_state)
+    vehicle.start_control()
+    try:
+        time.sleep(0.5)
+        assert vehicle.control_loop_thread.is_alive()
+    finally:
+        vehicle.close()
+    assert callback.call_count == vehicle.update_state.call_count > 10
+    assert sum("state_callback raised" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_the_state_callback_also_runs_on_the_fault_exit_cycle(_fast_startup: None) -> None:
+    callback = Mock()
+    vehicle = _vehicle(FakeChain(stalled=np.array([False, False, True, False])), state_callback=callback)
+    vehicle.update_state = Mock(wraps=vehicle.update_state)
+    vehicle.start_control()
+    try:
+        assert _drive_until_fault(vehicle) is not None
+        vehicle.wait_for_stop()
+        assert callback.call_count == vehicle.update_state.call_count
+    finally:
+        vehicle.close()
