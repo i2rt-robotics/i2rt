@@ -105,6 +105,13 @@ q = robot.get_joint_pos()   # shape: (6,)
 robot.command_joint_pos(np.zeros(6))
 ```
 
+On real hardware, once the gripper's fingers are blocked, it squeezes with a limited force: 50 N by default. Pass
+`limit_gripper_force=` to `get_yam_robot` to choose another, or change it at runtime, e.g. per object:
+
+```python
+robot.set_gripper_force_limit(12.0)  # newtons; returns the previous limit
+```
+
 ### Leader-follower teleoperation
 
 ```bash
