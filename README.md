@@ -18,7 +18,7 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 ## Installation
 
 ```bash
-git clone https://github.com/i2rt-robotics/i2rt.git && cd i2rt
+git clone https://github.com/Shade5/i2rt.git && cd i2rt
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 uv venv --python 3.11
@@ -45,6 +45,25 @@ sudo sh devices/install_devices.sh
 
 # Reset unresponsive adapter
 sh scripts/reset_all_can.sh
+```
+
+## Quick Start
+
+With setup done, run the sample script. It drives two YAM arms (`linear_4310` grippers) on `can0` and
+`can1` in lockstep, tracing a 15 cm square in the xz plane:
+
+```bash
+python3 examples/task_space_square/task_space_square.py --arm-left can1 --arm-right can0
+```
+
+## Teleop
+
+Drive both arms from a pair of VR controllers over Adamo. `uv run` installs the teleop dependencies on
+first launch:
+
+```bash
+export ADAMO_API_KEY=<secret_key>
+uv run examples/adamo_teleop/adamo_teleop.py
 ```
 
 ## YAM Arm
