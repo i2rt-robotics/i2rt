@@ -1,5 +1,4 @@
 import logging
-import sys
 import threading
 import time
 from typing import Any, Dict, Literal, Optional
@@ -10,13 +9,7 @@ from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 from i2rt.motor_drivers.utils import MotorInfo
 from i2rt.utils.usb_gpio_driver import get_gpio_backend, is_raspberry_pi
 
-# configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger("LinearRailController")
+logger = logging.getLogger(__name__)
 
 # GPIO Pins Definition
 BRAKE_CONTROL_GPIO = 12  # Brake control GPIO

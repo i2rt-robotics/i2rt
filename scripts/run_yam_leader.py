@@ -8,9 +8,6 @@ import tyro
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.utils import GripperType
 
-log_level = os.environ.get("LOGLEVEL", "INFO")
-logging.basicConfig(level=log_level)
-
 
 def main(
     channel: str = "can0",
@@ -33,4 +30,5 @@ def main(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
     tyro.cli(main)
