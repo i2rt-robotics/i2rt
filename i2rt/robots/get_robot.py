@@ -315,6 +315,7 @@ def get_yam_robot(
     gripper_kd: Optional[float] = None,
     sim: bool = False,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+    motor_command_callback: Optional[Callable[[Any], None]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     enable_auto_recovery: bool = False,
     use_coulomb_friction: bool = False,
@@ -592,6 +593,7 @@ def get_yam_robot(
         arm_type=arm_type,
         transmissions=hw.transmissions,
         joint_state_saver_factory=joint_state_saver_factory,
+        motor_command_callback=motor_command_callback,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,
     )
 

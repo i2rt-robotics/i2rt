@@ -76,6 +76,27 @@ class JointCommands:
         )
 
 
+@dataclass
+class MotorCommandSample:
+    """The MIT command actually sent to the motors on one ``update()`` cycle.
+
+    All fields except ``timestamp`` are per-joint numpy arrays (length = number of
+    motors). ``torque`` is the feedforward torque after the motor-side clip (and any
+    transmission scaling); ``gravity_torque`` and ``friction_torque`` are the
+    joint-space components before that clip (``friction_torque`` is zero when Coulomb
+    friction is disabled).
+    """
+
+    timestamp: float
+    pos: np.ndarray
+    vel: np.ndarray
+    kp: np.ndarray
+    kd: np.ndarray
+    torque: np.ndarray
+    gravity_torque: np.ndarray
+    friction_torque: np.ndarray
+
+
 class MotorChainRobot(Robot):
     """A generic Robot protocol."""
 
@@ -117,6 +138,7 @@ class MotorChainRobot(Robot):
         check_interval: float = 0.05,  # time interval between checks (s)
         pinned_cpu: int | None = None,
         joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+        motor_command_callback: Optional[Callable[["MotorCommandSample"], None]] = None,
         set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
         enable_auto_recovery: Optional[bool] = None,  # None: inherit motor_chain's setting; True/False: override it
     ) -> None:
@@ -125,6 +147,7 @@ class MotorChainRobot(Robot):
             set_realtime_and_pin_callback(pinned_cpu)
 
         self._joint_state_saver_factory = joint_state_saver_factory
+        self._motor_command_callback = motor_command_callback
         self._set_realtime_and_pin_callback = set_realtime_and_pin_callback
         self._arm_type = arm_type
         self._gripper_type = gripper_type
@@ -443,6 +466,31 @@ class MotorChainRobot(Robot):
                 )
                 self._last_gripper_command_qpos = joint_commands.pos[self._gripper_index]
             self._update_joint_state(motor_torques, joint_commands)
+
+        # Report the command actually sent this cycle. Runs in the grav-comp control thread, after
+        # _update_joint_state has refreshed self._joint_state, so the sample shares that cycle's
+        # timestamp. Guarded so an observer's error can never take down the control loop.
+        callback = self._motor_command_callback
+        if callback is not None:
+            try:
+                callback(
+                    MotorCommandSample(
+                        timestamp=self._joint_state.timestamp,
+                        pos=joint_commands.pos.copy(),
+                        vel=joint_commands.vel.copy(),
+                        kp=joint_commands.kp.copy(),
+                        kd=joint_commands.kd.copy(),
+                        torque=self._last_motor_torques.copy(),
+                        gravity_torque=np.asarray(g * self.gravity_comp_factor).copy(),
+                        friction_torque=(
+                            friction_comp.copy()
+                            if isinstance(friction_comp, np.ndarray)
+                            else np.zeros_like(motor_torques)
+                        ),
+                    )
+                )
+            except Exception:
+                logging.exception("motor_command_callback failed")
 
     def _update_joint_state(
         self,
