@@ -22,6 +22,9 @@ python examples/control_with_viser/control_with_viser.py --arm big_yam --gripper
 # 7-DOF arm, left side
 python examples/control_with_viser/control_with_viser.py --arm yam_7dof_left --sim
 
+# 7-DOF arm under operational-space control
+python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --control-mode osc --sim
+
 # End effector on its own, no arm
 python examples/control_with_viser/control_with_viser.py --arm no_arm --gripper yam_teaching_handle_v2
 ```
@@ -86,3 +89,4 @@ Directly control each joint angle (in degrees) and the gripper position using in
 | `--site` | auto | End-effector site name (auto-detected from gripper type) |
 | `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |
 | `--record` | off | Record real-hardware motor feedback and computed required torques to a timestamped ROS 2 CDR MCAP file |
+| `--control-mode` | `pd` | `pd` on every arm; a 7-DOF arm also takes `osc` / `osc_full`, operational-space control (no `--friction` or `--record`). In sim, OSC runs against a dynamic MuJoCo plant — see [arm7_osc](../arm7_osc/README.md) |

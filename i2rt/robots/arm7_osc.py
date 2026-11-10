@@ -635,6 +635,15 @@ class Arm7OSC(Robot):
         """Float the arm. Kept as the name the spec uses; see :meth:`float_arm`."""
         self.float_arm()
 
+    def enter_gravity_comp_idle(self) -> None:
+        """Float the arm, under ``MotorChainRobot``'s name, which the control interfaces call."""
+        self.float_arm()
+
+    def get_robot_info(self) -> Dict[str, Any]:
+        """Where the gripper sits in ``get_joint_pos``, as ``MotorChainRobot`` reports it."""
+        has_gripper = self._gripper_limits is not None
+        return {"gripper_index": ARM_DOF if has_gripper else None, "gripper_limits": self._gripper_limits}
+
     def go_limp(self) -> None:
         """Drop to zero torque. The arm will fall -- support it first."""
         with self._lock:

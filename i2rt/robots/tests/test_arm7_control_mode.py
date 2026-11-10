@@ -59,6 +59,7 @@ def test_osc_robot_tracks_the_arm_and_the_gripper_like_a_pd_robot(control_mode: 
     try:
         assert isinstance(robot, Arm7OSC)
         assert robot.num_dofs() == ARM_DOF + 1
+        assert robot.get_robot_info()["gripper_index"] == ARM_DOF
         assert robot.state is ArmState.FLOATING
         robot.motor_chain.place(np.concatenate([Q_MID, [0.0, 0.0]]))
 
@@ -85,6 +86,7 @@ def test_osc_robot_without_a_gripper_has_seven_dofs() -> None:
     )
     try:
         assert robot.num_dofs() == ARM_DOF
+        assert robot.get_robot_info()["gripper_index"] is None
         assert "gripper_pos" not in robot.get_observations()
     finally:
         robot.close()

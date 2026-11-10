@@ -32,6 +32,9 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm yam --gripper n
 
 # 7-DOF arm (7 arm joints + a gripper), left side
 python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_left --sim
+
+# 7-DOF arm under operational-space control
+python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --control-mode osc --sim
 ```
 
 ### Real hardware
@@ -55,6 +58,7 @@ python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right 
 | `--site` | auto | MuJoCo site used as end-effector (auto-detected from gripper: `tcp_site` for either teaching handle, else `grasp_site`) |
 | `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |
 | `--record` | off | Record real-hardware motor feedback and computed required torques to a timestamped ROS 2 CDR MCAP file |
+| `--control-mode` | `pd` | `pd` on every arm; a 7-DOF arm also takes `osc` / `osc_full`, operational-space control (no `--friction` or `--record`). In sim, OSC runs against a dynamic MuJoCo plant — see [arm7_osc](../arm7_osc/README.md) |
 
 ## Viewer Controls (CONTROL mode)
 
