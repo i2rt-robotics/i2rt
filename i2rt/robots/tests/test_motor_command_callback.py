@@ -79,6 +79,24 @@ def test_callback_tracks_the_kp_kd_switch() -> None:
     assert np.array_equal(samples[1].kd, np.full(n, 5.0))
 
 
+def test_torque_is_post_clip_while_gravity_is_pre_clip() -> None:
+    # The sent torque is clamped by the motor-side clip; gravity_torque/friction_torque are the
+    # pre-clip joint-space components, so the two deliberately diverge once the clip fires. A
+    # consumer must not assume torque == gravity + friction in general.
+    n = 7
+    robot, gravity = _make_robot(n, kp=0.0, kd=0.3)
+    robot._clip_motor_torque = 2.0  # gravity is [1..7], so joints 3..7 saturate
+    samples: List[MotorCommandSample] = []
+    robot._motor_command_callback = samples.append
+
+    MotorChainRobot.update(robot)
+
+    sample = samples[0]
+    assert np.array_equal(sample.gravity_torque, gravity)  # recorded unclipped
+    assert np.allclose(sample.torque, np.clip(gravity, -2.0, 2.0))  # sent clipped
+    assert not np.allclose(sample.torque, sample.gravity_torque)  # they diverge under clip
+
+
 def test_update_is_a_noop_without_a_callback() -> None:
     robot, _ = _make_robot(7, kp=80.0, kd=5.0)
     robot._motor_command_callback = None

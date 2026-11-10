@@ -81,10 +81,15 @@ class MotorCommandSample:
     """The MIT command actually sent to the motors on one ``update()`` cycle.
 
     All fields except ``timestamp`` are per-joint numpy arrays (length = number of
-    motors). ``torque`` is the feedforward torque after the motor-side clip (and any
-    transmission scaling); ``gravity_torque`` and ``friction_torque`` are the
-    joint-space components before that clip (``friction_torque`` is zero when Coulomb
+    motors). ``torque`` is the feedforward torque actually sent: after the motor-side
+    clip and after any transmission scaling. ``gravity_torque`` and ``friction_torque``
+    are the joint-space components before both (``friction_torque`` is zero when Coulomb
     friction is disabled).
+
+    So ``torque - gravity_torque - friction_torque`` recovers the commanded feedforward
+    only on a direct-drive joint whose clip did not fire. On a transmission joint (e.g.
+    the 7-DOF arms' joint6) or a saturating cycle, ``torque`` is in the motor frame while
+    the two components are joint-frame, so they do not subtract cleanly.
     """
 
     timestamp: float
@@ -466,16 +471,19 @@ class MotorChainRobot(Robot):
                 )
                 self._last_gripper_command_qpos = joint_commands.pos[self._gripper_index]
             self._update_joint_state(motor_torques, joint_commands)
+            # Read under the lock, with the sample's arrays, so the whole sample is one cycle.
+            command_timestamp = self._joint_state.timestamp
 
-        # Report the command actually sent this cycle. Runs in the grav-comp control thread, after
-        # _update_joint_state has refreshed self._joint_state, so the sample shares that cycle's
-        # timestamp. Guarded so an observer's error can never take down the control loop.
+        # Report the command actually sent this cycle, after the state lock is released so a slow
+        # observer never stalls the control loop. Arrays are copied: the consumer may read them on
+        # another thread, and copies are cheap enough that the control frequency is unaffected.
+        # Guarded so an observer's error can never take down the control loop.
         callback = self._motor_command_callback
         if callback is not None:
             try:
                 callback(
                     MotorCommandSample(
-                        timestamp=self._joint_state.timestamp,
+                        timestamp=command_timestamp,
                         pos=joint_commands.pos.copy(),
                         vel=joint_commands.vel.copy(),
                         kp=joint_commands.kp.copy(),
