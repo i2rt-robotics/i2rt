@@ -11,6 +11,7 @@ from i2rt.motor_drivers.utils import MotorType, pack_mit, unpack_mit_feedback
 
 GOLDEN = [
     ((MotorType.DM4310, 0, 0, 0, 0, 0), "7fff7ff0000007ff"),
+    # kd 5.0 -> 0xFFF here and 0.625 -> 511 below: kd fills its 12-bit field. On 9 bits it would deliver ~1/8.
     ((MotorType.DM4310, 1.0, -2.0, 20.0, 5.0, 3.0), "8a3c7770a3fffa65"),
     ((MotorType.DM6248, -0.5, 1.5, 0.0, 0.625, -40.0), "7ae08990001ff555"),
     ((MotorType.DM4340, 12.5, -10.0, 500.0, 0.0, 28.0), "ffff000fff000fff"),
@@ -43,19 +44,6 @@ class _EncodeOnly:
 def test_set_control_still_sends_the_golden_frame(args: tuple, frame: str) -> None:
     with pytest.raises(_Sent, match=frame):
         DMSingleMotorCanInterface.set_control(_EncodeOnly(), 1, *args)  # type: ignore[arg-type]
-
-
-def test_kd_uses_the_whole_12_bit_field() -> None:
-    """kd 5.0 is 0xFFF and 0.625 is 511. Packing kd on 9 bits into this 12-bit field instead would
-    deliver ~1/8 of every commanded kd -- the defect this codec exists to rule out."""
-    const = MotorType.get_motor_constants(MotorType.DM4310)
-
-    def kd_field(kd: float) -> int:
-        frame = pack_mit(0, 0, 0, kd, 0, const)
-        return (frame[5] << 4) | (frame[6] >> 4)
-
-    assert kd_field(5.0) == 0xFFF
-    assert kd_field(0.625) == 511
 
 
 def test_unpack_decodes_a_hand_built_feedback_frame() -> None:
