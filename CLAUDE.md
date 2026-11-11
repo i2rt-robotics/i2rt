@@ -34,6 +34,15 @@ pre-commit run --all-files       # uv-lock, uv-sync --locked, ruff, ruff-format,
 Two GitHub Actions workflows gate PRs: `ruff.yml` (`ruff check`) and `unit_tests.yml` (`uv sync --dev`
 then `uv run pytest -n auto`). Both use Python 3.11.
 
+**One native package.** `i2rt-ecat/` is a separate, compiled package (scikit-build-core + CMake, a C++
+library over vendored upstream SOEM v1.4.0, loaded with ctypes), wired in as the `ethercat` dependency
+group, which `[tool.uv] default-groups` turns on — so `uv sync` compiles it on Linux, while
+`pip install` / `uv pip install -e .` stay pure Python and never need a compiler. It is a non-editable
+path source, not a workspace member (members are forced editable, which breaks the `.so` path); its
+`[tool.uv] cache-keys` make a C++ edit rebuild on the next `uv sync`. Opening the NIC needs `cap_net_raw` (+ `cap_sys_nice`): `scripts/grant_ethercat_caps.sh` grants them to this venv's own interpreter copy, hard-linking `python3` to it (a capped interpreter started through a symlink cannot find its stdlib, which breaks `uv sync`). Relock with the pre-commit
+hook's uv (`uvx uv@0.11.24 lock`) — a newer uv rewrites unrelated markers. SOEM 2.x is GPLv3/commercial
+and drops the `ec_` API: do not upgrade the vendored copy without a licence review.
+
 ### Tooling conventions
 
 - **All CLIs use `tyro`, never `argparse`.** Every `.py` entry point (in `scripts/`, `i2rt/`, `examples/`)
@@ -257,6 +266,67 @@ Everything else follows the family:
   and the self-collision sweep. Its cross-side tests must stay **posed**, not just at home: at
   `q = 0` the two arms are reflections of each other whatever their axes say, so every mirror sign
   error hides there.
+
+**Control modes.** `get_yam_robot(control_mode=...)` takes `"pd"` (the default, `MotorChainRobot`
+/ `SimRobot`, and the only mode on a six-joint arm) or, on the 7-DOF arms only, `"osc"` / `"osc_full"`:
+[arm7_osc.py](i2rt/robots/arm7_osc.py)'s `Arm7OSC` in its `kinematic` / `full` mode, a host-side torque
+controller with its own 500 Hz thread that reaches hardware only through the `MotorChain` protocol.
+In sim it runs against [sim_motor_chain.py](i2rt/robots/sim_motor_chain.py)'s `SimMotorChain`, a
+MuJoCo *dynamic* plant, not `SimRobot`. Three things it does not inherit from `MotorChainRobot` and
+has to be told:
+
+- **joint6's four-bar**, via `transmissions=` — without it the controller reads the motor angle as
+  the joint's and its joint6 loop gain comes out ~1/ratio^2 too high. Hardware paths pass it; the
+  sim plant is already in joint space and must not.
+- **the gripper**, via `gripper_limits=`/`gripper_kp`/`gripper_kd` — a motor-side PD toward the
+  same normalized command, with no force limiter.
+- **PD-like robot semantics**: the factory builds it with `command_timeout_s=None`,
+  `engage_on_command=True` and `owns_chain=True`, so one `command_joint_pos` engages the arm from
+  float and holds, and `close()` closes the chain. Built directly, `Arm7OSC` keeps the PR's 0.3 s
+  streaming timeout, needs `enable_arm()`, and leaves the chain to its caller.
+
+`osc_full` tracks the commanded joints' **tool pose**, reaching the joints only through the
+nullspace, so from the singular hanging home pose it can settle in another IK branch. The bench
+runbook is [examples/arm7_osc/README.md](examples/arm7_osc/README.md); its gain caps read the arm
+config's `breakaway_friction` (measured stiction), which is **not** `coulomb_friction` (the gravity-comp
+feedforward).
+
+**EtherCAT transport.** [ethercat_chain.py](i2rt/motor_drivers/ethercat_chain.py) drives DM motors
+through an EtherCAT-to-CAN board with the master in-process (the `i2rt_ecat` package above), so no
+bridge process or ROS is involved. The board carries three CAN frames per channel per 1 kHz cycle, so
+the arm's seven motors rotate and each is served at 3000/7 = 428.6 Hz. Replies are routed by the id
+they carry, so the motors must be flashed `MASTER_ID == ID` (`ReceiveMode.same`, not i2rt's usual
+`p16`). The C++ side moves 8-byte frames only; the DM codec (`pack_mit`/`unpack_mit_feedback` in
+[utils.py](i2rt/motor_drivers/utils.py)) is shared with the CAN driver. Its safety contract:
+- startup detects every motor before enabling any;
+- a reply is stamped only while the motor reports itself enabled, so a fault reads as silence to
+  `Arm7OSC`'s watchdog;
+- the master releases every motor after 100 ms without a command;
+- `close()` releases, then disables.
+
+The same board serves the request/response tools: `open_can_bus` in
+[can_interface.py](i2rt/motor_drivers/can_interface.py) maps a channel `ecat:<nic>` to a python-can bus
+over the master's raw mode, so everything in `motor_config_tool/` and `motor_check` works through it.
+One master per process: SOEM's `ec_` API is global. Kd measured on the previous (external bridge)
+transport was delivered at ~1/8; the runbook's §3 has the conversion.
+
+The board's behaviour was **measured, not documented** — `EcatCanBus.trace(n)` records raw images —
+and the master is built around it:
+- a reply lands two cycles after its request, in the same slot if its id matches the request's;
+- an unanswered slot keeps its last reply for ~25 ms;
+- each input slot only accepts ids matching the last frame its output slot sent (a sticky filter);
+- several same-id frames in one cycle go unanswered.
+
+Hence:
+- cyclic mode believes a reply only from the motor asked in that slot two cycles earlier;
+- a channel needs ≥3 motors (fewer is refused), with a group of three shifted a slot per cycle;
+- raw mode dedups by slot-content change;
+- the python-can adapter primes a slot with a remote frame (slot 2) before each `0x7FF` register
+  request, since the reply carries the motor's id. DM motors answer that remote frame with their
+  state; the adapter swallows it.
+
+Loopback emulates all of this, with `loopback_mute` standing in for a dead motor, and each rule has
+a loopback test that fails without it.
 
 Provenance: ONShape document `a30d2ef2655863e671c75240`, exported by `onshape-to-robot`. Unlike this
 arm's first export it arrives in the shape the pipeline expects — rooted at `base`, `link6` already

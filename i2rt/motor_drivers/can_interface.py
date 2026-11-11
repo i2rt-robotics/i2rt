@@ -6,6 +6,21 @@ import can
 
 from i2rt.motor_drivers.utils import ReceiveMode
 
+ETHERCAT_CHANNEL_PREFIX = "ecat:"
+
+
+def open_can_bus(channel: str, bustype: str = "socketcan", bitrate: int = 1000000) -> can.BusABC:
+    """A python-can bus on ``channel``.
+
+    ``ecat:<nic>`` (or ``ecat:<nic>:<slave>:<can channel>``) opens one through an EtherCAT-to-CAN
+    board on that NIC instead of a CAN adapter, so every CAN tool that takes a channel works there.
+    """
+    if channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+        from i2rt.motor_drivers.ethercat_chain import EtherCATCanBus
+
+        return EtherCATCanBus(channel)
+    return can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
+
 
 class CanInterface:
     def __init__(
@@ -18,7 +33,7 @@ class CanInterface:
         use_buffered_reader: bool = False,
     ):
         self.channel = channel
-        self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
+        self.bus = open_can_bus(channel, bustype, bitrate)
         self.busstate = self.bus.state
         self.name = name
         self.receive_mode = receive_mode

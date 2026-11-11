@@ -26,6 +26,8 @@ Usage (use ``mjpython`` in place of ``python`` on macOS):
     python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0 --record
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --channel ecat:enp99s0
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --control-mode osc --sim
 """
 
 import logging
@@ -48,7 +50,7 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from i2rt.robots.utils import ArmName
+from i2rt.robots.utils import ArmControlMode, ArmName
 
 logging.basicConfig(level=logging.INFO)
 
@@ -256,6 +258,7 @@ def _robot_worker(
     sim: bool,
     use_coulomb_friction: bool,
     record: bool,
+    control_mode: ArmControlMode,
     meta_queue: mp.Queue,
     cmd_queue: mp.Queue,
     stop_event: Any,
@@ -274,6 +277,7 @@ def _robot_worker(
         gripper_type=gripper,
         sim=sim,
         use_coulomb_friction=use_coulomb_friction,
+        control_mode=control_mode,
     )
     if record:
         try:
@@ -448,7 +452,7 @@ class _CliArgs:
     gripper: str = "linear_4310"
     """Gripper variant."""
     channel: str = "can0"
-    """CAN channel."""
+    """CAN channel, or `ecat:<nic>` for an arm behind an EtherCAT-to-CAN board."""
     sim: bool = False
     """Use SimRobot."""
     dt: float = 0.02
@@ -459,6 +463,8 @@ class _CliArgs:
     """Enable Coulomb friction compensation in gravity comp (real hardware only)."""
     record: bool = False
     """Record motor feedback and computed required torques to a ROS 2 CDR MCAP file."""
+    control_mode: ArmControlMode = "pd"
+    """`pd`, or operational-space control (`osc` / `osc_full`) on a 7-DOF arm."""
 
 
 def _wait_for_meta(meta_queue: mp.Queue, robot_proc: mp.Process, timeout: float = 60.0) -> Dict[str, Any]:
@@ -486,6 +492,8 @@ def main() -> None:
         raise SystemExit("--gripper cannot be 'no_gripper' when --arm is 'no_arm'")
     if args.record and args.sim:
         raise SystemExit("--record requires real hardware motor feedback; remove --sim")
+    if args.record and args.control_mode != "pd":
+        raise SystemExit("--record records MotorChainRobot's motor feedback; use --control-mode pd")
     if _needs_mjpython():
         raise SystemExit(
             "[control] On macOS the MuJoCo viewer must be launched by mjpython. Re-run:\n"
@@ -508,6 +516,7 @@ def main() -> None:
             args.sim,
             args.friction,
             args.record,
+            args.control_mode,
             meta_queue,
             cmd_queue,
             stop_event,

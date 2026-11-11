@@ -553,6 +553,9 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
+ethercat = [
+    { name = "i2rt-ecat", marker = "sys_platform == 'linux'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -591,6 +594,18 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.15.6" },
 ]
+ethercat = [{ name = "i2rt-ecat", marker = "sys_platform == 'linux'", directory = "i2rt-ecat" }]
+
+[[package]]
+name = "i2rt-ecat"
+version = "0.1.0"
+source = { directory = "i2rt-ecat" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy" }]
 
 [[package]]
 name = "identify"

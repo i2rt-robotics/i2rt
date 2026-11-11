@@ -13,11 +13,17 @@ python examples/control_with_viser/control_with_viser.py --sim
 # Real robot on CAN bus
 python examples/control_with_viser/control_with_viser.py --channel can0
 
+# Real robot through an EtherCAT-to-CAN board on NIC enp99s0
+python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --channel ecat:enp99s0
+
 # Specify arm and gripper variants
 python examples/control_with_viser/control_with_viser.py --arm big_yam --gripper linear_4310 --sim
 
 # 7-DOF arm, left side
 python examples/control_with_viser/control_with_viser.py --arm yam_7dof_left --sim
+
+# 7-DOF arm under operational-space control
+python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --control-mode osc --sim
 
 # End effector on its own, no arm
 python examples/control_with_viser/control_with_viser.py --arm no_arm --gripper yam_teaching_handle_v2
@@ -76,10 +82,11 @@ Directly control each joint angle (in degrees) and the gripper position using in
 |------|---------|-------------|
 | `--arm` | `yam` | Arm variant (`yam`, `yam_pro`, `yam_ultra`, `yam_ultra_2`, `big_yam`, `yam_7dof_left`, `yam_7dof_right`, or `no_arm` for an end effector on its own) |
 | `--gripper` | `linear_4310` | Gripper type (`linear_4310`, `linear_3507`, `crank_4310`, `flexible_4310`, `no_gripper`, `yam_teaching_handle_v1`, `yam_teaching_handle_v2`) |
-| `--channel` | `can0` | CAN interface name (ignored in sim mode) |
+| `--channel` | `can0` | CAN interface name (ignored in sim mode). `ecat:<nic>` (e.g. `ecat:enp99s0`) drives an arm through an EtherCAT-to-CAN board instead; its motors must answer on `MASTER_ID == ID` — see [arm7_osc](../arm7_osc/README.md) |
 | `--sim` | off | Use simulated robot instead of real hardware |
 | `--dt` | `0.02` | Control loop timestep in seconds |
 | `--port` | `8080` | Viser server port |
 | `--site` | auto | End-effector site name (auto-detected from gripper type) |
 | `--friction` | off | Enable Coulomb friction compensation in gravity comp (real hardware only) |
 | `--record` | off | Record real-hardware motor feedback and computed required torques to a timestamped ROS 2 CDR MCAP file |
+| `--control-mode` | `pd` | `pd` on every arm; a 7-DOF arm also takes `osc` / `osc_full`, operational-space control (no `--friction` or `--record`). In sim, OSC runs against a dynamic MuJoCo plant — see [arm7_osc](../arm7_osc/README.md) |

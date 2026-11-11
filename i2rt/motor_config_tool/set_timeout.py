@@ -1,5 +1,6 @@
-import argparse
 import time
+
+import tyro
 
 from i2rt.motor_config_tool.utils import (
     RawCanInterface,
@@ -7,50 +8,53 @@ from i2rt.motor_config_tool.utils import (
     save_to_memory,
     write_special_message,
 )
-from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface
+from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface, ReceiveMode
 
-args = argparse.ArgumentParser()
-args.add_argument("--channel", type=str, default="can0")
-args.add_argument("--timeout", action="store_true")
-args.add_argument("--motor_id", type=int, default=-1)
 
-args = args.parse_args()
-can_interface = RawCanInterface(
-    channel=args.channel,
-    bustype="socketcan",
-)
+def main(
+    channel: str = "can0", timeout: bool = False, motor_id: int = -1, receive_mode: ReceiveMode = ReceiveMode.p16
+) -> None:
+    """Set (or remove) each motor's CAN timeout register and save it to Flash.
 
-if args.timeout:
-    timeout = 8000
-else:
-    timeout = 0
-
-motor_id = args.motor_id
-if motor_id < 0:
-    motor_ids = [1, 2, 3, 4, 5, 6, 7]
-else:
-    motor_ids = [motor_id]
-
-for motor_id in motor_ids:
-    control_interface = DMSingleMotorCanInterface(
-        channel=args.channel, bustype="socketcan", control_mode=ControlMode.MIT
+    Args:
+        channel: CAN channel, or ``ecat:<nic>`` for motors behind an EtherCAT-to-CAN board.
+        timeout: Set the timeout to 8000; without it the timeout is removed (0).
+        motor_id: The one motor to configure; -1 configures ids 1-7.
+        receive_mode: The id the motors reply on: ``p16`` (MASTER_ID = ID + 16, the i2rt default) or
+            ``same`` (MASTER_ID == ID). Ignored on ``ecat:<nic>``, which always uses ``same``.
+    """
+    can_interface = RawCanInterface(
+        channel=channel,
+        bustype="socketcan",
     )
-    control_interface.motor_off(motor_id)
-    print("#" * 30)
-    print(f"processing motor {motor_id}, before removing timeout")
-    for reg_name in ["id", "master_id", "timeout"]:
-        info = get_special_message_response(can_interface, motor_id, reg_name)
-        print(f"current setting: {reg_name} = {info}")
-        time.sleep(0.1)
 
-    write_special_message(can_interface, motor_id, "timeout", timeout)
-    print(save_to_memory(can_interface, motor_id, "timeout"))
+    timeout_value = 8000 if timeout else 0
+    motor_ids = [1, 2, 3, 4, 5, 6, 7] if motor_id < 0 else [motor_id]
 
-    print("after removing timeout")
-    for reg_name in ["id", "master_id", "timeout"]:
-        info = get_special_message_response(can_interface, motor_id, reg_name)
-        print(f"current setting: {reg_name} = {info}")
-        time.sleep(0.1)
-    for _ in range(4):
-        can_interface.try_receive_message(motor_id)
-    control_interface.close()
+    for mid in motor_ids:
+        control_interface = DMSingleMotorCanInterface(
+            channel=channel, bustype="socketcan", control_mode=ControlMode.MIT, receive_mode=receive_mode
+        )
+        control_interface.motor_off(mid)
+        print("#" * 30)
+        print(f"processing motor {mid}, before removing timeout")
+        for reg_name in ["id", "master_id", "timeout"]:
+            info = get_special_message_response(can_interface, mid, reg_name)
+            print(f"current setting: {reg_name} = {info}")
+            time.sleep(0.1)
+
+        write_special_message(can_interface, mid, "timeout", timeout_value)
+        print(save_to_memory(can_interface, mid, "timeout"))
+
+        print("after removing timeout")
+        for reg_name in ["id", "master_id", "timeout"]:
+            info = get_special_message_response(can_interface, mid, reg_name)
+            print(f"current setting: {reg_name} = {info}")
+            time.sleep(0.1)
+        for _ in range(4):
+            can_interface.try_receive_message(mid)
+        control_interface.close()
+
+
+if __name__ == "__main__":
+    tyro.cli(main)

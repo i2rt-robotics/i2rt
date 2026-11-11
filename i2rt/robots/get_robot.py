@@ -1,25 +1,31 @@
 import logging
 import xml.etree.ElementTree as ET
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from i2rt.motor_drivers.can_interface import ETHERCAT_CHANNEL_PREFIX
 from i2rt.motor_drivers.dm_driver import (
     CanInterface,
+    ControlMode,
     DMChainCanInterface,
     EncoderChain,
+    MotorChain,
     PassiveEncoderReader,
     ReceiveMode,
 )
+from i2rt.motor_drivers.motor_check import run_startup_checks
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
 from i2rt.robots.teaching_handle_robot import MotorlessCanChain, TeachingHandleRobot
 from i2rt.robots.utils import (
+    ArmControlMode,
     ArmType,
     GripperType,
     _load_arm_config,
     combine_arm_and_gripper_xml,
+    detect_gripper_limits,
 )
 
 logger = logging.getLogger(__name__)
@@ -187,6 +193,115 @@ def _get_gripper_only_robot(
     )
 
 
+def _get_arm7_osc_robot(
+    motor_chain: MotorChain,
+    model_path: str,
+    control_mode: ArmControlMode,
+    motor_list: list,
+    gravity_comp_factor: np.ndarray,
+    gripper_limits: Optional[np.ndarray],
+    gripper_kp: float,
+    gripper_kd: float,
+    transmissions: Optional[dict],
+    zero_gravity_mode: bool,
+    joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+    osc_params: Optional[Dict[str, Any]] = None,
+) -> "Robot":
+    """A 7-DOF chain under Arm7OSC, behaving through the Robot API as MotorChainRobot does.
+
+    A command holds until the next one, with no streaming timeout, and the first one engages the
+    arm out of gravity-comp float -- so switching ``control_mode`` asks nothing new of the caller.
+    Construct ``Arm7OSC`` directly to keep its command timeout. ``osc_params``, the arm config's
+    ``osc`` section, overrides Arm7OSC's defaults key by key, the torque limit included.
+    """
+    from i2rt.robots.arm7_osc import ARM_DOF, TORQUE_LIMIT_NM, Arm7OSC
+
+    tuning = {"torque_limit": TORQUE_LIMIT_NM, **(osc_params or {})}
+    arm = Arm7OSC(
+        motor_chain,
+        model_path,
+        mode="full" if control_mode == "osc_full" else "kinematic",
+        motor_list=motor_list[:ARM_DOF],
+        gravity_comp_factor=gravity_comp_factor[:ARM_DOF],
+        transmissions=transmissions,
+        gripper_limits=gripper_limits,
+        gripper_kp=gripper_kp,
+        gripper_kd=gripper_kd,
+        command_timeout_s=None,
+        engage_on_command=True,
+        owns_chain=True,
+        joint_state_saver_factory=joint_state_saver_factory,
+        **tuning,
+    )
+    try:
+        arm.wait_for_feedback()
+    except BaseException:
+        arm.close()
+        raise
+    if not zero_gravity_mode:
+        arm.enable_arm()
+    return arm
+
+
+def _yam_motor_list(arm_type: ArmType, gripper_type: GripperType) -> List[list]:
+    """``[can_id, motor_type]`` per motor on an arm's chain, the gripper motor (if any) last."""
+    hw = _load_arm_config(arm_type)
+    motor_list = [[can_id, mtype] for can_id, mtype in hw.motor_list]
+    if not gripper_type.is_teaching_handle and gripper_type != GripperType.NO_GRIPPER:
+        # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
+        # arm with seven joints has taken that id already and declares its own.
+        motor_list.append([hw.gripper_can_id, gripper_type.get_motor_type(arm_type)])
+    return motor_list
+
+
+def get_yam_robots(arms: Sequence[Dict[str, Any]], **common: Any) -> List["Robot"]:
+    """Several YAM-family robots in this process, each ``get_yam_robot(**common, **arm)``.
+
+    Arms on ``ecat:`` channels of one NIC share its EtherCAT master, since the master allows one per
+    process: every such arm's startup checks run first, over the board's raw frame path, and then one
+    master opens carrying all of their motors. If any arm fails, the ones already built are closed.
+    """
+    from i2rt.motor_drivers.ethercat_chain import open_shared_master, parse_ethercat_channel
+
+    specs = [{**common, **arm} for arm in arms]
+    by_nic: Dict[str, List[int]] = {}
+    for i, spec in enumerate(specs):
+        channel = spec.get("channel", "can0")
+        if not spec.get("sim") and channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+            by_nic.setdefault(parse_ethercat_channel(channel)[0], []).append(i)
+
+    buses: Dict[int, Any] = {}
+    robots: List[Robot] = []
+    try:
+        for nic, indices in by_nic.items():
+            if len(indices) < 2:
+                continue  # get_yam_robot opens its own
+            chains = []
+            for i in indices:
+                arm_type = specs[i].get("arm_type", ArmType.YAM)
+                motor_list = _yam_motor_list(arm_type, specs[i].get("gripper_type", GripperType.LINEAR_4310))
+                run_startup_checks(
+                    specs[i]["channel"],
+                    motor_list,
+                    check_motor_types=True,
+                    check_motor_config=True,
+                    control_mode=ControlMode.MIT,
+                    expected_registers=_load_arm_config(arm_type).motor_registers,
+                )
+                _, slave, can_channel = parse_ethercat_channel(specs[i]["channel"])
+                chains.append((slave, can_channel, motor_list))
+            buses.update(zip(indices, open_shared_master(nic, chains), strict=True))
+        for i, spec in enumerate(specs):
+            robots.append(get_yam_robot(**spec, ethercat_bus=buses.get(i)))
+    except BaseException:
+        for robot in robots:
+            robot.close()
+        for bus in buses.values():
+            bus.close()  # idempotent; frees the master once no chain holds it
+        raise
+    return robots
+
+
 def get_yam_robot(
     channel: str = "can0",
     arm_type: ArmType = ArmType.YAM,
@@ -203,11 +318,15 @@ def get_yam_robot(
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     enable_auto_recovery: bool = False,
     use_coulomb_friction: bool = False,
+    control_mode: ArmControlMode = "pd",
+    ethercat_bus: Optional[Any] = None,
 ) -> "Robot":
     """Create a YAM-family robot (real or sim).
 
     Args:
-        channel: CAN interface name (e.g. "can0"). Ignored in sim mode.
+        channel: CAN interface name (e.g. "can0"), or ``ecat:<nic>`` (``ecat:<nic>:<slave>:<can
+            channel>``) for an arm behind an EtherCAT-to-CAN board, its master running in this
+            process; every motor must answer on ``MASTER_ID == ID`` there. Ignored in sim mode.
         arm_type: Which arm variant to use. A hardware revision is its own variant
             (e.g. ``ArmType.YAM_ULTRA_2``). Use ``ArmType.NO_ARM`` for gripper-only.
         gripper_type: Which gripper (or NO_GRIPPER / a teaching handle).
@@ -225,7 +344,32 @@ def get_yam_robot(
         use_coulomb_friction: If True, add the per-joint Coulomb friction feedforward (from the arm
             config) during gravity compensation. Defaults to False. Only affects real hardware; ignored
             in sim mode (SimRobot has no friction feedforward).
+        control_mode: ``"pd"`` (MotorChainRobot, or SimRobot in sim) on every arm. The 7-DOF arms
+            also take ``"osc"`` and ``"osc_full"``, Arm7OSC's ``kinematic`` and ``full``
+            operational-space modes; in sim those run Arm7OSC against a SimMotorChain plant. The
+            gripper stays a motor-side PD toward the same normalized command in every mode, but
+            OSC has no gripper force limiter or Coulomb feedforward. ``"osc_full"``
+            tracks the tool pose of the commanded joints and reaches the joints themselves only
+            through the nullspace, so from a singular pose -- the hanging home pose is one -- it
+            can settle in another IK branch with the tool where it was sent.
+        ethercat_bus: this arm's slice of an EtherCAT master shared with other arms, for an
+            ``ecat:`` channel; :func:`get_yam_robots` opens it, after this arm's startup checks.
     """
+    if control_mode != "pd":
+        if arm_type not in (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT):
+            raise ValueError(f"control_mode={control_mode!r} needs a 7-DOF arm; {arm_type.value} takes only 'pd'")
+        if gripper_type.is_teaching_handle:
+            raise ValueError(f"control_mode={control_mode!r} does not read a teaching handle; use 'pd'")
+        if use_coulomb_friction:
+            raise ValueError(f"control_mode={control_mode!r} does not support use_coulomb_friction")
+    ethercat = not sim and channel.startswith(ETHERCAT_CHANNEL_PREFIX)
+    if ethercat and (arm_type == ArmType.NO_ARM or gripper_type.is_teaching_handle or enable_auto_recovery):
+        raise ValueError(
+            f"channel {channel!r} takes an arm only: the EtherCAT-to-CAN board needs >= 3 motors on a channel, "
+            "reads no teaching-handle encoder and has no auto-recovery"
+        )
+    if ethercat_bus is not None and not ethercat:
+        raise ValueError(f"ethercat_bus is for an ecat: channel on real hardware, not {channel!r}")
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
         return _get_gripper_only_robot(
@@ -255,7 +399,7 @@ def get_yam_robot(
     joint_limits[:, 1] += 0.15
 
     # Build mutable lists from the frozen arm config, then extend for gripper.
-    motor_list = [[can_id, mtype] for can_id, mtype in hw.motor_list]
+    motor_list = _yam_motor_list(arm_type, gripper_type)
     directions = list(hw.directions)
     kp = hw.kp.copy()
     kd = hw.kd.copy()
@@ -264,19 +408,15 @@ def get_yam_robot(
     motor_offsets = [0.0] * len(motor_list)
 
     if with_gripper:
-        motor_type = gripper_type.get_motor_type(arm_type)
+        motor_type = motor_list[-1][1]
         default_kp, default_kd = gripper_type.get_motor_kp_kd(arm_type)
         _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
         _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
-        # The gripper motor follows the arm's on the same chain: 0x07 on a six-joint YAM, but an
-        # arm with seven joints has taken that id already and declares its own.
         gripper_direction = gripper_type.get_motor_direction(arm_type)
         logging.info(
             f"adding gripper motor type={motor_type}, id={hex(hw.gripper_can_id)}, "
             f"kp={_gripper_kp}, kd={_gripper_kd}, direction={gripper_direction:+d}"
         )
-        motor_list.append([hw.gripper_can_id, motor_type])
-        motor_offsets.append(0.0)
         directions.append(gripper_direction)
         kp = np.append(kp, _gripper_kp)
         kd = np.append(kd, _gripper_kd)
@@ -289,6 +429,33 @@ def get_yam_robot(
     else:
         gripper_limits = gripper_type.get_gripper_limits(arm_type) if with_gripper else None
         gripper_needs_cal = gripper_type.get_gripper_needs_calibration(arm_type) if with_gripper else False
+
+    if sim and control_mode != "pd":
+        from i2rt.robots.sim_motor_chain import SimMotorChain
+
+        chain = SimMotorChain(
+            model_path,
+            motor_list,
+            # Both finger slides, which every motorized gripper model has, held as its
+            # non-backdrivable drive would hold them; see SimMotorChain.
+            mechanism_held_dofs=range(n_arm_joints, n_arm_joints + 2) if with_gripper else None,
+        )
+        return _get_arm7_osc_robot(
+            chain,
+            model_path,
+            control_mode,
+            motor_list,
+            # The plant is the model, so any factor but 1 would be a gravity error of its own.
+            np.ones(n_arm_joints),
+            # The finger slide's own range, as SimRobot maps a gripper command onto it.
+            chain.model.jnt_range[n_arm_joints].copy() if with_gripper else None,
+            kp[-1] if with_gripper else 0.0,
+            kd[-1] if with_gripper else 0.0,
+            transmissions=None,  # the plant is already in joint space
+            zero_gravity_mode=zero_gravity_mode,
+            joint_state_saver_factory=joint_state_saver_factory,
+            # No osc_params: the arm config's tuning answers hardware friction the plant does not have.
+        )
 
     if sim:
         from i2rt.robots.sim_robot import SimRobot
@@ -312,24 +479,51 @@ def get_yam_robot(
     # --- Real hardware path ---------------------------------------------------
 
     # Single pass: create chain, read positions, fix wrap-around offsets in-place, then start thread.
-    motor_chain = DMChainCanInterface(
-        motor_list,
-        motor_offsets,
-        directions,
-        channel,
-        motor_chain_name="yam_real",
-        receive_mode=ReceiveMode.p16,
-        start_thread=False,
-        get_same_bus_device_driver=get_encoder_chain if with_teaching_handle else None,
-        use_buffered_reader=False,
-        enable_auto_recovery=enable_auto_recovery,
-        # Both checks; see the gripper-only chain above for what the config check costs on a MIT chain.
-        # motor_list already has the gripper motor appended, so both cover it too.
-        check_motor_types=True,
-        check_motor_config=True,
-        # The arm config's motor_registers (e.g. KT_Value/GREF on a 7-DOF arm); arm motors only.
-        expected_registers=hw.motor_registers,
-    )
+    motor_chain: MotorChain
+    if ethercat:
+        from i2rt.motor_drivers.ethercat_chain import EtherCATMotorChain, parse_ethercat_channel
+
+        # The checks DMChainCanInterface runs in its constructor, over the board's raw frame path
+        # while it is still idle: opening the chain below energises every motor. A shared master's
+        # arms were checked before it opened, as the raw path cannot open beside it.
+        if ethercat_bus is None:
+            run_startup_checks(
+                channel,
+                motor_list,
+                check_motor_types=True,
+                check_motor_config=True,
+                control_mode=ControlMode.MIT,
+                expected_registers=hw.motor_registers,
+            )
+        nic, slave, can_channel = parse_ethercat_channel(channel)
+        motor_chain = EtherCATMotorChain(
+            motor_list,
+            np.array(motor_offsets),
+            np.array(directions, dtype=float),
+            interface=nic,
+            slave=slave,
+            channel=can_channel,
+            bus=ethercat_bus,
+        )
+    else:
+        motor_chain = DMChainCanInterface(
+            motor_list,
+            motor_offsets,
+            directions,
+            channel,
+            motor_chain_name="yam_real",
+            receive_mode=ReceiveMode.p16,
+            start_thread=False,
+            get_same_bus_device_driver=get_encoder_chain if with_teaching_handle else None,
+            use_buffered_reader=False,
+            enable_auto_recovery=enable_auto_recovery,
+            # Both checks; see the gripper-only chain above for what the config check costs on a MIT chain.
+            # motor_list already has the gripper motor appended, so both cover it too.
+            check_motor_types=True,
+            check_motor_config=True,
+            # The arm config's motor_registers (e.g. KT_Value/GREF on a 7-DOF arm); arm motors only.
+            expected_registers=hw.motor_registers,
+        )
     motor_states = motor_chain.read_states()
     logging.debug(f"motor_states: {motor_states}")
 
@@ -342,9 +536,43 @@ def get_yam_robot(
 
     logging.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
 
-    # Start the control thread with corrected offsets.
-    motor_chain.start_thread()
+    # Start the control thread with corrected offsets. The EtherCAT master has cycled since it opened.
+    if not ethercat:
+        motor_chain.start_thread()
     logging.info(f"YAM initial motor_states: {motor_chain.read_states()}")
+
+    if control_mode != "pd":
+        # MotorChainRobot's startup check, which a wrong zero offset trips: refuse before any
+        # gravity torque is computed at a pose the arm is not in. A linkage joint reads its motor's angle.
+        q = np.array([m.pos for m in motor_chain.read_states()[:n_arm_joints]])
+        for idx, linkage in hw.transmissions.items():
+            q[idx] = linkage.joint_from_motor(q[idx])
+        outside = (q < joint_limits[:, 0]) | (q > joint_limits[:, 1])
+        if outside.any():
+            motor_chain.close()
+            raise RuntimeError(
+                f"joints {(np.flatnonzero(outside) + 1).tolist()} start outside their limits at q={np.round(q, 3)}: "
+                "the motor zero offsets are wrong. Move the arm to zero and power-cycle, or re-zero the motors."
+            )
+        if with_gripper and gripper_limits is None:
+            # As MotorChainRobot does, before any control loop runs: the arm hangs on this PD hold.
+            gripper_limits = np.array(
+                detect_gripper_limits(motor_chain, gripper_index=n_arm_joints, hold_kp=kp, hold_kd=kd)
+            )
+        return _get_arm7_osc_robot(
+            motor_chain,
+            model_path,
+            control_mode,
+            motor_list,
+            effective_gravity_comp,
+            gripper_limits,
+            kp[-1] if with_gripper else 0.0,
+            kd[-1] if with_gripper else 0.0,
+            transmissions=hw.transmissions,
+            zero_gravity_mode=zero_gravity_mode,
+            joint_state_saver_factory=joint_state_saver_factory,
+            osc_params=hw.osc,
+        )
 
     get_robot = partial(
         MotorChainRobot,

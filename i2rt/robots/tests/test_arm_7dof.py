@@ -334,6 +334,7 @@ def test_sides_share_hardware_config() -> None:
         assert np.array_equal(getattr(right_hw, field), getattr(left_hw, field)), field
     assert right_hw.motor_registers == left_hw.motor_registers
     assert right_hw.transmissions == left_hw.transmissions
+    assert right_hw.osc == left_hw.osc
 
 
 def test_config_matches_model(arm: ArmType) -> None:

@@ -17,6 +17,7 @@ from i2rt.motor_drivers.dm_driver import (
 from i2rt.robots.four_bar import FourBarLinkage
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import (
+    ArmControlMode,
     ArmName,
     ArmType,
     GripperForceLimiter,
@@ -866,6 +867,8 @@ class _CliArgs:
     """Operation mode: gravity compensation, gripper cycling, or holding the startup joint positions."""
     record: bool = False
     """Record motor feedback and computed required torques to a ROS 2 CDR MCAP file."""
+    control_mode: ArmControlMode = "pd"
+    """Motor-side PD, or operational-space control (osc / osc_full) on a 7-DOF arm."""
 
 
 if __name__ == "__main__":
@@ -882,7 +885,7 @@ if __name__ == "__main__":
     gripper_type = GripperType.from_string_name(args.gripper)
 
     print(f"Initializing robot with arm_type: {arm_type}, gripper_type: {gripper_type}")
-    robot = get_yam_robot(args.channel, arm_type=arm_type, gripper_type=gripper_type)
+    robot = get_yam_robot(args.channel, arm_type=arm_type, gripper_type=gripper_type, control_mode=args.control_mode)
 
     try:
         if args.record:
