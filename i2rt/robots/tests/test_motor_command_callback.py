@@ -61,21 +61,33 @@ def test_callback_fires_once_per_update_with_the_sent_command() -> None:
 
 
 def test_callback_tracks_the_kp_kd_switch() -> None:
-    # Grav-comp idle holds kp=0; command_joint_pos switches to the configured gains. The sample must
-    # carry whichever is active that cycle.
+    # Drive the real control calls: enter_gravity_comp_idle() holds kp=0 / kd=grav_comp_kd, and
+    # command_joint_pos() switches to the configured PD gains. The sample must carry whichever gains
+    # are active that cycle.
     n = 7
     robot, _ = _make_robot(n, kp=0.0, kd=0.3)
+    # Extra attributes the two real control methods touch (beyond what update() needs).
+    robot.motor_chain = [None] * n
+    robot._kp = np.full(n, 80.0)
+    robot._kd = np.full(n, 5.0)
+    robot._grav_comp_kd = np.full(n, 0.3)
+    robot._gravity_comp_available = True
+    robot._coulomb_friction_configured = False
+    robot._clip_robot_joint_pos_command = lambda joint_pos: joint_pos
+    robot._joint_to_motor_pos = lambda pos: pos
+    robot.remapper = SimpleNamespace(to_robot_joint_pos_space=lambda pos: pos)
     samples: List[MotorCommandSample] = []
     robot._motor_command_callback = samples.append
 
-    MotorChainRobot.update(robot)  # idle
-    robot._commands.kp = np.full(n, 80.0)
-    robot._commands.kd = np.full(n, 5.0)
-    MotorChainRobot.update(robot)  # link engaged
+    robot.enter_gravity_comp_idle()  # idle: kp=0, kd=grav_comp_kd
+    MotorChainRobot.update(robot)
+    robot.command_joint_pos(np.zeros(n))  # engaged: kp=_kp, kd=_kd
+    MotorChainRobot.update(robot)
 
     assert len(samples) == 2
-    assert np.array_equal(samples[0].kp, np.zeros(n))
-    assert np.array_equal(samples[1].kp, np.full(n, 80.0))
+    assert np.array_equal(samples[0].kp, np.zeros(n))  # idle
+    assert np.array_equal(samples[0].kd, np.full(n, 0.3))  # grav_comp_kd
+    assert np.array_equal(samples[1].kp, np.full(n, 80.0))  # configured gains
     assert np.array_equal(samples[1].kd, np.full(n, 5.0))
 
 
