@@ -487,8 +487,7 @@ class Vehicle(Robot):
         self.CpT_Cqinv_drive[0] = r * c
         self.CpT_Cqinv_drive[1] = r * s
         self.CpT_Cqinv_drive[2] = r * (h_x * s - h_y * c - b_y)
-        with threadpool_limits(limits=1, user_api="blas"):  # Prevent excessive CPU usage
-            self.C_pinv = np.linalg.solve(self.C_p.T @ self.C_p, self.CpT_Cqinv)
+        self.C_pinv = np.linalg.solve(self.C_p.T @ self.C_p, self.CpT_Cqinv)
 
         # Odometry
         with self._lock:
@@ -520,6 +519,14 @@ class Vehicle(Robot):
             )
         except PermissionError:
             print("Failed to set real-time scheduling policy, please edit /etc/security/limits.d/99-realtime.conf")
+
+        # Cap BLAS to one thread once, up front. Previously update_state wrapped each np.linalg.solve in
+        # threadpool_limits, whose constructor rescans every loaded BLAS lib (~1 ms) on each call --
+        # 16-23% of the control loop. The limit persists (threadpoolctl does not restore it on GC), so
+        # setting it once here makes every solve in the loop single-threaded without the per-cycle rescan.
+        # It now holds process-wide for the controller's lifetime instead of only during each solve --
+        # intended: a real-time control process wants BLAS single-threaded throughout.
+        threadpool_limits(limits=1, user_api="blas")
 
         disable_motors = True
         last_command_time = time.time()
@@ -984,6 +991,10 @@ class LinearRailVehicle(Vehicle):
             check_motor_types=verify_motor_config,
             check_motor_config=verify_motor_config,
             loop_critical_motor_ids=STEER_MOTOR_IDS,
+            # Shorter GIL-yield than the 0.5 ms default: the base control thread writes commands every
+            # cycle and must take command_lock, so a tighter read-loop sleep widens that window. YAM arms
+            # keep the default. Tested 0.1 ms too; it gained only ~4 Hz, so 0.2 ms keeps a wider window.
+            loop_sleep_s=0.0002,
         )
 
         # From here to the end of __init__ the chain is live and nothing else will ever stop it: its

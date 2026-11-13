@@ -392,6 +392,7 @@ class DMChainCanInterface(MotorChain):
         check_motor_config: bool = False,  # repair CTRL_MODE and compare PMAX/VMAX/TMAX; writes Flash
         loop_critical_motor_ids: Optional[Sequence[int]] = None,  # motors whose feedback the caller's loop acts on
         expected_registers: Optional[Mapping[int, Mapping[str, float]]] = None,  # {can_id: {reg: value}}, config check
+        loop_sleep_s: float = 0.0005,  # per-cycle GIL-yield sleep in the read loop; lower widens the command-lock window
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -458,6 +459,7 @@ class DMChainCanInterface(MotorChain):
                 f"Max safe frequency: {max_safe_freq:.0f} Hz"
             )
 
+        self._loop_sleep_s = loop_sleep_s
         self.state = None
         self._feedback_time: Optional[np.ndarray] = None
         self.state_lock = threading.Lock()
@@ -634,7 +636,7 @@ class DMChainCanInterface(MotorChain):
                         with self.same_bus_device_lock:
                             # assume the same bus device is a passive input device (no commands to send) for now.
                             self.same_bus_device_states = self.same_bus_device_driver.read_states()
-                    time.sleep(0.0005)  # yield GIL so other threads can acquire locks
+                    time.sleep(self._loop_sleep_s)  # yield GIL so other threads can acquire locks
                     self._rate_recorder.track()
                 except Exception as e:
                     print(f"DM Error in control loop: {e}")
