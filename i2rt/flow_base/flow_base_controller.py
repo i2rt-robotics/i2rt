@@ -992,8 +992,9 @@ class LinearRailVehicle(Vehicle):
             check_motor_config=verify_motor_config,
             loop_critical_motor_ids=STEER_MOTOR_IDS,
             # Shorter GIL-yield than the 0.5 ms default: the base control thread writes commands every
-            # cycle and must take command_lock, so a tighter read-loop sleep widens that window. YAM arms
-            # keep the default. Tested 0.1 ms too; it gained only ~4 Hz, so 0.2 ms keeps a wider window.
+            # cycle and must take command_lock; a tighter read-loop sleep shortens the read cycle, so the
+            # waiting writer gets command_lock sooner. YAM arms keep the default. Tested 0.1 ms too; it
+            # gained only ~4 Hz, so 0.2 ms was kept.
             loop_sleep_s=0.0002,
         )
 

@@ -392,7 +392,7 @@ class DMChainCanInterface(MotorChain):
         check_motor_config: bool = False,  # repair CTRL_MODE and compare PMAX/VMAX/TMAX; writes Flash
         loop_critical_motor_ids: Optional[Sequence[int]] = None,  # motors whose feedback the caller's loop acts on
         expected_registers: Optional[Mapping[int, Mapping[str, float]]] = None,  # {can_id: {reg: value}}, config check
-        loop_sleep_s: float = 0.0005,  # per-cycle GIL-yield sleep in the read loop; lower widens the command-lock window
+        loop_sleep_s: float = 0.0005,  # per-cycle GIL-yield sleep in the read loop; lower shortens the read cycle, so a waiting writer gets command_lock sooner
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
