@@ -1,5 +1,5 @@
 [build-system]
-# Capped below 0.10 by the root project's build constraint.
+# Kept below 0.10, as the root project's build constraint used to force.
 requires = ["scikit-build-core>=0.9,<0.10"]
 build-backend = "scikit_build_core.build"
 
