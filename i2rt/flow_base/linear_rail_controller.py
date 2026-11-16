@@ -4,8 +4,6 @@ import threading
 import time
 from typing import Any, Dict, Literal, Optional
 
-import numpy as np
-
 from i2rt.motor_drivers.dm_driver import DMChainCanInterface
 from i2rt.motor_drivers.utils import MotorInfo
 from i2rt.utils.usb_gpio_driver import get_gpio_backend, is_raspberry_pi
@@ -106,22 +104,7 @@ class SingleMotorControlInterface:
 
     def set_velocity(self, vel: float) -> None:
         """Set motor velocity"""
-        num_motors = len(self.motor_chain)
-
-        velocities = np.zeros(num_motors)
-        velocities[self.target_motor_idx] = vel
-
-        # Preserve velocities of other motors (e.g., base motors) by reading current commands
-        with self.motor_chain.command_lock:
-            current_commands = self.motor_chain.commands
-            if current_commands and len(current_commands) == num_motors:
-                # Preserve velocities of other motors
-                for idx in range(num_motors):
-                    if idx != self.target_motor_idx:
-                        velocities[idx] = current_commands[idx].vel
-
-        torques = np.zeros(num_motors)
-        self.motor_chain.set_commands(torques=torques, vel=velocities, pos=None, kp=None, kd=None, get_state=False)
+        self.motor_chain.update_command_velocities({self.target_motor_idx: vel})
 
     def get_state(self) -> MotorInfo:
         """Get motor state"""
