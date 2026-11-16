@@ -16,7 +16,7 @@ from i2rt.motor_drivers.dm_driver import (
     ReceiveMode,
 )
 from i2rt.motor_drivers.motor_check import run_startup_checks
-from i2rt.robots.motor_chain_robot import MotorChainRobot
+from i2rt.robots.motor_chain_robot import MotorChainRobot, MotorCommandSample
 from i2rt.robots.robot import Robot
 from i2rt.robots.teaching_handle_robot import MotorlessCanChain, TeachingHandleRobot
 from i2rt.robots.utils import (
@@ -114,6 +114,7 @@ def _get_gripper_only_robot(
     channel: str = "can0",
     gripper_type: GripperType = GripperType.LINEAR_4310,
     sim: bool = False,
+    motor_command_callback: Optional[Callable[[MotorCommandSample], None]] = None,
     enable_auto_recovery: bool = False,
 ) -> "Robot":
     """Create a gripper-only robot (no arm).
@@ -189,6 +190,7 @@ def _get_gripper_only_robot(
         enable_gripper_calibration=gripper_needs_cal,
         gripper_type=gripper_type,
         arm_type=nominal_arm,
+        motor_command_callback=motor_command_callback,
         zero_gravity_mode=False,
     )
 
@@ -315,6 +317,7 @@ def get_yam_robot(
     gripper_kd: Optional[float] = None,
     sim: bool = False,
     joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+    motor_command_callback: Optional[Callable[[MotorCommandSample], None]] = None,
     set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
     enable_auto_recovery: bool = False,
     use_coulomb_friction: bool = False,
@@ -373,7 +376,11 @@ def get_yam_robot(
     # --- Gripper-only path (no arm) -------------------------------------------
     if arm_type == ArmType.NO_ARM:
         return _get_gripper_only_robot(
-            channel=channel, gripper_type=gripper_type, sim=sim, enable_auto_recovery=enable_auto_recovery
+            channel=channel,
+            gripper_type=gripper_type,
+            sim=sim,
+            motor_command_callback=motor_command_callback,
+            enable_auto_recovery=enable_auto_recovery,
         )
 
     with_teaching_handle = gripper_type.is_teaching_handle
@@ -592,6 +599,7 @@ def get_yam_robot(
         arm_type=arm_type,
         transmissions=hw.transmissions,
         joint_state_saver_factory=joint_state_saver_factory,
+        motor_command_callback=motor_command_callback,
         set_realtime_and_pin_callback=set_realtime_and_pin_callback,
     )
 

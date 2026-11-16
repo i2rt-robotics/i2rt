@@ -43,7 +43,8 @@ def _bare_robot(gravity_comp_available: bool = True) -> Any:
     robot._clip_motor_torque = np.inf
     robot._gripper_index = None
     # Moving, so the friction term -- coulomb_friction * sign(q_dot) -- would fire if left on.
-    robot._joint_state = SimpleNamespace(pos=np.zeros(N_MOTORS), vel=np.full(N_MOTORS, 0.5))
+    robot._joint_state = SimpleNamespace(pos=np.zeros(N_MOTORS), vel=np.full(N_MOTORS, 0.5), timestamp=0.0)
+    robot._motor_command_callback = None
     robot._command_lock = threading.Lock()
     robot._state_lock = threading.Lock()
     return robot
