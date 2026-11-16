@@ -18,12 +18,12 @@
       <site name="grasp_site" pos="8.8323e-05 -0.14676 -0.04459" quat="0.5 0.5 0.5 -0.5" size="0.005" rgba="0 1 0 1"/>
       <body name="tip_left" pos="-0.037 -0.0605 0.0392" quat="1 0 0 0">
         <inertial pos="0.03 -0.04 -0.039" mass="0.075" diaginertia="6e-5 6e-5 3e-5"/>
-        <joint name="joint7" pos="0 0 0" type="slide" axis="1 0 0" range="0 0.039574"/>
+        <joint name="joint7" pos="0 0 0" type="slide" axis="1 0 0" range="0 0.0475"/>
         <geom pos="0.03495 0.171097 -0.203301" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_left"/>
       </body>
       <body name="tip_right" pos="0.037 -0.0605 -0.0392" quat="1 0 0 0">
         <inertial pos="-0.03 -0.04 0.039" mass="0.075" diaginertia="6e-5 6e-5 3e-5"/>
-        <joint name="joint8" pos="0 0 0" type="slide" axis="-1 0 0" range="0 0.039574"/>
+        <joint name="joint8" pos="0 0 0" type="slide" axis="-1 0 0" range="0 0.0475"/>
         <geom pos="-0.03495 0.171097 -0.124901" quat="1 0 0 0" type="mesh" rgba="0.74902 0.74902 0.74902 1" mesh="tip_right"/>
       </body>
     </body>

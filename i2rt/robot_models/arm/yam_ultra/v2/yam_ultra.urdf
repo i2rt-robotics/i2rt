@@ -194,13 +194,13 @@
         <axis xyz="0 1 0" />
         <parent link="gripper" />
         <child link="tip_left" />
-        <limit effort="1" velocity="1" lower="-0.04695" upper="1.84314e-18" />
+        <limit effort="1" velocity="1" lower="-0.0475" upper="1.84314e-18" />
     </joint>
     <joint name="joint8" type="prismatic">
         <origin xyz="0.0445119 -0.0239931 0.0566829" rpy="3.1415926535897842 0 -1.5708" />
         <axis xyz="0 -1 0" />
         <parent link="gripper" />
         <child link="tip_right" />
-        <limit effort="1" velocity="1" lower="-0.04695" upper="8.78204e-18" />
+        <limit effort="1" velocity="1" lower="-0.0475" upper="8.78204e-18" />
     </joint>
 </robot>

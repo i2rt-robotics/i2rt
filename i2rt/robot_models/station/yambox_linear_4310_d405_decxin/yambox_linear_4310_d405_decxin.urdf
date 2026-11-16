@@ -256,7 +256,7 @@
         <axis xyz="-6.86541e-15 -1 0" />
         <parent link="left_gripper" />
         <child link="left_tip_left" />
-        <limit effort="1" velocity="1" lower="0" upper="0.04695" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
     </joint>
 
     <joint name="left_joint8" type="prismatic">
@@ -264,7 +264,7 @@
         <axis xyz="6.86541e-15 1 0" />
         <parent link="left_gripper" />
         <child link="left_tip_right" />
-        <limit effort="1" velocity="1" lower="0" upper="0.04695" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
     </joint>
 
 
@@ -472,7 +472,7 @@
         <axis xyz="-6.86541e-15 -1 0" />
         <parent link="right_gripper" />
         <child link="right_tip_left" />
-        <limit effort="1" velocity="1" lower="0" upper="0.04695" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
     </joint>
 
     <joint name="right_joint8" type="prismatic">
@@ -480,7 +480,7 @@
         <axis xyz="6.86541e-15 1 0" />
         <parent link="right_gripper" />
         <child link="right_tip_right" />
-        <limit effort="1" velocity="1" lower="0" upper="0.04695" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
     </joint>
 
 
