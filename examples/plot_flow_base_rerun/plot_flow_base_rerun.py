@@ -164,6 +164,21 @@ def _log_static_scene() -> None:
         )
 
 
+def caster_fault_reported(backend: object) -> bool:
+    """Print and return True once the base has latched a steering fault and ramped itself to a stop.
+
+    Without this the failure is silent from here: the base stops and its control loop exits, but the
+    chain stays alive, so ``running()`` keeps returning True and this program carries on plotting a base
+    that no longer answers anything. Only a local ``Vehicle`` exposes the fault -- with ``--host`` the
+    controller runs in its own process and reports it there.
+    """
+    fault = getattr(backend, "caster_fault", lambda: None)()
+    if fault is None:
+        return False
+    print(f"\n{fault.render()}", file=sys.stderr)
+    return True
+
+
 def main(args: Args) -> None:
     backend = make_backend(args)
 
@@ -179,6 +194,8 @@ def main(args: Args) -> None:
 
     try:
         while True:
+            if caster_fault_reported(backend):
+                break
             odo = backend.get_odometry()
             pos = odo["position"]
             x = float(pos["translation"][0])

@@ -13,6 +13,7 @@ dependencies = [
     # crcmod-plus is a maintained fork that installs into the `crcmod` namespace, so code still does `import crcmod`.
     "crcmod-plus>=2.3.1",
     "dm-env==1.6",
+    "mcap-ros2-support>=0.5.5",
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",
@@ -42,6 +43,16 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+
+[tool.uv]
+# `uv sync` also builds the EtherCAT transport (a compiled extension, Linux only). A group rather than
+# a dependency, so `pip install` / `uv pip install -e .` stay pure Python and never need a compiler.
+default-groups = ["dev", "ethercat"]
+
+[tool.uv.sources]
+# Non-editable: an editable scikit-build install points the package at this source tree while the
+# built library lands in site-packages.
+i2rt-ecat = { path = "i2rt-ecat", editable = false }
 
 [tool.flit.module]
 name = "i2rt"
@@ -114,3 +125,4 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
 ]
+ethercat = ["i2rt-ecat; sys_platform == 'linux'"]

@@ -6,26 +6,30 @@ process is just glue: it spawns both workers, hosts the shared
 memory + command queue that they speak through, and shuts them
 down together.
 
+macOS is the exception: MuJoCo's passive viewer only opens from the
+process ``mjpython`` launched (a spawned child never inherits its
+UI-thread hook), so there the viewer runs in the main process and
+only the robot gets a subprocess. Launch with ``mjpython`` instead
+of ``python``.
+
 Starts in VIS mode, mirroring the robot's joint state (gravity-comp
 active on real hardware). Press SPACE in the viewer to toggle into
 CONTROL mode; then use the per-joint sliders or double-click the
 mocap marker + ctrl+drag for IK. Commands are blocked on self-
 collision.
 
-With ``--log`` the table header shows ``[loop XX.X Hz]``, which is
-the motor chain's measured ``comm_freq`` (the same number
-``dm_driver.py`` reports) instead of the viewer's data-read
-cadence.
-
-Usage:
+Usage (use ``mjpython`` in place of ``python`` on macOS):
     python examples/control_with_mujoco/control_with_mujoco.py --sim
-    python examples/control_with_mujoco/control_with_mujoco.py --sim --log
     python examples/control_with_mujoco/control_with_mujoco.py --arm big_yam --gripper linear_4310 --sim
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_ultra_2 --sim
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_left --sim
     python examples/control_with_mujoco/control_with_mujoco.py --arm no_arm --gripper flexible_4310 --sim
     python examples/control_with_mujoco/control_with_mujoco.py --channel can0
+    python examples/control_with_mujoco/control_with_mujoco.py --channel can0 --record
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --channel ecat:enp99s0
+    python examples/control_with_mujoco/control_with_mujoco.py --arm yam_7dof_right --control-mode osc --sim
 """
 
-import argparse
 import logging
 import multiprocessing as mp
 import os
@@ -33,16 +37,20 @@ import queue as _queue
 import signal
 import sys
 import time
+from dataclasses import dataclass
 from multiprocessing import shared_memory
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import numpy as np
+import tyro
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+from i2rt.robots.utils import ArmControlMode, ArmName
 
 logging.basicConfig(level=logging.INFO)
 
@@ -54,6 +62,7 @@ logging.basicConfig(level=logging.INFO)
 _FIXED_FIELDS = (
     ("gripper_pos", 1),
     ("button_states", 2),
+    ("handle_gripper_pos", 1),
     ("loop_hz", 1),
     ("seq", 1),
 )
@@ -150,7 +159,14 @@ class _ProxyMotorChain:
         buttons = self._shared.view("button_states")
         if np.isnan(buttons[0]):
             return None
-        return [SimpleNamespace(io_inputs=[bool(buttons[0]), bool(buttons[1])])]
+        # gripper_pos is published in the same block as the buttons, so the NaN gate
+        # above covers it too. It drives the viewer's trigger geometry.
+        return [
+            SimpleNamespace(
+                gripper_pos=float(self._shared.view("handle_gripper_pos")[0]),
+                io_inputs=[bool(buttons[0]), bool(buttons[1])],
+            )
+        ]
 
 
 class ProxyRobot:
@@ -240,6 +256,9 @@ def _robot_worker(
     gripper_value: str,
     channel: str,
     sim: bool,
+    use_coulomb_friction: bool,
+    record: bool,
+    control_mode: ArmControlMode,
     meta_queue: mp.Queue,
     cmd_queue: mp.Queue,
     stop_event: Any,
@@ -252,7 +271,20 @@ def _robot_worker(
     arm = ArmType.from_string_name(arm_value)
     gripper = GripperType.from_string_name(gripper_value)
 
-    robot = get_yam_robot(channel=channel, arm_type=arm, gripper_type=gripper, sim=sim)
+    robot = get_yam_robot(
+        channel=channel,
+        arm_type=arm,
+        gripper_type=gripper,
+        sim=sim,
+        use_coulomb_friction=use_coulomb_friction,
+        control_mode=control_mode,
+    )
+    if record:
+        try:
+            print(f"Recording motor feedback to {robot.start_mcap_recording()}")
+        except Exception:
+            robot.close()
+            raise
     if sim and hasattr(robot, "start_server"):
         robot.start_server()
 
@@ -318,8 +350,10 @@ def _robot_worker(
                     states = chain.get_same_bus_device_states()
                     if states:
                         io_inputs = states[0].io_inputs
-                        shared.view("button_states")[0] = float(bool(io_inputs[0]))
+                        # button_states[0] goes last: it is the reader's NaN gate for all three.
+                        shared.view("handle_gripper_pos")[0] = float(states[0].gripper_pos)
                         shared.view("button_states")[1] = float(bool(io_inputs[1]))
+                        shared.view("button_states")[0] = float(bool(io_inputs[0]))
 
                 chain_freq = float(chain.comm_freq) if chain is not None and hasattr(chain, "comm_freq") else 0.0
                 shared.view("loop_hz")[0] = chain_freq if chain_freq > 0 else float(rate.last_rate)
@@ -358,11 +392,24 @@ def _robot_worker(
 # ---------------------------------------------------------------------------
 
 
+def _needs_mjpython() -> bool:
+    """True on macOS when this interpreter was not launched by ``mjpython``.
+
+    ``mujoco.viewer.launch_passive`` needs a UI-thread hook that only
+    ``mjpython`` installs, in the process it started. Checking up front turns
+    a crash deep inside the viewer into an actionable message.
+    """
+    if sys.platform != "darwin":
+        return False
+    import mujoco.viewer
+
+    return getattr(mujoco.viewer, "_MJPYTHON", None) is None
+
+
 def _viewer_worker(
     gripper_value: str,
     site_arg: Optional[str],
     dt: float,
-    log: bool,
     cmd_queue: mp.Queue,
     meta: Dict[str, Any],
     stop_event: Any,
@@ -376,12 +423,12 @@ def _viewer_worker(
 
     if site_arg is not None:
         site = site_arg
-    elif gripper_value == GripperType.YAM_TEACHING_HANDLE.value:
+    elif GripperType.from_string_name(gripper_value).is_teaching_handle:
         site = "tcp_site"
     else:
         site = "grasp_site"
 
-    iface = MujocoControlInterface.from_robot(proxy, ee_site=site, dt=dt, log=log)
+    iface = MujocoControlInterface.from_robot(proxy, ee_site=site, dt=dt)
     try:
         iface.run()
     except KeyboardInterrupt:
@@ -396,20 +443,28 @@ def _viewer_worker(
 # ---------------------------------------------------------------------------
 
 
-def _parse_args() -> argparse.Namespace:
-    from i2rt.robots.utils import ArmType, GripperType
+@dataclass
+class _CliArgs:
+    """MuJoCo control interface for i2rt robots."""
 
-    arm_choices = [a.value for a in ArmType]
-    gripper_choices = [g.value for g in GripperType]
-    parser = argparse.ArgumentParser(description="MuJoCo control interface for i2rt robots")
-    parser.add_argument("--arm", type=str, default="yam", choices=arm_choices)
-    parser.add_argument("--gripper", type=str, default="linear_4310", choices=gripper_choices)
-    parser.add_argument("--channel", type=str, default="can0", help="CAN channel")
-    parser.add_argument("--sim", action="store_true", help="Use SimRobot")
-    parser.add_argument("--dt", type=float, default=0.02, help="Loop timestep (s)")
-    parser.add_argument("--site", type=str, default=None, help="EE site name (auto-detected if omitted)")
-    parser.add_argument("--log", action="store_true", help="Log joint state and torques each loop iteration")
-    return parser.parse_args()
+    arm: ArmName = "yam"
+    """Arm variant. `no_arm` is gripper-only and cannot be combined with `--gripper no_gripper`."""
+    gripper: str = "linear_4310"
+    """Gripper variant."""
+    channel: str = "can0"
+    """CAN channel, or `ecat:<nic>` for an arm behind an EtherCAT-to-CAN board."""
+    sim: bool = False
+    """Use SimRobot."""
+    dt: float = 0.02
+    """Loop timestep (s)."""
+    site: Optional[str] = None
+    """EE site name (auto-detected if omitted)."""
+    friction: bool = False
+    """Enable Coulomb friction compensation in gravity comp (real hardware only)."""
+    record: bool = False
+    """Record motor feedback and computed required torques to a ROS 2 CDR MCAP file."""
+    control_mode: ArmControlMode = "pd"
+    """`pd`, or operational-space control (`osc` / `osc_full`) on a 7-DOF arm."""
 
 
 def _wait_for_meta(meta_queue: mp.Queue, robot_proc: mp.Process, timeout: float = 60.0) -> Dict[str, Any]:
@@ -428,13 +483,22 @@ def _wait_for_meta(meta_queue: mp.Queue, robot_proc: mp.Process, timeout: float 
 
 
 def main() -> None:
-    args = _parse_args()
+    args = tyro.cli(_CliArgs)
     from i2rt.robots.utils import ArmType, GripperType
 
     arm = ArmType.from_string_name(args.arm)
     gripper = GripperType.from_string_name(args.gripper)
     if arm == ArmType.NO_ARM and gripper == GripperType.NO_GRIPPER:
         raise SystemExit("--gripper cannot be 'no_gripper' when --arm is 'no_arm'")
+    if args.record and args.sim:
+        raise SystemExit("--record requires real hardware motor feedback; remove --sim")
+    if args.record and args.control_mode != "pd":
+        raise SystemExit("--record records MotorChainRobot's motor feedback; use --control-mode pd")
+    if _needs_mjpython():
+        raise SystemExit(
+            "[control] On macOS the MuJoCo viewer must be launched by mjpython. Re-run:\n"
+            f"    uv run mjpython {' '.join(sys.argv)}"
+        )
 
     mp.set_start_method("spawn", force=True)
 
@@ -445,7 +509,18 @@ def main() -> None:
     robot_proc = mp.Process(
         target=_robot_worker,
         name="robot_worker",
-        args=(args.arm, args.gripper, args.channel, args.sim, meta_queue, cmd_queue, stop_event),
+        args=(
+            args.arm,
+            args.gripper,
+            args.channel,
+            args.sim,
+            args.friction,
+            args.record,
+            args.control_mode,
+            meta_queue,
+            cmd_queue,
+            stop_event,
+        ),
     )
     robot_proc.start()
 
@@ -459,27 +534,37 @@ def main() -> None:
             robot_proc.terminate()
         raise SystemExit(1) from e
 
-    viewer_proc = mp.Process(
-        target=_viewer_worker,
-        name="viewer_worker",
-        args=(args.gripper, args.site, args.dt, args.log, cmd_queue, meta, stop_event),
-    )
-    viewer_proc.start()
+    viewer_args = (args.gripper, args.site, args.dt, cmd_queue, meta, stop_event)
+    viewer_proc: Optional[mp.Process] = None
 
     try:
-        mp.connection.wait([robot_proc.sentinel, viewer_proc.sentinel])
+        if sys.platform == "darwin":
+            # mjpython's UI-thread hook lives only in the process it launched
+            # and is not inherited by a spawned child, so the viewer has to run
+            # here. The robot keeps its own process either way.
+            _viewer_worker(*viewer_args)
+        else:
+            viewer_proc = mp.Process(
+                target=_viewer_worker,
+                name="viewer_worker",
+                args=viewer_args,
+            )
+            viewer_proc.start()
+            mp.connection.wait([robot_proc.sentinel, viewer_proc.sentinel])
     except KeyboardInterrupt:
         pass
     finally:
+        procs = [p for p in (robot_proc, viewer_proc) if p is not None]
         stop_event.set()
-        for p in (robot_proc, viewer_proc):
+        for p in procs:
             if p.is_alive():
                 try:
                     os.kill(p.pid, signal.SIGINT)
                 except ProcessLookupError:
                     pass
-        for p in (robot_proc, viewer_proc):
-            p.join(timeout=2.0)
+        for p in procs:
+            join_timeout = 10.0 if args.record and p is robot_proc else 2.0
+            p.join(timeout=join_timeout)
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=1.0)

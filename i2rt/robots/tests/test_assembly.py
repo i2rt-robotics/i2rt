@@ -196,3 +196,15 @@ def test_combine_xml_with_custom_ee_mass_inertia(arm: ArmType, gripper: GripperT
         if name == "gripper":
             continue
         assert combined_inertials[name] == arm_val, f"Body '{name}' inertial changed unexpectedly after ee override"
+
+
+def test_combine_xml_preserves_positional_ee_mass_argument() -> None:
+    """The legacy third positional argument remains the end-effector mass."""
+    ee_mass = 0.314
+    out_path = combine_arm_and_gripper_xml(ArmType.YAM, GripperType.LINEAR_4310, ee_mass)
+    gripper_body = _find_gripper(ET.parse(out_path).getroot())
+
+    assert gripper_body is not None
+    inertial = gripper_body.find("inertial")
+    assert inertial is not None
+    assert float(inertial.get("mass")) == pytest.approx(ee_mass)

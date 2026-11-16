@@ -55,6 +55,8 @@ Assume you've installed the python virtual environment and run `source .venv/bin
 
 ```bash
 python bimanual_lead_follower.py
+# leaders fitted with the short (v2) teaching handle:
+python bimanual_lead_follower.py --leader-gripper yam_teaching_handle_v2
 ```
 
 ## Operation

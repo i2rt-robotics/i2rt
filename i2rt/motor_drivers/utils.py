@@ -1,6 +1,6 @@
 import enum
 from dataclasses import dataclass
-from typing import List
+from typing import List, NamedTuple
 
 
 def uint_to_float(x_int: int, x_min: float, x_max: float, bits: int) -> float:
@@ -40,6 +40,55 @@ class MotorConstants:
     KP_MIN: float = 0.0
     KD_MAX: float = 5.0
     KD_MIN: float = 0.0
+
+
+# DM special frames, sent to the motor's own CAN id. FE (save zero) is deliberately absent: it writes
+# Flash, and a cyclic transport that re-sends its latched frame every tick must never carry it.
+DM_ENABLE = bytes([0xFF] * 7 + [0xFC])
+DM_DISABLE = bytes([0xFF] * 7 + [0xFD])
+DM_CLEAR_ERR = bytes([0xFF] * 7 + [0xFB])
+
+
+def pack_mit(pos: float, vel: float, kp: float, kd: float, torque: float, const: "MotorConstants") -> bytearray:
+    """One DM MIT-mode command frame: position on 16 bits, velocity, kp, kd and torque on 12 each."""
+    p = float_to_uint(pos, const.POSITION_MIN, const.POSITION_MAX, 16)
+    v = float_to_uint(vel, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
+    kp_ = float_to_uint(kp, const.KP_MIN, const.KP_MAX, 12)
+    kd_ = float_to_uint(kd, const.KD_MIN, const.KD_MAX, 12)
+    t = float_to_uint(torque, const.TORQUE_MIN, const.TORQUE_MAX, 12)
+    return bytearray(
+        [
+            (p >> 8) & 0xFF,
+            p & 0xFF,
+            (v >> 4) & 0xFF,
+            ((v & 0xF) << 4) | (kp_ >> 8),
+            kp_ & 0xFF,
+            (kd_ >> 4) & 0xFF,
+            ((kd_ & 0xF) << 4) | (t >> 8),
+            t & 0xFF,
+        ]
+    )
+
+
+class MitFeedback(NamedTuple):
+    error: int  # the DM state nibble: 0x1 enabled, 0x0 disabled, 0x8.. faults (MotorErrorCode)
+    position: float
+    velocity: float
+    torque: float
+    temperature_mos: float
+    temperature_rotor: float
+
+
+def unpack_mit_feedback(data: bytes, const: "MotorConstants") -> MitFeedback:
+    """Decode a DM feedback frame against the replying motor's own constants."""
+    return MitFeedback(
+        error=(data[0] & 0xF0) >> 4,
+        position=uint_to_float((data[1] << 8) | data[2], const.POSITION_MIN, const.POSITION_MAX, 16),
+        velocity=uint_to_float((data[3] << 4) | (data[4] >> 4), const.VELOCITY_MIN, const.VELOCITY_MAX, 12),
+        torque=uint_to_float(((data[4] & 0xF) << 8) | data[5], const.TORQUE_MIN, const.TORQUE_MAX, 12),
+        temperature_mos=float(data[6]),
+        temperature_rotor=float(data[7]),
+    )
 
 
 @dataclass
@@ -203,6 +252,70 @@ class MotorType:
             )
         else:
             raise ValueError(f"Motor type '{motor_type}' not recognized.")
+
+    @classmethod
+    def get_gear_ratio(cls, motor_type: str) -> float:
+        """The gear reduction ratio this motor type's ``Gr`` register (address 20) must report.
+
+        Raises:
+            ValueError: if no ratio is recorded for this type. A missing entry is a gap in
+                ``_GEAR_RATIO``, not a fault in the hardware, so it is deliberately not reported as
+                "unknown" for the caller to skip over -- see ``i2rt/motor_drivers/motor_check.py``.
+                Mirrors ``get_motor_constants``, which also raises on a type it does not know.
+        """
+        try:
+            return _GEAR_RATIO[motor_type]
+        except KeyError:
+            raise ValueError(
+                f"No gear ratio recorded for motor type '{motor_type}'. Add it to _GEAR_RATIO in "
+                f"i2rt/motor_drivers/utils.py, taking the value from the motor's own Gr register "
+                f"(dm_motor_registers.py read Gr --motor-id <id>) rather than from the part number. "
+                f"Recorded: {sorted(_GEAR_RATIO)}"
+            ) from None
+
+    @classmethod
+    def known_gear_ratios(cls) -> dict[str, float]:
+        """Every motor type with a recorded gear ratio, as a copy.
+
+        Exists for the two callers that need the whole mapping rather than one lookup: the reverse
+        direction (which type does a ``Gr`` reading correspond to?), which is what makes a mismatch
+        message name the motor that is actually installed, and the test that asserts every motor
+        type in a shipped config has an entry here.
+        """
+        return dict(_GEAR_RATIO)
+
+
+# Gear reduction ratio each motor type reports in its `Gr` register (address 20). Read-only in
+# firmware and a property of the physical gearbox, which is what makes it the one register that
+# identifies a motor: PMAX/VMAX/TMAX are writable, so they can be wrong on a correct motor *and*
+# right on a wrong one. Consumed by verify_motor_types in i2rt/motor_drivers/motor_check.py, which
+# refuses to build a chain on a mismatch. Arms and the Flow Base both opt into it
+# (check_motor_types=True); nothing else does.
+#
+# The DM part number ends in its gear ratio -- 4310 -> 10, 4340 -> 40, 3507 -> 7 -- and *not* the
+# tempting "8009 -> 80:1", which a bench reading of 9 is what settles. Provenance is per entry below;
+# only DM4310 / DM4340 / DM3507 rest on the manual alone, and all three agree with the rule.
+#
+# Only the types the shipped configs and the Flow Base controller actually build are listed. A type
+# that is absent raises instead of being compared against a value inferred from its name -- extending
+# this table is a bench reading, not a guess.
+_GEAR_RATIO: dict[str, float] = {
+    MotorType.DM3507: 7.0,  # DM manual
+    MotorType.DM4310: 10.0,  # DM manual
+    MotorType.DM4310V: 10.0,  # bench: flow base steering motors 1/3/7, 2026-08-18
+    MotorType.DM4340: 40.0,  # DM manual
+    MotorType.DM6248: 48.0,  # bench: big_yam motor 2, 2026-08-18
+    MotorType.DM8009: 9.0,  # bench: flow base rail motor 9, 2026-08-14 and again 2026-08-18
+    # DM_FLOW_WHEEL is a *role*, not a part number: i2rt/flow_base/README.md says the physical drive
+    # motor may differ per unit, and Gr being read-only means it cannot be normalised across units the
+    # way PMAX/VMAX/TMAX are. Recorded and asserted anyway (decided 2026-08-18, after all four drive
+    # motors on one base read 10), so a unit built with a different drive motor refuses to start rather
+    # than running mis-scaled -- which is the intended way to discover that such a unit exists. The
+    # kinematics make that non-negotiable: N_s/N_r1/N_r2/N_w are all 1 in flow_base_controller.py, i.e.
+    # the swerve model assumes the motor's own rad/s *is* the wheel's. --no-verify-motor-config is the
+    # field bypass, and widening this number is the fix.
+    MotorType.DM_FLOW_WHEEL: 10.0,  # bench: flow base drive motors 2/4/6/8, 2026-08-18
+}
 
 
 class AutoNameEnum(enum.Enum):

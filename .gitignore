@@ -92,5 +92,4 @@ i2rt.egg-info/
 # Ignore temporary scripts or generated files
 scripts/temp_*/
 
-CLAUDE.md
 *.mjb

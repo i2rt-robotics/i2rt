@@ -4,20 +4,25 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple
 
 import can
 import numpy as np
+import tyro
 
-from i2rt.motor_drivers.can_interface import CanInterface
+from i2rt.motor_drivers.can_interface import ETHERCAT_CHANNEL_PREFIX, CanInterface
+from i2rt.motor_drivers.motor_check import run_startup_checks
 from i2rt.motor_drivers.utils import (
+    DM_CLEAR_ERR,
+    DM_DISABLE,
+    DM_ENABLE,
     FeedbackFrameInfo,
     MotorErrorCode,
     MotorInfo,
     MotorType,
     ReceiveMode,
-    float_to_uint,
-    uint_to_float,
+    pack_mit,
+    unpack_mit_feedback,
 )
 from i2rt.utils.encoder_manager import EncoderConfig, PassiveJointEncoder
 from i2rt.utils.utils import RateRecorder
@@ -60,11 +65,24 @@ class PassiveEncoderInfo:
     id: int
     """The device number, uint8."""
     position: float
-    """Position, in radian (encoder) or axis [-1, 1] center 0 (joystick analog)."""
+    """Trigger travel normalized to [0, 1] in the *encoder* convention:
+    0 = trigger at rest (gripper FULL OPEN), 1 = fully squeezed (FULL CLOSE).
+    This is the raw sensor convention and must not change -- scripts/read_encoder.py
+    prints it verbatim as the operator's zero check.  For anything with gripper
+    semantics use ``gripper_pos`` instead, which is the opposite way round."""
     velocity: float
-    """Velocity, in radian/s."""
+    """Velocity, in radian/s.  Signed raw rate, *not* the derivative of ``position``
+    (which is an absolute value, and normalized by range_rad)."""
     io_inputs: List[bool]
     """The discrete inputs, list of boolean."""
+
+    @property
+    def gripper_pos(self) -> float:
+        """``position`` in the *arm* convention every gripper uses: 0 = FULL CLOSE,
+        1 = FULL OPEN (see SimRobot._cmd_to_mj_qpos).  Use this to command, display,
+        record or animate a gripper value, so the teaching handle reads the same way
+        round as a motorized gripper."""
+        return 1.0 - self.position
 
 
 class PassiveEncoderReader:
@@ -138,6 +156,11 @@ class DMSingleMotorCanInterface(CanInterface):
         name: str = "default_can_DM_interface",
         use_buffered_reader: bool = False,
     ):
+        if channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+            # The EtherCAT-to-CAN board passes only replies carrying the id its slot sent, so a motor
+            # behind it answers on MASTER_ID == ID whatever was asked. Any other mode never matches a
+            # reply, and a motor_on that sent ENABLE then raises before motor_off, leaving it enabled.
+            receive_mode = ReceiveMode.same
         super().__init__(
             channel, bustype, bitrate, receive_mode=receive_mode, name=name, use_buffered_reader=use_buffered_reader
         )
@@ -159,7 +182,7 @@ class DMSingleMotorCanInterface(CanInterface):
         logging.getLogger().setLevel(logging.ERROR)
 
         id = motor_id  # self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFC]
+        data = DM_ENABLE
 
         message = self._send_message_get_response(id, motor_id, data)
 
@@ -184,7 +207,7 @@ class DMSingleMotorCanInterface(CanInterface):
     def clean_error(self, motor_id: int) -> None:
         # self.try_receive_message()
         id = motor_id  # self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFB]
+        data = DM_CLEAR_ERR
         logging.info("clear error")
         message = can.Message(arbitration_id=motor_id, data=data, is_extended_id=False)
         for _ in range(3):
@@ -204,7 +227,7 @@ class DMSingleMotorCanInterface(CanInterface):
             motor_id (int): The ID of the motor to turn off.
         """
         id = self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFD]
+        data = DM_DISABLE
         message = self._send_message_get_response(id, motor_id, data)
 
     def save_zero_position(self, motor_id: int) -> None:
@@ -254,28 +277,20 @@ class DMSingleMotorCanInterface(CanInterface):
         # Prepare the CAN message
         data = bytearray(8)
         if self.control_mode == ControlMode.MIT:
-            const = MotorType.get_motor_constants(motor_type)
-
-            pos_tmp = float_to_uint(pos, const.POSITION_MIN, const.POSITION_MAX, 16)
-            vel_tmp = float_to_uint(vel, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
-            kp_tmp = float_to_uint(kp, const.KP_MIN, const.KP_MAX, 12)
-            kd_tmp = float_to_uint(kd, const.KD_MIN, const.KD_MAX, 12)
-            tor_tmp = float_to_uint(torque, const.TORQUE_MIN, const.TORQUE_MAX, 12)
-
-            # "& 0xFF" (bitwise AND with 0xFF) is used to ensure that only the lowest 8 bits (one byte) of a value are kept,
-            # and any higher bits are discarded.
-            data[0] = (pos_tmp >> 8) & 0xFF
-            data[1] = pos_tmp & 0xFF
-            data[2] = (vel_tmp >> 4) & 0xFF
-            data[3] = ((vel_tmp & 0xF) << 4) | (kp_tmp >> 8)
-            data[4] = kp_tmp & 0xFF
-            data[5] = (kd_tmp >> 4) & 0xFF
-            data[6] = ((kd_tmp & 0xF) << 4) | (tor_tmp >> 8)
-            data[7] = tor_tmp & 0xFF
+            data = pack_mit(pos, vel, kp, kd, torque, MotorType.get_motor_constants(motor_type))
         elif self.control_mode == ControlMode.VEL:
             # system will only response to vel command
             can_data = struct.pack("<f", vel)
             data[0:4] = can_data[0:4]
+        else:
+            # Without this, an unencodable mode falls through and transmits the zero-initialised
+            # bytearray above -- a valid frame commanding nothing, on every motor, with no error
+            # anywhere. ControlMode.get_id_offset already refuses an unknown mode this way; POS_VEL
+            # passes that one (it has a frame id) and reaches here, which is the gap.
+            raise ValueError(
+                f"cannot encode a command in {self.control_mode}: set_control implements MIT and VEL "
+                "only, and any other mode would silently transmit an all-zero frame."
+            )
 
         # Send the CAN message
         message = self._send_message_get_response(frame_id, motor_id, data, max_retry=15)
@@ -296,7 +311,8 @@ class DMSingleMotorCanInterface(CanInterface):
             FeedbackFrameInfo: The current state of the motor.
         """
         data = message.data
-        error_int = (data[0] & 0xF0) >> 4  # TODO: error code seems incorrect, double check
+        fb = unpack_mit_feedback(data, MotorType.get_motor_constants(motor_type))
+        error_int = fb.error  # TODO: error code seems incorrect, double check
 
         # convert error into hex
         error_hex = hex(error_int)
@@ -314,28 +330,15 @@ class DMSingleMotorCanInterface(CanInterface):
                 raise RuntimeError(
                     f"Motor error detected: motor id: {motor_id_of_this_response}, error: {error_message}"
                 )
-        p_int = (data[1] << 8) | data[2]
-        v_int = (data[3] << 4) | (data[4] >> 4)
-        t_int = ((data[4] & 0xF) << 8) | data[5]
-        temporature_mos = data[6]
-        temperature_rotor = data[7]
-
-        const = MotorType.get_motor_constants(motor_type)
-        position = uint_to_float(p_int, const.POSITION_MIN, const.POSITION_MAX, 16)
-        velocity = uint_to_float(v_int, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
-        torque = uint_to_float(t_int, const.TORQUE_MIN, const.TORQUE_MAX, 12)
-        temperature_mos = float(temporature_mos)
-        temperature_rotor = float(temperature_rotor)
-
         return FeedbackFrameInfo(
             id=motor_id_of_this_response,
             error_code=error_hex,
             error_message=error_message,
-            position=position,
-            velocity=velocity,
-            torque=torque,
-            temperature_mos=temperature_mos,
-            temperature_rotor=temperature_rotor,
+            position=fb.position,
+            velocity=fb.velocity,
+            torque=fb.torque,
+            temperature_mos=fb.temperature_mos,
+            temperature_rotor=fb.temperature_rotor,
         )
 
 
@@ -385,6 +388,10 @@ class DMChainCanInterface(MotorChain):
         report_interval: float = REPORT_INTERVAL,
         control_freq: float = CONTROL_FREQ,  # Control loop frequency (Hz), used for the CAN bandwidth check
         enable_auto_recovery: bool = False,  # if True, try to clean+re-enable errored motors in the control loop instead of failing fast
+        check_motor_types: bool = False,  # read Gr and refuse a chain not holding its declared motor types
+        check_motor_config: bool = False,  # repair CTRL_MODE and compare PMAX/VMAX/TMAX; writes Flash
+        loop_critical_motor_ids: Optional[Sequence[int]] = None,  # motors whose feedback the caller's loop acts on
+        expected_registers: Optional[Mapping[int, Mapping[str, float]]] = None,  # {can_id: {reg: value}}, config check
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -406,6 +413,22 @@ class DMChainCanInterface(MotorChain):
         # some callers (e.g. _get_gripper_only_robot) start the thread inside this constructor.
         self.enable_auto_recovery = enable_auto_recovery
         logging.info(f"Channel: {channel}, Bitrate: {bitrate}")
+        # Last moment the bus is idle: everything above is pure Python, and the branch below opens the
+        # socket. Register reads need an idle bus, so there is no later window -- see motor_check's
+        # module docstring. Which checks may run, and in what order, is run_startup_checks' business:
+        # both rules have to hold for every caller, and this is not the only call site.
+        run_startup_checks(
+            channel,
+            motor_list,
+            check_motor_types=check_motor_types,
+            check_motor_config=check_motor_config,
+            control_mode=control_mode,
+            loop_critical_motor_ids=loop_critical_motor_ids,
+            # Stated rather than defaulted: this is the path that is about to run the chain, and a motor
+            # left in the wrong mode cannot be commanded at all. --survey-only is the caller that says False.
+            repair=True,
+            expected_registers=expected_registers,
+        )
         if "can" in channel:
             self.motor_interface = DMSingleMotorCanInterface(
                 channel=channel,
@@ -436,6 +459,7 @@ class DMChainCanInterface(MotorChain):
             )
 
         self.state = None
+        self._feedback_time: Optional[np.ndarray] = None
         self.state_lock = threading.Lock()
         self._report_interval = report_interval
         self._rate_recorder = RateRecorder(name=self, report_interval=report_interval)
@@ -532,8 +556,8 @@ class DMChainCanInterface(MotorChain):
         if self.start_thread_flag:
             return
         logging.info("starting separate thread for control loop")
-        thread = threading.Thread(target=self._set_torques_and_update_state)
-        thread.start()
+        self._control_thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
@@ -663,6 +687,8 @@ class DMChainCanInterface(MotorChain):
 
     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
         motor_feedback = []
+        if self._feedback_time is None:
+            self._feedback_time = np.zeros(len(self.motor_list))
         for idx, motor_info in enumerate(self.motor_list):
             motor_id, motor_type = motor_info
             torque = commands[idx].torque * self.motor_direction[idx]
@@ -685,12 +711,21 @@ class DMChainCanInterface(MotorChain):
                 logging.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
                 raise e
 
+            # Stamp when *this* motor answered, not when the caller later reads the batch. A
+            # consumer's missing-frame watchdog can only work off an arrival time: with one shared
+            # read time every motor looks freshly heard from on every call, including one that has
+            # stopped answering entirely, and the fault the watchdog exists for is invisible.
+            self._feedback_time[idx] = time.time()
             motor_feedback.append(fd_back)
         return motor_feedback
 
     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
         motor_infos = []
-        timestamp = time.time()
+        # Per motor, and never the read time. `_set_commands` records when each motor's reply
+        # actually arrived; a motor that has gone quiet keeps its old stamp and its age grows,
+        # which is exactly what a watchdog keys off. Before a first reply the array is zero, so
+        # the age is enormous rather than falsely fresh -- the safe direction.
+        stamps = self._feedback_time if self._feedback_time is not None else np.zeros(len(self.motor_list))
         with self.state_lock:
             for idx in range(len(self.motor_list)):
                 state = self.state[idx]
@@ -704,7 +739,7 @@ class DMChainCanInterface(MotorChain):
                         pos=self._joint_position_real_to_sim_idx(self.absolute_positions[idx], idx),
                         temp_rotor=state.temperature_rotor,
                         temp_mos=state.temperature_mos,
-                        timestamp=timestamp,
+                        timestamp=float(stamps[idx]),
                     )
                 )
         return motor_infos
@@ -748,6 +783,8 @@ class DMChainCanInterface(MotorChain):
 
     def close(self) -> None:
         self.running = False
+        if hasattr(self, "_control_thread") and self._control_thread.is_alive():
+            self._control_thread.join(timeout=2.0)
         self.motor_interface.close()
 
 
@@ -793,53 +830,183 @@ class MultiDMChainCanInterface(MotorChain):
         return motor_infos
 
 
-if __name__ == "__main__":
-    import argparse
+_CLI_DEFAULT_MOTOR_TYPES: Dict[int, str] = {
+    0x01: MotorType.DM4340,
+    0x02: MotorType.DM4340,
+    0x03: MotorType.DM4340,
+    0x04: MotorType.DM4310,
+    0x05: MotorType.DM4310,
+    0x06: MotorType.DM4310,
+    0x07: MotorType.DM4310,
+}
+"""Motor type per CAN id for the CLI below, used when ``--motor-type`` is not given.
 
+This is a YAM v1 arm plus a 4310 gripper: ids 1-3 are DM4340 and 4-6 DM4310 in ``yam_v1.yml``,
+``yam_pro_v1.yml`` and ``yam_ultra_v1.yml`` alike, and crank/linear/flexible_4310 each put a DM4310 at
+0x07. One type for the whole chain was the old default and is wrong on every one of those arms -- it
+declares joints 1-3 as DM4310, which encodes their torque against TORQUE_MAX 10 instead of 28 -- so
+now that ``DMChainCanInterface`` verifies ``Gr``, that default would simply refuse to start. Naming the
+ids is what makes the default describe real hardware.
+
+An id outside this map has no obvious default and asks for ``--motor-type`` rather than being guessed
+at: id 9 is the Flow Base rail's DM8009, not a DM4310.
+"""
+
+
+def _cli_motor_list(motor_ids: Tuple[int, ...], motor_type: Optional[Tuple[str, ...]]) -> List[List[Any]]:
+    """Pair each CAN id with a motor type: ``motor_type`` if given, else the per-id default.
+
+    ``motor_type`` is one type per id, positionally, in the order the ids were given, because every chain
+    this tool points at is mixed: a YAM v1 arm is DM4340 at 1-3 and DM4310 at 4-7, a big_yam is DM6248 at
+    1-2, a Flow Base alternates DM4310V and DM_FLOW_WHEEL. A single type for a whole chain cannot describe
+    one of those, which is why surveying a big_yam or a yam_ultra_v2 was impossible before. A single type
+    is still accepted and broadcast to every id -- correct for a homogeneous sub-chain (``--motor-id 1 2 3
+    --motor-type DM4340``) and for the one-motor case, and a wrong broadcast can no longer pass quietly
+    now that ``--check-motor-types`` reads Gr.
+    """
+    if motor_type is None:
+        unknown = [motor_id for motor_id in motor_ids if motor_id not in _CLI_DEFAULT_MOTOR_TYPES]
+        if unknown:
+            raise SystemExit(
+                f"no default motor type for CAN id(s) {unknown}; pass --motor-type explicitly. The "
+                f"defaults cover ids {sorted(_CLI_DEFAULT_MOTOR_TYPES)}, a YAM v1 arm plus a 4310 gripper."
+            )
+        return [[motor_id, _CLI_DEFAULT_MOTOR_TYPES[motor_id]] for motor_id in motor_ids]
+    # Above the length check, not a case of it: broadcasting one type is a deliberate exception.
+    if len(motor_type) == 1:
+        return [[motor_id, motor_type[0]] for motor_id in motor_ids]
+    if len(motor_type) != len(motor_ids):
+        raise SystemExit(
+            f"--motor-type was given {len(motor_type)} type(s) {list(motor_type)} for the "
+            f"{len(motor_ids)} CAN id(s) {list(motor_ids)}: pass one type per id in the same order, or a "
+            "single type to use for every id, or omit it for the per-id default."
+        )
+    return [[motor_id, declared] for motor_id, declared in zip(motor_ids, motor_type, strict=True)]
+
+
+def _cli_control_mode(control_mode: Optional[str], check_motor_config: bool) -> str:
+    """The mode to build the chain in, refusing to guess it when the config check depends on it.
+
+    This value is the whole expectation the config check compares against: it decides the ``CTRL_MODE``
+    every motor must hold and -- without ``--survey-only`` -- the value written to Flash to get there.
+    There is no mode that is right for both machines, so when that check is on, the operator says which
+    chain this is. Required even for a survey: defaulted to MIT, a Flow Base surveys as eight false
+    mismatches, which is how an operator learns to pass ``--no-verify-motor-config`` and stop looking.
+    A usage mistake, so ``SystemExit`` with a usage line rather than a library error.
+    """
+    if control_mode is not None:
+        return control_mode
+    if check_motor_config:
+        raise SystemExit(
+            "--check-motor-config needs --control-mode: it is the CTRL_MODE every motor is required to "
+            "hold, and (without --survey-only) the value written to Flash to get there. The right one "
+            "depends on the machine -- MIT for an arm or gripper chain, VEL for a Flow Base chain (which "
+            "must hold speed mode). Defaulting it would silently reconfigure, or falsely condemn, "
+            "whichever one you did not mean."
+        )
+    return ControlMode.MIT
+
+
+def main(
+    channel: str = "can0",
+    motor_id: Tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7),
+    motor_type: Optional[Tuple[str, ...]] = None,
+    control_mode: Optional[Literal["MIT", "VEL"]] = None,
+    print_state: bool = False,
+    print_pos: bool = False,
+    report_interval: float = REPORT_INTERVAL,
+    check_motor_types: bool = False,
+    check_motor_config: bool = False,
+    survey_only: bool = False,
+) -> None:
+    """Hold a motor chain at zero command and print its state, to check the chain answers. Ctrl-C to stop.
+
+    "Zero command" is zero torque in MIT and zero velocity in VEL -- the two modes set_control encodes.
+
+    Args:
+        channel: SocketCAN channel the motor chain is on.
+        motor_id: CAN ids to bring up, in decimal -- ids on these buses are 1-9.
+        motor_type: Motor type per CAN id, in the same order as --motor-id, since a real chain is mixed
+            (a big_yam is DM6248 at joints 1-2, a yam_ultra_v2 DM4340 at joint 4). A single type is
+            broadcast to every id. Omit for the per-id default: DM4340 on ids 1-3 and DM4310 on 4-7,
+            i.e. a YAM v1 arm plus a 4310 gripper.
+        control_mode: Mode to command the chain in, and the CTRL_MODE --check-motor-config requires every
+            motor to hold -- repairing it to this value unless --survey-only. REQUIRED with
+            --check-motor-config: MIT for an arm or gripper chain, VEL for a Flow Base chain. Defaults to
+            MIT otherwise. Only the two modes set_control can encode are offered.
+        print_state: Print every motor's full state each cycle.
+        print_pos: Print every motor's position each cycle.
+        report_interval: Rate/step-time report interval in seconds.
+        check_motor_types: Read every motor's Gr register and refuse a chain that is not holding the
+            declared motor types. Off by default because this tool is also how you poke a chain whose
+            types you are still working out; turn it on to confirm a chain you believe you know.
+        check_motor_config: Read every motor's CTRL_MODE, repairing and saving to Flash any that is not
+            --control-mode, and compare PMAX/VMAX/TMAX against the driver's constants for the declared
+            type. With --survey-only the repair is suppressed and the mismatch only reported. Requires
+            --check-motor-types, since the scaling registers on a wrong part hold that part's own scale.
+            Off by default here because it writes to Flash and this tool is the one place you may be
+            pointing at a chain you have not identified yet; a real arm or Flow Base runs it on every
+            launch.
+        survey_only: Run the requested checks and exit, without building a chain, enabling any motor or
+            energising anything. This is the read-only survey, and it reads in both senses: a CTRL_MODE
+            that disagrees with --control-mode is reported with the dm_motor_registers.py command that
+            fixes it, not written. Without this flag the tool repairs CTRL_MODE and then holds the chain
+            at zero command, which means every motor is enabled.
+    """
     from i2rt.utils.utils import override_log_level
 
     override_log_level(level=logging.INFO)
 
-    args = argparse.ArgumentParser()
-    args.add_argument("--channel", type=str, default="can0")
-    args.add_argument(
-        "--motor-id",
-        type=lambda x: int(x, 0),
-        nargs="+",
-        default=[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
-        help="Motor IDs (e.g. 0x01 0x02 0x03 or 1 2 3)",
+    motor_list = _cli_motor_list(motor_id, motor_type)
+    resolved_mode = _cli_control_mode(control_mode, check_motor_config)
+    if survey_only and not (check_motor_types or check_motor_config):
+        raise SystemExit(
+            "--survey-only with neither --check-motor-types nor --check-motor-config would read nothing "
+            "and exit 0. Ask for at least one check, or drop --survey-only to hold the chain at zero command."
+        )
+    # The chain as declared, logged before anything is read: it is what every command below is encoded
+    # with, and on this tool it is typed by hand. verify_motor_types logs it too, but only when it runs.
+    logging.info(
+        "chain on %s in %s: %s",
+        channel,
+        resolved_mode,
+        ", ".join(f"{declared_id} {declared_type}" for declared_id, declared_type in motor_list),
     )
-    args.add_argument("--motor-type", type=str, default="DM4310")
-    args.add_argument("--print_state", action="store_true")
-    args.add_argument("--print_pos", action="store_true")
-    args.add_argument(
-        "--report-interval",
-        type=float,
-        default=REPORT_INTERVAL,
-        help=f"Rate/step-time report interval in seconds (default: {REPORT_INTERVAL})",
-    )
-
-    args = args.parse_args()
-    channel = args.channel
-    motor_chain_name = "yam_real"
-    motor_list = [[mid, args.motor_type] for mid in args.motor_id]
-    motor_offsets = [0] * len(motor_list)
-    motor_directions = [1] * len(motor_list)
+    if survey_only:
+        run_startup_checks(
+            channel,
+            motor_list,
+            check_motor_types=check_motor_types,
+            check_motor_config=check_motor_config,
+            control_mode=resolved_mode,
+            # What makes --survey-only a survey: a wrong CTRL_MODE is reported with the command that
+            # fixes it, never written. Without this the flag skipped building the chain but still
+            # Flash-saved CTRL_MODE, so pointing the arm line at a Flow Base reconfigured all 8 motors.
+            repair=False,
+        )
+        return
     motor_chain = DMChainCanInterface(
         motor_list,
-        motor_offsets,
-        motor_directions,
+        [0] * len(motor_list),
+        [1] * len(motor_list),
         channel=channel,
-        motor_chain_name=motor_chain_name,
+        motor_chain_name="yam_real",
         receive_mode=ReceiveMode.p16,
-        report_interval=args.report_interval,
+        control_mode=resolved_mode,
+        report_interval=report_interval,
         start_thread=False,
+        check_motor_types=check_motor_types,
+        check_motor_config=check_motor_config,
     )
     motor_chain.start_thread()
     while True:
         motor_chain.set_commands(np.zeros(len(motor_list)))
-        if args.print_state:
+        if print_state:
             print(motor_chain.read_states())
-        if args.print_pos:
+        if print_pos:
             print([state.pos for state in motor_chain.read_states()])
         time.sleep(0.1)
+
+
+if __name__ == "__main__":
+    tyro.cli(main)
