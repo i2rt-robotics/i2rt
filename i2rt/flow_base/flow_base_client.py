@@ -1,3 +1,4 @@
+import logging
 import sys
 import threading
 import time
@@ -23,6 +24,9 @@ DEFAULT_MAX_VEL_X = 0.5  # m/s
 DEFAULT_MAX_VEL_Y = 0.5  # m/s
 DEFAULT_MAX_VEL_THETA = np.pi / 2  # rad/s
 DEFAULT_MAX_VEL_Z = 0.5  # m/s
+RPC_TIMEOUT_S = 0.5
+CONNECT_TIMEOUT_S = 5.0
+PUBLISH_PERIOD_S = 0.02
 
 
 class FlowBaseClient:
@@ -48,18 +52,53 @@ class FlowBaseClient:
         self.num_dofs = 3 if not self.with_linear_rail else 4
         # Per-axis symmetric clip magnitudes for [x, y, theta(, z)] commands.
         self._max_vel = np.array([max_vel_x, max_vel_y, max_vel_theta, max_vel_z][: self.num_dofs])
-        self.client = portal.Client(f"{host}:{BASE_DEFAULT_PORT}")
+        self._close_lock = threading.Lock()
+        self._transport_closed = False
+        self.client = portal.Client(f"{host}:{BASE_DEFAULT_PORT}", autoconn=False)
+        if not self.client.connect(timeout=CONNECT_TIMEOUT_S):
+            self._close_transport()
+            raise TimeoutError(f"Could not connect to FlowBase at {host}:{BASE_DEFAULT_PORT}")
         self.command = {"target_velocity": np.zeros(self.num_dofs), "frame": "local"}
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
         self.running = True
-        self._thread = threading.Thread(target=self._update_command)
+        self._thread = threading.Thread(target=self._update_command, name="flow_base_command_publisher")
         self._thread.start()
 
     def _update_command(self) -> None:
-        while self.running:
-            with self._lock:
-                self.client.set_target_velocity(self.command).result()
-            time.sleep(0.02)
+        while not self._stop_event.is_set():
+            try:
+                if not self.client.connect(timeout=RPC_TIMEOUT_S):
+                    continue
+                with self._lock:
+                    command = {
+                        "target_velocity": self.command["target_velocity"].copy(),
+                        "frame": self.command["frame"],
+                    }
+                try:
+                    future = self.client.set_target_velocity(command)
+                except KeyError as exc:
+                    # Portal's disconnect callback may already have removed this request.
+                    if isinstance(exc.__context__, portal.Disconnected):
+                        continue
+                    raise
+                while not self._stop_event.is_set():
+                    try:
+                        future.result(timeout=RPC_TIMEOUT_S)
+                        break
+                    except TimeoutError:
+                        continue
+            except portal.Disconnected:
+                continue
+            except Exception:
+                if self._stop_event.is_set():
+                    return
+                logging.exception("Flow-base command publisher failed; stopping command publication")
+                self.running = False
+                self._stop_event.set()
+                self._close_transport()
+                return
+            self._stop_event.wait(PUBLISH_PERIOD_S)
 
     def get_odometry(self) -> Any:
         return self.client.get_odometry({}).result()
@@ -97,7 +136,9 @@ class FlowBaseClient:
         target_velocity = np.clip(target_velocity, -self._max_vel, self._max_vel)
 
         with self._lock:
-            self.command["target_velocity"] = target_velocity
+            if not self.running:
+                raise RuntimeError("Flow-base command publisher is stopped")
+            self.command["target_velocity"] = target_velocity.copy()
             self.command["frame"] = frame
 
     def get_linear_rail_state(self) -> Any:
@@ -117,15 +158,32 @@ class FlowBaseClient:
             raise ValueError("Linear rail not enabled. Initialize FlowBaseClient with with_linear_rail=True")
         velocity = float(np.clip(velocity, -self._max_vel[3], self._max_vel[3]))
         with self._lock:
+            if not self.running:
+                raise RuntimeError("Flow-base command publisher is stopped")
             if len(self.command["target_velocity"]) < 4:
                 self.command["target_velocity"] = np.append(self.command["target_velocity"], 0.0)
             self.command["target_velocity"][3] = velocity
 
+    def _close_transport(self) -> None:
+        with self._close_lock:
+            if not self._transport_closed:
+                self._transport_closed = True
+                # Stop callbacks before completing futures; Portal's reverse order races replies.
+                self.client.socket.close(timeout=RPC_TIMEOUT_S)
+                for future in list(self.client.futures.values()):
+                    if not future.done():
+                        future.set_error(portal.Disconnected)
+                self.client.futures.clear()
+
     def close(self) -> None:
         """Stop the client and clean up resources."""
         self.running = False
+        self._stop_event.set()
+        self._close_transport()
         if self._thread.is_alive():
             self._thread.join(timeout=1.0)
+        if self._thread.is_alive():
+            raise RuntimeError("Flow-base command publisher did not stop after closing the Portal transport")
 
 
 def _format_rail_state(rail_state: dict) -> str:
