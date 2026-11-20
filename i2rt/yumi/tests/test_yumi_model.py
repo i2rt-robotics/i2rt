@@ -9,11 +9,12 @@ side of its mounting face from the device.
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import mujoco
 import numpy as np
 import pytest
 import trimesh
 
-from i2rt.robot_models import YUMI_URDF_PATH
+from i2rt.robot_models import YUMI_URDF_PATH, YUMI_XML_PATH
 
 _ROBOT = ET.parse(YUMI_URDF_PATH).getroot()
 
@@ -66,3 +67,46 @@ def test_tracker_body_is_behind_its_mounting_face() -> None:
     assert tracker.bounds[0, 2] < -0.04
     # ... and the dome faces up (base +Z), with the frame's +Z into the seat.
     assert _link_in_base("vive")[2, 2] < -0.9
+
+
+def _mjcf_pose(pos: np.ndarray, mat: np.ndarray) -> np.ndarray:
+    pose = np.eye(4)
+    pose[:3, :3] = mat.reshape(3, 3)
+    pose[:3, 3] = pos
+    return pose
+
+
+def test_mjcf_matches_the_urdf() -> None:
+    """yumi.xml is the URDF's twin: the same frames (as sites), finger joints, mesh placements and files."""
+    model = mujoco.MjModel.from_xml_path(YUMI_XML_PATH)
+    data = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, data)
+
+    for frame in ("tcp", "camera", "vive"):
+        site = data.site(frame)
+        np.testing.assert_allclose(_mjcf_pose(site.xpos, site.xmat), _link_in_base(frame), atol=1e-7, err_msg=frame)
+
+    for finger in ("left_finger", "right_finger"):
+        (urdf_joint,) = [j for j in _ROBOT.iter("joint") if j.find("child").get("link") == finger]
+        joint = model.joint(urdf_joint.get("name"))
+        assert joint.type[0] == mujoco.mjtJoint.mjJNT_SLIDE
+        np.testing.assert_allclose(
+            model.jnt_axis[joint.id], [float(v) for v in urdf_joint.find("axis").get("xyz").split()]
+        )
+        limit = urdf_joint.find("limit")
+        np.testing.assert_allclose(joint.range, [float(limit.get("lower")), float(limit.get("upper"))])
+        body = data.body(finger)
+        np.testing.assert_allclose(_mjcf_pose(body.xpos, body.xmat), _link_in_base(finger), atol=1e-7, err_msg=finger)
+
+    # The tracker mesh sits on `base` at the `vive` pose, as it sits on the URDF's `vive` link at identity.
+    mjcf = ET.parse(YUMI_XML_PATH).getroot()
+    (tracker,) = [g for g in mjcf.iter("geom") if g.get("mesh") == "vive_tracker"]
+    rot = np.zeros(9)
+    mujoco.mju_quat2Mat(rot, np.array([float(v) for v in tracker.get("quat").split()]))
+    tracker_pos = np.array([float(v) for v in tracker.get("pos").split()])
+    np.testing.assert_allclose(_mjcf_pose(tracker_pos, rot), _link_in_base("vive"), atol=1e-7)
+
+    meshdir = mjcf.find("compiler").get("meshdir")
+    assert sorted(f"{meshdir}/{m.get('file')}" for m in mjcf.iter("mesh")) == sorted(
+        m.get("filename") for m in _ROBOT.iter("mesh")
+    )

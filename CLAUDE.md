@@ -440,9 +440,10 @@ stamp is older than the stream's limit, so a sample delayed in the pipe reads as
   `i2rt/camera/camera.py` (as devices subclass `Robot`). Raw frames, no intrinsics. It opens any USB serial (the
   serial is the lookup key, never checked for a lens token), and without one `Yumi` opens the first
   capture-capable camera.
-- The device model is URDF-only, [i2rt/robot_models/yumi/yumi.urdf](i2rt/robot_models/yumi/yumi.urdf)
-  (`YUMI_URDF_PATH`): body, two prismatic fingers and the tracker mesh, plus the CAD `tcp`, `camera` (OpenCV
-  optical) and `vive` (the tracker frame of `vive_pose`) frames, tabulated in its README.
+- The device model is [i2rt/robot_models/yumi/yumi.urdf](i2rt/robot_models/yumi/yumi.urdf)
+  (`YUMI_URDF_PATH`), with a hand-kept MJCF twin `yumi.xml` (`YUMI_XML_PATH`; the frames are sites there, and
+  `test_yumi_model.py` holds the two equal): body, two prismatic fingers and the tracker mesh, plus the CAD
+  `tcp`, `camera` (OpenCV optical) and `vive` (the tracker frame of `vive_pose`) frames, tabulated in its README.
 
 [i2rt/yumi/README.md](i2rt/yumi/README.md) is the authoritative device doc (gripper and camera setup, API);
 SteamVR installation and the wired tracker's setup live in
@@ -460,6 +461,12 @@ per-arm README tabulates masses, COMs, inertia tensors, joint frames/axes/ranges
 global frames, Modified-DH parameters, and space/body-frame PoE screw axes. A CI test keeps the URDF and MJCF
 honest against each other (masses, COMs, inertia, frames, axes, ranges); the README tables themselves are
 hand-maintained and are not parsed by any test.
+
+**Grippers are the other way round:** the gripper MJCF is the source, and
+[mjcf_to_urdf.py](i2rt/robot_models/scripts/mjcf_to_urdf.py) generates its URDF, whose root link `gripper` is
+the arm's `gripper` mount link. Edit the MJCF and re-run the script;
+[test_gripper_urdf_mjcf_alignment.py](i2rt/robots/tests/test_gripper_urdf_mjcf_alignment.py) fails on a stale or
+misaligned URDF. `flexible_4310.urdf` is an ONShape export in its own frames and is not generated.
 
 ## URDF ↔ MJCF alignment pipeline (this branch's focus)
 

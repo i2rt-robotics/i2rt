@@ -84,3 +84,5 @@ GRIPPER_NO_GRIPPER_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/no_gripper/n
 
 # yumi handheld device URDF (its tcp, camera and vive frames are documented in yumi/README.md)
 YUMI_URDF_PATH = os.path.join(_ROBOT_MODELS_ROOT, "yumi/yumi.urdf")
+# ... and its MJCF twin, with those frames as sites
+YUMI_XML_PATH = os.path.join(_ROBOT_MODELS_ROOT, "yumi/yumi.xml")

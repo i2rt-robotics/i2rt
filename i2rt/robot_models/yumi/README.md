@@ -1,9 +1,13 @@
-# yumi device model (`yumi.urdf`)
+# yumi device model (`yumi.urdf`, `yumi.xml`)
 
 The yumi handheld UMI device ([`i2rt/yumi/`](../../yumi/README.md)): its body (handle, MF camera housing and
 tracker seat), two fingers on prismatic rails, and the HTC VIVE Tracker 3.0 screwed to the seat. The URDF adds three
 frames the CAD export does not name: `tcp`, `camera` and `vive`.
 [`examples/visualize_yumi_viser`](../../../examples/visualize_yumi_viser/README.md) renders it live.
+
+`yumi.xml` is its MJCF twin (`YUMI_XML_PATH`): the same bodies, joints, meshes and colours, with `tcp`, `camera` and
+`vive` as sites on `base`. The URDF is the source; `i2rt/yumi/tests/test_yumi_model.py` holds the two equal. With no
+`<inertial>` to copy, MuJoCo derives the MJCF's masses from the meshes at its default density.
 
 ## Links and joints
 
