@@ -1,8 +1,8 @@
-# yambox camera extrinsics (`yambox_linear_4310_d405_decxin`)
+# yambox camera extrinsics (`yambox_linear_4310_d405_mf118`)
 
 Two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel RealSense D405 cameras, 0.61 m
-apart — the same arm-to-arm offset as the YAM station — plus a DECXIN camera looking down over the
-shared workspace. `yambox_linear_4310_d405_decxin.urdf` and the MJCF generated from it carry every
+apart — the same arm-to-arm offset as the YAM station — plus an i2rt MF118 camera looking down over the
+shared workspace. `yambox_linear_4310_d405_mf118.urdf` and the MJCF generated from it carry every
 transform below at full precision.
 
 `{side}_gripper` is the flange, i.e. the `joint6` output frame. `tcp_left` / `tcp_right` are the
@@ -17,9 +17,9 @@ are the same frame, with nothing to compose between them.
 
 Provenance: the arms and their wrist cameras are byte-identical to
 [`../yam_station_linear_4310_d405/`](../yam_station_linear_4310_d405/README.md) — every arm and
-wrist link and joint of it — so the wrist table below and that station's agree exactly. The DECXIN is
+wrist link and joint of it — so the wrist table below and that station's agree exactly. The MF118 is
 modelled as three CAD parts, its bracket, its cover and the camera body, baked into the single
-`../assets/decxin_top.stl`; the per-part frames and meshes are in git history.
+`../assets/mf118_top.stl`; the per-part frames and meshes are in git history.
 
 ## What is not modelled
 
@@ -73,7 +73,7 @@ The two bases share an orientation and the offset is pure `−y`, so the arms' m
 ### The top-camera assembly
 
 `left_base` → `top_camera` is one fixed joint. The bracket, the cover and the camera body are baked
-into `../assets/decxin_top.stl` expressed in the optical frame, which sits on the lens face rolled
+into `../assets/mf118_top.stl` expressed in the optical frame, which sits on the lens face rolled
 180° about Z from the export's own camera frame — the roll is what puts +Y down the image, as the
 ROS/OpenCV convention requires. The bracket mounts axis-aligned, at a pure 180° yaw about Z to
 0.6 arcsec.

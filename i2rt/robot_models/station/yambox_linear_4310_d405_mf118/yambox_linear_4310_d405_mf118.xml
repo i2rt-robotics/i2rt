@@ -1,11 +1,11 @@
 <!-- yambox dual-arm cell: two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel
-     RealSense D405 cameras, plus a DECXIN camera looking down over the workspace, generated from
-     yambox_linear_4310_d405_decxin.urdf (the source of truth) with the repo's standard URDF -> MJCF
+     RealSense D405 cameras, plus an i2rt MF118 camera looking down over the workspace, generated from
+     yambox_linear_4310_d405_mf118.urdf (the source of truth) with the repo's standard URDF -> MJCF
      conversion. Kinematics only: no defaults, actuators, cameras or keyframe.
 
      The arms and their wrist cameras are byte-identical to
      ../yam_station_linear_4310_d405/yam_station_linear_4310_d405.xml, `right_base`'s 0.61 m offset
-     included. Only the DECXIN, its cover and its bracket are modelled from the box CAD; the mast
+     included. Only the MF118, its cover and its bracket are modelled from the box CAD; the mast
      (`YB01_A01_010_cameraShaft`) the bracket clamps to is absent, and so is the bracket's own arm
      down to it, cut flush under the bracket's head plate. See README.md.
 
@@ -26,7 +26,7 @@
      0.104 mm off its axis. Measured from the tip meshes, and the same point at every finger
      opening because the fingers slide transversely. Sites are a MuJoCo concept, so the URDF has no
      counterpart. -->
-<mujoco model="yambox_linear_4310_d405_decxin">
+<mujoco model="yambox_linear_4310_d405_mf118">
   <compiler angle="radian" meshdir="."/>
 
   <asset>
@@ -40,7 +40,7 @@
     <mesh name="tip_left" file="../../arm/yam/v1/assets/tip_left.stl"/>
     <mesh name="tip_right" file="../../arm/yam/v1/assets/tip_right.stl"/>
     <mesh name="d405_wrist_linear_4310" file="../assets/d405_wrist_linear_4310.stl"/>
-    <mesh name="decxin_top" file="../assets/decxin_top.stl"/>
+    <mesh name="mf118_top" file="../assets/mf118_top.stl"/>
   </asset>
 
   <worldbody>
@@ -143,7 +143,7 @@
       </body>
       <body name="top_camera" pos="0.027300000268037632 -0.30499999974662501 0.62729999996097807" quat="0.26488686248184062 -0.65561799097075357 0.65561799097085716 -0.26488686248158172">
         <inertial pos="1.9814539815456122e-08 0.0070085741482612662 -0.023777967454422358" quat="0.12945190388581945 0.69525945169384606 0.69509383136590286 -0.12923260040631726" mass="4.0957037e-05" diaginertia="9.7166124826973428e-09 1.674826738109139e-08 1.9790643387628062e-08"/>
-        <geom type="mesh" rgba="0.541176 0.682353 0.839216 1" mesh="decxin_top"/>
+        <geom type="mesh" rgba="0.541176 0.682353 0.839216 1" mesh="mf118_top"/>
       </body>
     </body>
   </worldbody>

@@ -81,3 +81,6 @@ GRIPPER_TEACHING_HANDLE_V2_PATH = os.path.join(
 GRIPPER_TEACHING_HANDLE_PATH = GRIPPER_TEACHING_HANDLE_V1_PATH  # deprecated v1 alias for downstream users
 GRIPPER_FLEXIBLE_4310_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/flexible_4310/flexible_4310.xml")
 GRIPPER_NO_GRIPPER_PATH = os.path.join(_ROBOT_MODELS_ROOT, "gripper/no_gripper/no_gripper.xml")
+
+# yumi handheld device URDF (its tcp, camera and vive frames are documented in yumi/README.md)
+YUMI_URDF_PATH = os.path.join(_ROBOT_MODELS_ROOT, "yumi/yumi.urdf")

@@ -14,6 +14,7 @@ class RobotType(enum.Enum):
     ARM = "arm"
     MOBILE_BASE = "mobile_base"
     TEACHING_HANDLE = "teaching_handle"
+    UMI = "umi"
 
 
 @runtime_checkable

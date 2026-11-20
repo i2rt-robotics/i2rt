@@ -17,10 +17,16 @@ dependencies = [
     "mink>=0.0.13",
     "mujoco>=3.3.5",
     "numpy==2.2.6",
+    # yumi i2rt MF camera. <4.12 keeps the build validated with numpy 2.2.6; 5.x changes the API.
+    "opencv-python>=4.11,<4.12",
+    # yumi Vive tracker (SteamVR). >=2.12 drops the pkg_resources import; the wheel bundles an x86-64-only libopenvr_api.
+    "openvr>=2.12,<2.13",
     "portal==3.7.3",
     "pydantic>=2.0",
     "pygame==2.6.1",
     "python-can==4.5.0",
+    # yumi MF camera lookup by USB serial (libudev is loaded lazily, so import is safe off Linux).
+    "pyudev>=0.24",
     "pyyaml>=6.0.0",
     "qpsolvers[quadprog]==4.7.1",
     "rerun-sdk>=0.32.2",

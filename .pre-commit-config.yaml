@@ -30,7 +30,7 @@ repos:
         language: system
         pass_filenames: true
         types: [python]
-        files: ^i2rt/utils/(encoder_manager|can_flash)\.py$
+        files: ^i2rt/(utils/(encoder_manager|can_flash)|yumi/[^/]+|camera/[^/]+)\.py$
 
 # cleanup notebooks
 -   repo: https://github.com/kynan/nbstripout
