@@ -33,8 +33,9 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
+from i2rt import robot_models
 from i2rt.robot_models import available_arm_families, available_arm_versions, get_arm_xml_path
-from i2rt.robots.utils import _ARM_VARIANTS, ArmType, _load_arm_config
+from i2rt.robots.utils import _ARM_VARIANTS, ArmType, GripperType, _load_arm_config, _load_gripper_config
 
 # Every shipped arm variant. A hardware revision is its own variant, so this covers every
 # (family, version) pair; test_arm_variant_registry keeps the enum and the on-disk models in sync.
@@ -427,3 +428,104 @@ def test_arm_variant_registry() -> None:
     for absent in (lambda: ArmType.NO_ARM.family, lambda: ArmType.NO_ARM.version, ArmType.NO_ARM.get_xml_path):
         with pytest.raises(ValueError, match="NO_ARM"):
             absent()
+
+
+# Each finger gripper's MJCF against a URDF carrying the same finger meshes: (gripper, URDF under robot_models/, the
+# URDF's flange link, MJCF finger body -> URDF finger link, arm whose gripper_pos/gripper_quat put the flange inside
+# that link). linear_3507 is linear_4310's meshes byte for byte. flexible_4310's own URDF is rooted at its base mesh
+# rather than a flange (None), so it is placed where the MJCF places that mesh.
+_LINEAR_TIPS = {"tip_left": "tip_left", "tip_right": "tip_right"}
+FINGER_REFERENCES = [
+    (GripperType.LINEAR_4310, "arm/yam/v1/yam.urdf", "gripper", _LINEAR_TIPS, None),
+    (
+        GripperType.LINEAR_4310,
+        "arm/yam_7dof_left/v1/yam_7dof_left.urdf",
+        "gripper",
+        _LINEAR_TIPS,
+        ArmType.YAM_7DOF_LEFT,
+    ),
+    (
+        GripperType.LINEAR_4310,
+        "arm/yam_7dof_right/v1/yam_7dof_right.urdf",
+        "gripper",
+        _LINEAR_TIPS,
+        ArmType.YAM_7DOF_RIGHT,
+    ),
+    (GripperType.LINEAR_3507, "arm/yam/v1/yam.urdf", "gripper", _LINEAR_TIPS, None),
+    (
+        GripperType.CRANK_4310,
+        "station/yam_station_crank_4310_d405/yam_station_crank_4310_d405.urdf",
+        "left_gripper",
+        {"tip_left": "left_tip_left", "tip_right": "left_tip_right"},
+        None,
+    ),
+    (
+        GripperType.FLEXIBLE_4310,
+        "gripper/flexible_4310/flexible_4310.urdf",
+        None,
+        {"linear_module": "linear_module", "linear_module_2": "linear_module_2"},
+        None,
+    ),
+]
+
+
+def _stem(path: str) -> str:
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def _origin(element: ET.Element | None, rpy: bool = True) -> np.ndarray:
+    """An URDF ``<origin>`` (rpy) or an MJCF element's pos/quat as a 4x4 transform."""
+    if rpy:
+        xyz, rot = element.get("xyz", "0 0 0"), _rpy_to_matrix(_triplet(element.get("rpy", "0 0 0")))
+        return _transform(_triplet(xyz), rot)
+    return _transform(_triplet(element.get("pos", "0 0 0")), _wxyz_to_matrix(element.get("quat", "1 0 0 0")))
+
+
+@pytest.mark.parametrize(
+    ("gripper", "urdf_path", "flange", "fingers", "mount_arm"),
+    FINGER_REFERENCES,
+    ids=[f"{ref[0].value}-{_stem(ref[1])}" for ref in FINGER_REFERENCES],
+)
+def test_gripper_fingers_sit_at_their_urdf_depth(
+    gripper: GripperType, urdf_path: str, flange: str | None, fingers: dict[str, str], mount_arm: ArmType | None
+) -> None:
+    """Each gripper MJCF's finger meshes sit where a URDF carrying them puts them along the flange's +Z approach axis.
+
+    The URDF is the geometric source of truth. linear_4310 and linear_3507 once carried both tips -- and grasp_site
+    with them -- 2.123 mm shallower than every YAM-family export, sinking the tips 1.1 mm into the gripper body; the
+    7-DOF URDFs, built from that MJCF, inherited it. Only the approach-axis depth and the orientation are pinned: the
+    linear tips' 0.55 mm jaw-axis offset is a separate finger-travel difference.
+    """
+    mjcf = ET.parse(gripper.get_xml_path()).getroot()
+    mesh_files = {m.get("name") or _stem(m.get("file")): _stem(m.get("file")) for m in mjcf.iter("mesh")}
+    root = next(b for b in mjcf.iter("body") if b.get("name") == "gripper")
+    flange_from_root = _origin(root, rpy=False)
+    urdf = ET.parse(os.path.join(os.path.dirname(robot_models.__file__), urdf_path)).getroot()
+    if flange is None:
+        base = next(g for g in root.findall("geom") if g.get("mesh"))
+        flange_from_urdf = flange_from_root @ _origin(base, rpy=False)
+    elif mount_arm is None:
+        flange_from_urdf = np.eye(4)
+    else:
+        mount = _load_gripper_config(gripper.value, mount_arm)
+        in_mount = _transform(_triplet(mount.gripper_pos), _wxyz_to_matrix(mount.gripper_quat))
+        flange_from_urdf = np.linalg.inv(in_mount)
+
+    for body_name, link_name in fingers.items():
+        joint = next(j for j in urdf.findall("joint") if j.find("child").get("link") == link_name)
+        link = flange_from_urdf @ _origin(joint.find("origin"))
+        in_urdf = {
+            _stem(v.find("geometry/mesh").get("filename")): link @ _origin(v.find("origin"))
+            for v in _link_by_name(urdf, link_name).findall("visual")
+        }
+        body = flange_from_root @ _origin(root.find(f"body[@name='{body_name}']"), rpy=False)
+        for geom in root.find(f"body[@name='{body_name}']").findall("geom"):
+            if geom.get("mesh") is None:
+                continue
+            in_mjcf = body @ _origin(geom, rpy=False)
+            expected = in_urdf[mesh_files[geom.get("mesh")]]
+            label = f"{gripper.value} {body_name}/{geom.get('mesh')} vs {_stem(urdf_path)}"
+            assert in_mjcf[2, 3] == pytest.approx(expected[2, 3], abs=POS_TOL), f"{label}: approach-axis depth"
+            np.testing.assert_allclose(
+                in_mjcf[:3, :3], expected[:3, :3], atol=ROT_TOL, err_msg=f"{label}: orientation"
+            )

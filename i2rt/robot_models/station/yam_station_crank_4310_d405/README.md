@@ -6,7 +6,7 @@ generated from it carry every transform below at full precision. The `linear_431
 [`../yam_station_linear_4310_d405/`](../yam_station_linear_4310_d405/README.md).
 
 `{side}_gripper` is the flange, i.e. the `joint6` output frame. `tcp_left` / `tcp_right` are the
-tool-centre frames, copied from `crank_4310`'s `grasp_site`: the flange turned 90° about Z and
+tool-centre frames, copied from `crank_4310`'s `grasp_site`: the flange's own axes — the passive-XMI tool frame —
 carried out to the centre of the two claw points — 146.764 mm along the flange's +Z and 44.591 mm
 off its axis. That lateral offset is the geometry rather than an error: each claw tapers to a point
 near one end of its jaw, so the two points meet well off the flange axis, and unlike the linear
