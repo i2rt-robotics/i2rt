@@ -102,7 +102,9 @@ entry in the `_ARM_VARIANTS` map. The two enums are the entry points:
   `robot_models/station/` — and matches the ROS/OpenCV convention the station camera frames already use.
   On the 7-DOF arms the mount body is `joint7`'s wrist-pitch frame, so the flange is the
   `gripper_pos`/`gripper_quat` frame inside it; it follows the same convention, but since those arms hang,
-  its `+Z` points along world `-Z` at home.
+  its `+Z` points along world `-Z` at home. Every tool-centre site takes the flange's axes unrotated -- each
+  gripper's `grasp_site` / `tcp_site` and the stations' `tcp_{side}` -- matching passive XMI's `tcp_in_gripper`,
+  so a TCP differs from its flange by translation only (`test_tcp_sites_carry_the_flange_axes`).
 - **Both bodies are named `gripper`** — the arm's terminal mount (matching the URDF's last-joint child) and the
   gripper model's root — and MuJoCo body names must be unique, so composition *merges* them instead of nesting:
   the gripper's children move into the mount body under a `<frame>` carrying the gripper root's own

@@ -21,7 +21,7 @@
     </link>
     <link name="tcp_site" />
     <joint name="tcp_site_joint" type="fixed">
-        <origin xyz="-0.000490393 0.130087748 0.162836674" rpy="0 -6.69998999e-06 1.57079633" />
+        <origin xyz="-0.000490393 0.130087748 0.162836674" rpy="0 0 0" />
         <parent link="gripper" />
         <child link="tcp_site" />
     </joint>

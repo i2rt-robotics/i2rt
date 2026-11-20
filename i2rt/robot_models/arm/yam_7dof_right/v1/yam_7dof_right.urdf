@@ -289,14 +289,14 @@
         <limit effort="10" velocity="10" lower="-1.5708" upper="1.5708" />
     </joint>
     <joint name="joint8" type="prismatic">
-        <origin xyz="-0.1234609 0.0241921 -0.0194249" rpy="3.14158865359 8.00026711545e-12 3.99999999989e-06" />
+        <origin xyz="-0.1255839 0.0241921 -0.0194249" rpy="3.14158865359 8.00026711545e-12 3.99999999989e-06" />
         <parent link="gripper" />
         <child link="tip_left" />
         <axis xyz="0 0 -1" />
         <limit effort="10" velocity="10" lower="0" upper="0.0475" />
     </joint>
     <joint name="joint9" type="prismatic">
-        <origin xyz="-0.1234609 -0.0236041 0.0706989" rpy="4.24264237431e-06 0 -1.57079632679" />
+        <origin xyz="-0.1255839 -0.0236041 0.0706989" rpy="4.24264237431e-06 0 -1.57079632679" />
         <parent link="gripper" />
         <child link="tip_right" />
         <axis xyz="0 0 -1" />

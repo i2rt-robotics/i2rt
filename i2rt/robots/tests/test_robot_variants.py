@@ -15,7 +15,13 @@ from i2rt.motor_drivers.dm_driver import MotorInfo
 from i2rt.robots.get_robot import get_yam_robot, wrap_around_offset
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
-from i2rt.robots.utils import ArmType, GripperType, _load_arm_config, combine_arm_and_gripper_xml
+from i2rt.robots.utils import (
+    ArmType,
+    GripperType,
+    _load_arm_config,
+    _load_gripper_config,
+    combine_arm_and_gripper_xml,
+)
 
 # Every shipped arm variant. Derived from the enum rather than listed, so a newly registered arm
 # is covered here the day it lands instead of silently sitting outside this file.
@@ -27,12 +33,15 @@ def n_arm_joints(arm_type: ArmType) -> int:
     return len(_load_arm_config(arm_type).motor_list)
 
 
-# Where the end-effector site's X axis points at qpos=0, which follows from how the arm is mounted.
-# The YAM family stands up from the origin and hangs its tool downward; yam_7dof is plate-mounted --
-# its mounting face is the world x-z plane, normal +Y, and the arm hangs along -Z -- so at home its
-# tool points horizontally along +X instead.
-HOME_EE_X_AXIS = dict.fromkeys((ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT), np.array([1.0, 0.0, 0.0]))
-DEFAULT_HOME_EE_X_AXIS = np.array([0.0, 0.0, -1.0])
+# Where the end-effector site's X, Y, Z axes point at qpos=0 (rows). The site carries the flange's axes -- passive
+# XMI's tool frame: X along the jaw stroke, Y down, Z the approach -- so they follow from how the arm is mounted. The
+# YAM family stands up from the origin with its tool pointing forward: X right (world -Y), Y down, Z front. yam_7dof
+# is plate-mounted -- its mounting face is the world x-z plane, normal +Y, and the arm hangs along -Z -- so at home its
+# approach points down and its stroke runs along world Y.
+HOME_EE_AXES = dict.fromkeys(
+    (ArmType.YAM_7DOF_LEFT, ArmType.YAM_7DOF_RIGHT), np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])
+)
+DEFAULT_HOME_EE_AXES = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
 
 # Grippers that work with the YAM family
 YAM_GRIPPERS = [
@@ -43,6 +52,9 @@ YAM_GRIPPERS = [
     GripperType.YAM_TEACHING_HANDLE_V2,
     GripperType.NO_GRIPPER,
 ]
+# Grippers with sliding fingers, and every gripper model (each carries at least one tool-centre site).
+FINGER_GRIPPERS = [GripperType.LINEAR_4310, GripperType.LINEAR_3507, GripperType.CRANK_4310, GripperType.FLEXIBLE_4310]
+ALL_GRIPPERS = [*YAM_GRIPPERS, GripperType.FLEXIBLE_4310]
 
 
 # ---------------------------------------------------------------------------
@@ -183,33 +195,18 @@ def _get_ee_site_axes(arm_type: ArmType, gripper_type: GripperType) -> tuple[np.
 @pytest.mark.parametrize("arm_type", YAM_ARMS)
 @pytest.mark.parametrize("gripper_type", YAM_GRIPPERS)
 def test_grasp_site_frame_at_zero_pose(arm_type: ArmType, gripper_type: GripperType) -> None:
-    """At qpos=0 the EE site frame is world-axis-aligned and points where the mount implies.
+    """At qpos=0 the EE site frame is the flange's, in passive XMI's tool convention, where the mount puts it.
 
-    For the YAM family that is X down (world -Z), Y left and Z front, both horizontal. yam_7dof is
-    plate-mounted and hangs along -Z, so its tool points horizontally along +X instead. What holds
-    for every arm is that all three axes land on world axes -- a stale mount block or a mis-signed
-    wrist axis takes the frame off them.
+    For the YAM family that is X right (world -Y), Y down and Z front. yam_7dof is plate-mounted and hangs along -Z,
+    so its approach points down instead. A stale mount block, a mis-signed wrist axis or a site rotated off the
+    flange takes the frame off these axes.
     """
     x_axis, y_axis, z_axis = _get_ee_site_axes(arm_type, gripper_type)
     label = f"{arm_type.value}+{gripper_type.value}"
 
-    expected_x = HOME_EE_X_AXIS.get(arm_type, DEFAULT_HOME_EE_X_AXIS)
-    np.testing.assert_allclose(
-        x_axis,
-        expected_x,
-        atol=1e-3,
-        err_msg=f"{label}: X axis should be {expected_x}, got {x_axis}",
-    )
-    for name, axis in (("Y", y_axis), ("Z", z_axis)):
-        dominant = int(np.argmax(np.abs(axis)))
-        nearest = np.zeros(3)
-        nearest[dominant] = np.sign(axis[dominant])
-        np.testing.assert_allclose(
-            axis,
-            nearest,
-            atol=1e-3,
-            err_msg=f"{label}: {name} axis is not world-axis-aligned, got {axis}",
-        )
+    expected = HOME_EE_AXES.get(arm_type, DEFAULT_HOME_EE_AXES)
+    for name, axis, want in zip("XYZ", (x_axis, y_axis, z_axis), expected, strict=True):
+        np.testing.assert_allclose(axis, want, atol=1e-3, err_msg=f"{label}: {name} axis should be {want}, got {axis}")
 
 
 @pytest.mark.parametrize("arm_type", YAM_ARMS)
@@ -230,6 +227,81 @@ def test_grasp_site_consistent_across_grippers(arm_type: ArmType) -> None:
                 atol=1e-3,
                 err_msg=(f"{arm_type.value}: {gripper_type.value} site frame differs from {ref_gripper.value}"),
             )
+
+
+@pytest.mark.parametrize("gripper_type", FINGER_GRIPPERS, ids=lambda g: g.value)
+def test_grasp_site_is_on_the_fingers_far_end_along_the_approach_axis(gripper_type: GripperType) -> None:
+    """grasp_site sits on the closed fingers' distal facets: at most 0.1 mm behind their furthest vertex along +Z.
+
+    A gripper model's world is the flange. Fingers and grasp_site move together; re-placing the fingers without it puts
+    every IK target short of them.
+    """
+    model = mujoco.MjModel.from_xml_path(gripper_type.get_xml_path())
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    fingers = {model.jnt_bodyid[j] for j in range(model.njnt) if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_SLIDE}
+    furthest = -np.inf
+    for geom in (g for g in range(model.ngeom) if model.geom_bodyid[g] in fingers and model.geom_dataid[g] >= 0):
+        mesh = model.geom_dataid[geom]
+        verts = model.mesh_vert[model.mesh_vertadr[mesh] : model.mesh_vertadr[mesh] + model.mesh_vertnum[mesh]]
+        furthest = max(furthest, (verts @ data.geom_xmat[geom].reshape(3, 3).T + data.geom_xpos[geom])[:, 2].max())
+
+    site = data.site("grasp_site").xpos
+    assert 0.0 <= furthest - site[2] <= 1e-4, f"fingers reach z={furthest:.6f}, grasp_site at z={site[2]:.6f}"
+
+
+@pytest.mark.parametrize("gripper_type", ALL_GRIPPERS, ids=lambda g: g.value)
+def test_tcp_sites_carry_the_flange_axes(gripper_type: GripperType) -> None:
+    """Every tool-centre site has the flange's axes unrotated, passive XMI's ``tcp_in_gripper`` convention.
+
+    That is X along the jaw stroke, Y down (away from the wrist camera), Z the approach -- the axes a gripper model's
+    world (the flange) is written in -- so a TCP differs from its flange by translation only. grasp_site used to sit
+    at the flange turned +90 deg about Z (-90 deg on flexible_4310).
+    """
+    model = mujoco.MjModel.from_xml_path(gripper_type.get_xml_path())
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    sites = [
+        name for name in ("tcp_site", "grasp_site") if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name) >= 0
+    ]
+    assert sites, f"{gripper_type.value} has no tool-centre site"
+    for name in sites:
+        np.testing.assert_allclose(
+            data.site(name).xmat.reshape(3, 3), np.eye(3), atol=1e-6, err_msg=f"{gripper_type.value} {name}"
+        )
+
+
+@pytest.mark.parametrize("arm_type", YAM_ARMS)
+@pytest.mark.parametrize("gripper_type", ALL_GRIPPERS, ids=lambda g: g.value)
+def test_tcp_sites_are_a_pure_translation_of_the_flange_on_every_arm(
+    arm_type: ArmType, gripper_type: GripperType
+) -> None:
+    """In every composed arm+gripper model, flange -> tcp_site / grasp_site has no rotation.
+
+    The flange is the mount body, offset on a 7-DOF arm by its ``gripper_pos``/``gripper_quat``. This checks the
+    composition as well as the gripper models, which ``test_tcp_sites_carry_the_flange_axes`` checks on their own.
+    """
+    model = mujoco.MjModel.from_xml_path(combine_arm_and_gripper_xml(arm_type, gripper_type))
+    data = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, data)
+    gripper_quat = np.array(
+        [float(v) for v in (_load_gripper_config(gripper_type.value, arm_type).gripper_quat or "1 0 0 0").split()]
+    )
+    offset = np.zeros(9)
+    mujoco.mju_quat2Mat(offset, gripper_quat / np.linalg.norm(gripper_quat))  # the config rounds it; MuJoCo normalizes
+    flange = data.body("gripper").xmat.reshape(3, 3) @ offset.reshape(3, 3)
+    sites = [
+        name for name in ("tcp_site", "grasp_site") if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name) >= 0
+    ]
+    assert sites
+    for name in sites:
+        np.testing.assert_allclose(
+            flange.T @ data.site(name).xmat.reshape(3, 3),
+            np.eye(3),
+            atol=1e-6,
+            err_msg=f"{arm_type.value}+{gripper_type.value} {name}",
+        )
 
 
 # --------------------------------------------------------------------- wrap-around offsets

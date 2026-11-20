@@ -21,18 +21,18 @@
     </link>
     <link name="tcp_site" />
     <joint name="tcp_site_joint" type="fixed">
-        <origin xyz="0 0 0" rpy="0 0 1.57079633" />
+        <origin xyz="0 0 0" rpy="0 0 0" />
         <parent link="gripper" />
         <child link="tcp_site" />
     </joint>
     <link name="grasp_site" />
     <joint name="grasp_site_joint" type="fixed">
-        <origin xyz="3.8898e-05 9.681e-05 0.14465" rpy="0 0 1.57079633" />
+        <origin xyz="3.8898e-05 9.681e-05 0.146773" rpy="0 0 0" />
         <parent link="gripper" />
         <child link="grasp_site" />
     </joint>
     <joint name="joint7" type="prismatic">
-        <origin xyz="0.0450619 -0.0238981 0.0545599" rpy="-1.57079833 1.57079233 -1.57079433" />
+        <origin xyz="0.0450619 -0.0238981 0.0566829" rpy="-1.57079833 1.57079233 -1.57079433" />
         <parent link="gripper" />
         <child link="tip_left" />
         <axis xyz="0 0 -1" />
@@ -61,7 +61,7 @@
         </collision>
     </link>
     <joint name="joint8" type="prismatic">
-        <origin xyz="-0.0450619 0.0238981 0.0545599" rpy="-1.57079208 0 1.57079633" />
+        <origin xyz="-0.0450619 0.0238981 0.0566829" rpy="-1.57079208 0 1.57079633" />
         <parent link="gripper" />
         <child link="tip_right" />
         <axis xyz="0 0 -1" />

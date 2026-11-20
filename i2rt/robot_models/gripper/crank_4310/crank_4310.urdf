@@ -21,13 +21,13 @@
     </link>
     <link name="tcp_site" />
     <joint name="tcp_site_joint" type="fixed">
-        <origin xyz="0 0 0" rpy="0 0 1.57079633" />
+        <origin xyz="0 0 0" rpy="0 0 0" />
         <parent link="gripper" />
         <child link="tcp_site" />
     </joint>
     <link name="grasp_site" />
     <joint name="grasp_site_joint" type="fixed">
-        <origin xyz="-8.8323e-05 0.04459 0.14676" rpy="0 0 1.57079633" />
+        <origin xyz="-8.8323e-05 0.04459 0.14676" rpy="0 0 0" />
         <parent link="gripper" />
         <child link="grasp_site" />
     </joint>
