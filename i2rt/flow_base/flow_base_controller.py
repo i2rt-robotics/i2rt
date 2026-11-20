@@ -25,6 +25,7 @@ from threadpoolctl import threadpool_limits
 
 from i2rt.flow_base import caster_steering_check
 from i2rt.motor_drivers.dm_driver import ControlMode, DMChainCanInterface
+from i2rt.motor_drivers.utils import MotorInfo
 
 # Configure logging
 logging.basicConfig(
@@ -419,6 +420,14 @@ class Vehicle(Robot):
 
         self._state_callback = state_callback
         self._state_callback_logged_at = -math.inf
+        # The full motor sample update_state() read this cycle (all motors, incl. the rail and eff),
+        # and -- only while the state_callback runs -- the same list re-exposed as _callback_snapshot.
+        # They let the recording callback read odometry, wheel state and rail state from the one CAN
+        # sample this cycle's odometry is integrated from, instead of a fresh read_states() a CAN
+        # cycle later (set_velocities waits on command_lock, so the chain publishes a new sample in
+        # between). See update_state(), _notify_state(), get_wheel_states() and LinearRailVehicle.
+        self._cycle_motor_states: Optional[List[MotorInfo]] = None
+        self._callback_snapshot: Optional[List[MotorInfo]] = None
 
         # Control loop
         self.command_queue = queue.Queue(1)
@@ -449,20 +458,20 @@ class Vehicle(Robot):
         # Integrate against the actual elapsed loop time; fall back to the nominal period.
         if dt is None:
             dt = self.control_period
-        # Joint positions and velocities
+        # Joint positions and velocities.
+        # Read the whole chain once and cache it: this is the single CAN sample the odometry below is
+        # integrated from, and _notify_state() re-exposes it to the state_callback so the recorded
+        # wheel and rail state come from the same sample rather than a fresh read a CAN cycle later.
+        # Reading here instead of via caster_module_controller.get_state() also keeps the rail motor
+        # (and eff), which that helper drops. Same per-cycle read_states() cost as before.
         now = time.time()
-        state_dict = self.caster_module_controller.get_state()
-        steer_pos, drive_pos, steer_vel, drive_vel = (
-            state_dict["steer_pos"],
-            state_dict["drive_pos"],
-            state_dict["steer_vel"],
-            state_dict["drive_vel"],
-        )
+        motor_states = self.caster_module_controller.motor_interface.read_states()
+        self._cycle_motor_states = motor_states
         for i in range(self.num_casters):
-            self.q[i * 2] = steer_pos[i]
-            self.q[i * 2 + 1] = drive_pos[i]
-            self.dq[i * 2] = steer_vel[i]
-            self.dq[i * 2 + 1] = drive_vel[i]
+            self.q[i * 2] = motor_states[i * 2].pos
+            self.q[i * 2 + 1] = motor_states[i * 2 + 1].pos
+            self.dq[i * 2] = motor_states[i * 2].vel
+            self.dq[i * 2 + 1] = motor_states[i * 2 + 1].vel
 
         q_steer = self.q[::2]
         s = np.sin(q_steer)
@@ -658,6 +667,13 @@ class Vehicle(Robot):
         """Run the caller's state_callback, if any, without letting it end the control loop."""
         if self._state_callback is None:
             return
+        # Expose this cycle's cached sample for the duration of the callback, so get_odometry,
+        # get_wheel_states and get_linear_rail_state all report the one sample update_state read --
+        # not a fresh read_states() a CAN cycle later. A single reference assignment, no lock: the
+        # control thread is the only writer, and a concurrent reader on another thread sees either the
+        # snapshot or None, both self-consistent. Cleared in finally so callers outside the callback
+        # (e.g. the 50 Hz main-thread poll) keep reading live.
+        self._callback_snapshot = self._cycle_motor_states
         try:
             self._state_callback()
         except Exception:
@@ -667,6 +683,8 @@ class Vehicle(Robot):
             if now - self._state_callback_logged_at >= 5.0:
                 self._state_callback_logged_at = now
                 logger.exception("state_callback raised; base control continues")
+        finally:
+            self._callback_snapshot = None
 
     def _brake_to_stop(self) -> bool:
         """Ride the OTG down to a stop after a caster fault. True once the base has stopped.
@@ -783,8 +801,15 @@ class Vehicle(Robot):
         Reads the unified motor chain once and groups the 4 casters into steer/drive. The
         linear rail (9th) motor, if present, is excluded here; its state is reported by
         get_linear_rail_state.
+
+        During a state_callback this returns the sample update_state() read this cycle (see
+        _notify_state), so the recorded wheel state matches that cycle's odometry; otherwise it reads
+        the chain live.
         """
-        motor_states = self.caster_module_controller.motor_interface.read_states()
+        snapshot = self._callback_snapshot
+        motor_states = (
+            snapshot if snapshot is not None else self.caster_module_controller.motor_interface.read_states()
+        )
         num_casters = self.caster_module_controller.num_casters
         steer = {"pos": [], "vel": [], "eff": []}
         drive = {"pos": [], "vel": [], "eff": []}
@@ -1110,6 +1135,17 @@ class LinearRailVehicle(Vehicle):
                 f"Velocity must be 3D [x, y, theta] or 4D [x, y, theta, linear_rail_vel], got shape {velocity.shape}"
             )
 
+    def _snapshot_rail_motor(self) -> Optional[MotorInfo]:
+        """The rail motor from this cycle's cached sample while a state_callback runs, else None.
+
+        None means "read the rail live", which is what every caller outside the callback wants. See
+        Vehicle._notify_state for how the snapshot is scoped to the callback.
+        """
+        snapshot = self._callback_snapshot
+        if snapshot is None or self.linear_rail is None:
+            return None
+        return snapshot[self.linear_rail.single_motor_control_interface.target_motor_idx]
+
     def get_odometry(self, input_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Vehicle odometry with rail height (m) substituted into the z component.
 
@@ -1118,7 +1154,7 @@ class LinearRailVehicle(Vehicle):
         """
         odom = super().get_odometry(input_dict)
         if self.linear_rail is not None and self.linear_rail.meters_per_rad is not None:
-            rail = self.linear_rail.get_state()
+            rail = self.linear_rail.get_state(motor_state=self._snapshot_rail_motor())
             z = rail["position"]["linear"]
             vz = rail["velocity"]["linear"]
             odom["position"]["translation"][2] = z
@@ -1134,7 +1170,7 @@ class LinearRailVehicle(Vehicle):
         """
         if self.linear_rail is None:
             return {"error": "Linear rail not available"}
-        state = self.linear_rail.get_state()
+        state = self.linear_rail.get_state(motor_state=self._snapshot_rail_motor())
         motor_state = state.pop("motor_state", None)
         if motor_state is not None:
             state["eff"] = motor_state.eff  # rail motor torque (Nm)
