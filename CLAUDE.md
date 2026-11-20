@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, and the Flow Base
-mobile platform. It talks to Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and
-gravity compensation, and ships URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from
-`pyproject.toml`; the root `setup.py` is legacy/unused (stale `version`, minimal deps) — treat
-`pyproject.toml` as authoritative for dependencies and metadata.
+`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, the Flow Base
+mobile platform, and the yumi handheld UMI device (passive gripper + Vive tracker + MF camera). It talks to
+Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and gravity compensation, and ships
+URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from `pyproject.toml`; the root
+`setup.py` is legacy/unused (stale `version`, minimal deps) — treat `pyproject.toml` as authoritative for
+dependencies and metadata.
 
 ## Environment & commands
 
@@ -19,7 +20,7 @@ The project uses **uv** (not pip/venv directly). Python 3.11 is what CI runs; `r
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e .              # or: uv sync --dev  (installs dev tools too)
 
-# Tests (all run in MuJoCo sim — no CAN bus / motors needed)
+# Tests (hardware-free: MuJoCo sim + fakes — no CAN bus, motors, cameras or SteamVR needed)
 uv run pytest -n auto            # full suite, parallel (what CI runs)
 uv run pytest i2rt/robots/tests/test_urdf_mjcf_alignment.py -v      # one file
 uv run pytest -k "yam_pro and linear_4310"                          # by keyword
@@ -49,7 +50,8 @@ and drops the `ec_` API: do not upgrade the vendored copy without a licence revi
   parses args with `tyro.cli(...)`. Follow this when adding or editing a CLI.
 - **Type-checking is split:** `pyproject.toml` has a `[tool.mypy]` section (targets 3.12, excludes
   `scripts/`), but the pre-commit hook actually runs **pyright**, scoped to a small allowlist
-  (`i2rt/utils/(encoder_manager|can_flash).py`). Extend the hook's `files:` regex as more modules are cleaned up.
+  (`i2rt/utils/(encoder_manager|can_flash).py` and every `i2rt/yumi/*.py` and `i2rt/camera/*.py` module). Extend
+  the hook's `files:` regex as more modules are cleaned up.
 - Ruff's `ANN` (annotations) rules apply to `scripts/` even though mypy excludes that directory.
 
 ## Architecture
@@ -402,7 +404,7 @@ On the chain-building path the call sits **inside the constructor**, after its a
 branch that opens the socket: everything above that line is pure Python, and register access needs an
 **idle bus**, so there is no later window. `--survey-only` is the other call site and builds no chain at
 all — it is also the one that passes `repair=False`, which is what makes "survey" true in both senses.
-Sim robots reach neither: `get_robot` returns a `SimRobot` before building a chain, so the sim-only
+Sim robots reach neither: `get_robot` returns a `SimRobot` before building a chain, so the hardware-free
 test suite never opens a socket.
 
 Two things `verify_motor_config` cannot derive and takes as arguments. The chain's **control mode**
@@ -422,6 +424,29 @@ is the server (gamepad/RC/API teleop + swerve kinematics); `flow_base_client.py`
 (`portal` RPC to `172.6.2.20`). See [i2rt/flow_base/README.md](i2rt/flow_base/README.md) — it is the
 authoritative hardware + commissioning + API doc. Note: the base commissioning SOP references material that
 lives in a separate internal repo, not here.
+
+### Yumi (`i2rt/yumi/`)
+
+A handheld UMI-style data-collection device: a passive gripper (a passive CAN encoder, `0x50E`, read through
+`PassiveEncoderReader`), a Vive tracker (OpenVR/SteamVR) and an i2rt MF150/MF118 USB fisheye camera. The
+camera is always named MF150/MF118 in this repo — never by its vendor's name. `yumi.py`'s `Yumi` is a
+`Robot` (`RobotType.UMI`, one passive DOF, `command_*` raise). Each sensor runs in **its own spawned
+process** (`device_process.py`'s `DeviceStream`), which pushes each new sample, stamped with the child's
+`time.monotonic()`, to the parent over a pipe. The parent keeps the latest and raises `TimeoutError` once that
+stamp is older than the stream's limit, so a sample delayed in the pipe reads as stale, not fresh.
+
+- `gripper_pos = 1 - |clip(angle, ±5.1 rad)| / 5.1`, with the encoder zeroed at the full-open stop.
+- The camera driver lives in `i2rt/camera/mf_camera.py`: `MFCamera` subclasses the `Camera` protocol in
+  `i2rt/camera/camera.py` (as devices subclass `Robot`). Raw frames, no intrinsics. It opens any USB serial (the
+  serial is the lookup key, never checked for a lens token), and without one `Yumi` opens the first
+  capture-capable camera.
+- The device model is URDF-only, [i2rt/robot_models/yumi/yumi.urdf](i2rt/robot_models/yumi/yumi.urdf)
+  (`YUMI_URDF_PATH`): body, two prismatic fingers and the tracker mesh, plus the CAD `tcp`, `camera` (OpenCV
+  optical) and `vive` (the tracker frame of `vive_pose`) frames, tabulated in its README.
+
+[i2rt/yumi/README.md](i2rt/yumi/README.md) is the authoritative device doc (gripper and camera setup, API);
+SteamVR installation and the wired tracker's setup live in
+[docs/guides/steamvr-vive-tracker-setup.md](docs/guides/steamvr-vive-tracker-setup.md).
 
 ### robot_models: URDF is the source of truth
 
@@ -473,7 +498,8 @@ mass/COM/inertia.
 
 ## Testing notes
 
-- The whole suite is **sim-only** — no CAN bus or motors required. `conftest.py` defines `sim`/`real` markers,
-  but tests are not currently gated by `skipif`; CI just runs everything.
+- The whole suite is **hardware-free** (MuJoCo sim plus fakes) — no CAN bus, motors, cameras or SteamVR
+  required. `conftest.py` defines `sim`/`real` markers, but tests are not currently gated by `skipif`; CI just
+  runs everything.
 - Tests are heavily **parametrized over arm × gripper combinations** — a change to config or model geometry
   can ripple across many test IDs at once.

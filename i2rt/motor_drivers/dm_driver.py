@@ -106,19 +106,24 @@ class PassiveEncoderReader:
             self.can_interface.channel, encoder_config
         )
 
-    def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+    def read_raw_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+        """One report as sent: ``position`` is the signed angle in rad, not clipped or normalized."""
         # this encoder's trigger message is 0x02
         data = [0xFF, 0x02]
         message = self.can_interface._send_message_get_response(
             encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E), max_retry=15
         )
         pos, vel, button_state = self._parse_encoder_message(message)
+        return PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
+
+    def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+        raw = self.read_raw_encoder(encoder_id)
         pos_range = [-self.range_rad, self.range_rad]
-        pos = np.clip(pos, pos_range[0], pos_range[1])
+        pos = np.clip(raw.position, pos_range[0], pos_range[1])
         # normalize pos to 1 - 0
         delta = np.abs(0.0 - pos)
         pos = delta / self.range_rad
-        result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
+        result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=raw.velocity, io_inputs=raw.io_inputs)
         return result
 
     def _parse_encoder_message(self, message: can.Message) -> PassiveEncoderInfo:
