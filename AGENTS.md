@@ -4,11 +4,12 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this is
 
-`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, and the Flow Base
-mobile platform. It talks to Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and
-gravity compensation, and ships URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from
-`pyproject.toml`; the root `setup.py` is legacy/unused (stale `version`, minimal deps) — treat
-`pyproject.toml` as authoritative for dependencies and metadata.
+`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, the Flow Base
+mobile platform, and the yumi handheld UMI device (passive gripper + Vive tracker + MF camera). It talks to
+Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and gravity compensation, and ships
+URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from `pyproject.toml`; the root
+`setup.py` is legacy/unused (stale `version`, minimal deps) — treat `pyproject.toml` as authoritative for
+dependencies and metadata.
 
 ## Environment & commands
 
@@ -19,7 +20,7 @@ The project uses **uv** (not pip/venv directly). Python 3.11 is what CI runs; `r
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e .              # or: uv sync --dev  (installs dev tools too)
 
-# Tests (all run in MuJoCo sim — no CAN bus / motors needed)
+# Tests (hardware-free: MuJoCo sim + fakes — no CAN bus, motors, cameras or SteamVR needed)
 uv run pytest -n auto            # full suite, parallel (what CI runs)
 uv run pytest i2rt/robots/tests/test_urdf_mjcf_alignment.py -v      # one file
 uv run pytest -k "yam_pro and linear_4310"                          # by keyword
@@ -40,7 +41,8 @@ then `uv run pytest -n auto`). Both use Python 3.11.
   parses args with `tyro.cli(...)`. Follow this when adding or editing a CLI.
 - **Type-checking is split:** `pyproject.toml` has a `[tool.mypy]` section (targets 3.12, excludes
   `scripts/`), but the pre-commit hook actually runs **pyright**, scoped to a small allowlist
-  (`i2rt/utils/(encoder_manager|can_flash).py`). Extend the hook's `files:` regex as more modules are cleaned up.
+  (`i2rt/utils/(encoder_manager|can_flash).py` and every `i2rt/yumi/*.py` and `i2rt/camera/*.py` module). Extend
+  the hook's `files:` regex as more modules are cleaned up.
 - Ruff's `ANN` (annotations) rules apply to `scripts/` even though mypy excludes that directory.
 
 ## Architecture
@@ -100,7 +102,9 @@ entry in the `_ARM_VARIANTS` map. The two enums are the entry points:
   `robot_models/station/` — and matches the ROS/OpenCV convention the station camera frames already use.
   On the 7-DOF arms the mount body is `joint7`'s wrist-pitch frame, so the flange is the
   `gripper_pos`/`gripper_quat` frame inside it; it follows the same convention, but since those arms hang,
-  its `+Z` points along world `-Z` at home.
+  its `+Z` points along world `-Z` at home. Every tool-centre site takes the flange's axes unrotated -- each
+  gripper's `grasp_site` / `tcp_site` and the stations' `tcp_{side}` -- matching passive XMI's `tcp_in_gripper`,
+  so a TCP differs from its flange by translation only (`test_tcp_sites_carry_the_flange_axes`).
 - **Both bodies are named `gripper`** — the arm's terminal mount (matching the URDF's last-joint child) and the
   gripper model's root — and MuJoCo body names must be unique, so composition *merges* them instead of nesting:
   the gripper's children move into the mount body under a `<frame>` carrying the gripper root's own
@@ -292,6 +296,30 @@ is the server (gamepad/RC/API teleop + swerve kinematics); `flow_base_client.py`
 authoritative hardware + commissioning + API doc. Note: the base commissioning SOP references material that
 lives in a separate internal repo, not here.
 
+### Yumi (`i2rt/yumi/`)
+
+A handheld UMI-style data-collection device: a passive gripper (a passive CAN encoder, `0x50E`, read through
+`PassiveEncoderReader`), a Vive tracker (OpenVR/SteamVR) and an i2rt MF150/MF118 USB fisheye camera. The
+camera is always named MF150/MF118 in this repo — never by its vendor's name. `yumi.py`'s `Yumi` is a
+`Robot` (`RobotType.UMI`, one passive DOF, `command_*` raise). Each sensor runs in **its own spawned
+process** (`device_process.py`'s `DeviceStream`), which pushes each new sample, stamped with the child's
+`time.monotonic()`, to the parent over a pipe. The parent keeps the latest and raises `TimeoutError` once that
+stamp is older than the stream's limit, so a sample delayed in the pipe reads as stale, not fresh.
+
+- `gripper_pos = 1 - |clip(angle, ±5.1 rad)| / 5.1`, with the encoder zeroed at the full-open stop.
+- The camera driver lives in `i2rt/camera/mf_camera.py`: `MFCamera` subclasses the `Camera` protocol in
+  `i2rt/camera/camera.py` (as devices subclass `Robot`). Raw frames, no intrinsics. It opens any USB serial (the
+  serial is the lookup key, never checked for a lens token), and without one `Yumi` opens the first
+  capture-capable camera.
+- The device model is [i2rt/robot_models/yumi/yumi.urdf](i2rt/robot_models/yumi/yumi.urdf)
+  (`YUMI_URDF_PATH`), with a hand-kept MJCF twin `yumi.xml` (`YUMI_XML_PATH`; the frames are sites there, and
+  `test_yumi_model.py` holds the two equal): body, two prismatic fingers and the tracker mesh, plus the CAD
+  `tcp`, `camera` (OpenCV optical) and `vive` (the tracker frame of `vive_pose`) frames, tabulated in its README.
+
+[i2rt/yumi/README.md](i2rt/yumi/README.md) is the authoritative device doc (gripper and camera setup, API);
+SteamVR installation and the wired tracker's setup live in
+[docs/guides/steamvr-vive-tracker-setup.md](docs/guides/steamvr-vive-tracker-setup.md).
+
 ### robot_models: URDF is the source of truth
 
 Arm models are **versioned by hardware revision**: each version dir (`i2rt/robot_models/arm/<arm>/v<N>/`) has
@@ -304,6 +332,12 @@ per-arm README tabulates masses, COMs, inertia tensors, joint frames/axes/ranges
 global frames, Modified-DH parameters, and space/body-frame PoE screw axes. A CI test keeps the URDF and MJCF
 honest against each other (masses, COMs, inertia, frames, axes, ranges); the README tables themselves are
 hand-maintained and are not parsed by any test.
+
+**Grippers are the other way round:** the gripper MJCF is the source, and
+[mjcf_to_urdf.py](i2rt/robot_models/scripts/mjcf_to_urdf.py) generates its URDF, whose root link `gripper` is
+the arm's `gripper` mount link. Edit the MJCF and re-run the script;
+[test_gripper_urdf_mjcf_alignment.py](i2rt/robots/tests/test_gripper_urdf_mjcf_alignment.py) fails on a stale or
+misaligned URDF. `flexible_4310.urdf` is an ONShape export in its own frames and is not generated.
 
 ## URDF ↔ MJCF alignment pipeline (this branch's focus)
 
@@ -342,7 +376,8 @@ mass/COM/inertia.
 
 ## Testing notes
 
-- The whole suite is **sim-only** — no CAN bus or motors required. `conftest.py` defines `sim`/`real` markers,
-  but tests are not currently gated by `skipif`; CI just runs everything.
+- The whole suite is **hardware-free** (MuJoCo sim plus fakes) — no CAN bus, motors, cameras or SteamVR
+  required. `conftest.py` defines `sim`/`real` markers, but tests are not currently gated by `skipif`; CI just
+  runs everything.
 - Tests are heavily **parametrized over arm × gripper combinations** — a change to config or model geometry
   can ripple across many test IDs at once.

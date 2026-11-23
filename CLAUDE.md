@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, and the Flow Base
-mobile platform. It talks to Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and
-gravity compensation, and ships URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from
-`pyproject.toml`; the root `setup.py` is legacy/unused (stale `version`, minimal deps) — treat
-`pyproject.toml` as authoritative for dependencies and metadata.
+`i2rt` is a Python client library for I2RT hardware: YAM 6-DOF arms, their grippers, the Flow Base
+mobile platform, and the yumi handheld UMI device (passive gripper + Vive tracker + MF camera). It talks to
+Damiao (DM) series motors over a CAN bus, provides MuJoCo simulation and gravity compensation, and ships
+URDF/MJCF robot models. The package is named `i2rt` and built with **Flit** from `pyproject.toml`; the root
+`setup.py` is legacy/unused (stale `version`, minimal deps) — treat `pyproject.toml` as authoritative for
+dependencies and metadata.
 
 ## Environment & commands
 
@@ -19,7 +20,7 @@ The project uses **uv** (not pip/venv directly). Python 3.11 is what CI runs; `r
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e .              # or: uv sync --dev  (installs dev tools too)
 
-# Tests (all run in MuJoCo sim — no CAN bus / motors needed)
+# Tests (hardware-free: MuJoCo sim + fakes — no CAN bus, motors, cameras or SteamVR needed)
 uv run pytest -n auto            # full suite, parallel (what CI runs)
 uv run pytest i2rt/robots/tests/test_urdf_mjcf_alignment.py -v      # one file
 uv run pytest -k "yam_pro and linear_4310"                          # by keyword
@@ -34,13 +35,23 @@ pre-commit run --all-files       # uv-lock, uv-sync --locked, ruff, ruff-format,
 Two GitHub Actions workflows gate PRs: `ruff.yml` (`ruff check`) and `unit_tests.yml` (`uv sync --dev`
 then `uv run pytest -n auto`). Both use Python 3.11.
 
+**One native package.** `i2rt-ecat/` is a separate, compiled package (scikit-build-core + CMake, a C++
+library over vendored upstream SOEM v1.4.0, loaded with ctypes), wired in as the `ethercat` dependency
+group, which `[tool.uv] default-groups` turns on — so `uv sync` compiles it on Linux, while
+`pip install` / `uv pip install -e .` stay pure Python and never need a compiler. It is a non-editable
+path source, not a workspace member (members are forced editable, which breaks the `.so` path); its
+`[tool.uv] cache-keys` make a C++ edit rebuild on the next `uv sync`. Opening the NIC needs `cap_net_raw` (+ `cap_sys_nice`): `scripts/grant_ethercat_caps.sh` grants them to this venv's own interpreter copy, hard-linking `python3` to it (a capped interpreter started through a symlink cannot find its stdlib, which breaks `uv sync`). Relock with the pre-commit
+hook's uv (`uvx uv@0.11.24 lock`) — a newer uv rewrites unrelated markers. SOEM 2.x is GPLv3/commercial
+and drops the `ec_` API: do not upgrade the vendored copy without a licence review.
+
 ### Tooling conventions
 
 - **All CLIs use `tyro`, never `argparse`.** Every `.py` entry point (in `scripts/`, `i2rt/`, `examples/`)
   parses args with `tyro.cli(...)`. Follow this when adding or editing a CLI.
 - **Type-checking is split:** `pyproject.toml` has a `[tool.mypy]` section (targets 3.12, excludes
   `scripts/`), but the pre-commit hook actually runs **pyright**, scoped to a small allowlist
-  (`i2rt/utils/(encoder_manager|can_flash).py`). Extend the hook's `files:` regex as more modules are cleaned up.
+  (`i2rt/utils/(encoder_manager|can_flash).py` and every `i2rt/yumi/*.py` and `i2rt/camera/*.py` module). Extend
+  the hook's `files:` regex as more modules are cleaned up.
 - Ruff's `ANN` (annotations) rules apply to `scripts/` even though mypy excludes that directory.
 
 ## Architecture
@@ -100,7 +111,9 @@ entry in the `_ARM_VARIANTS` map. The two enums are the entry points:
   `robot_models/station/` — and matches the ROS/OpenCV convention the station camera frames already use.
   On the 7-DOF arms the mount body is `joint7`'s wrist-pitch frame, so the flange is the
   `gripper_pos`/`gripper_quat` frame inside it; it follows the same convention, but since those arms hang,
-  its `+Z` points along world `-Z` at home.
+  its `+Z` points along world `-Z` at home. Every tool-centre site takes the flange's axes unrotated -- each
+  gripper's `grasp_site` / `tcp_site` and the stations' `tcp_{side}` -- matching passive XMI's `tcp_in_gripper`,
+  so a TCP differs from its flange by translation only (`test_tcp_sites_carry_the_flange_axes`).
 - **Both bodies are named `gripper`** — the arm's terminal mount (matching the URDF's last-joint child) and the
   gripper model's root — and MuJoCo body names must be unique, so composition *merges* them instead of nesting:
   the gripper's children move into the mount body under a `<frame>` carrying the gripper root's own
@@ -258,6 +271,67 @@ Everything else follows the family:
   `q = 0` the two arms are reflections of each other whatever their axes say, so every mirror sign
   error hides there.
 
+**Control modes.** `get_yam_robot(control_mode=...)` takes `"pd"` (the default, `MotorChainRobot`
+/ `SimRobot`, and the only mode on a six-joint arm) or, on the 7-DOF arms only, `"osc"` / `"osc_full"`:
+[arm7_osc.py](i2rt/robots/arm7_osc.py)'s `Arm7OSC` in its `kinematic` / `full` mode, a host-side torque
+controller with its own 500 Hz thread that reaches hardware only through the `MotorChain` protocol.
+In sim it runs against [sim_motor_chain.py](i2rt/robots/sim_motor_chain.py)'s `SimMotorChain`, a
+MuJoCo *dynamic* plant, not `SimRobot`. Three things it does not inherit from `MotorChainRobot` and
+has to be told:
+
+- **joint6's four-bar**, via `transmissions=` — without it the controller reads the motor angle as
+  the joint's and its joint6 loop gain comes out ~1/ratio^2 too high. Hardware paths pass it; the
+  sim plant is already in joint space and must not.
+- **the gripper**, via `gripper_limits=`/`gripper_kp`/`gripper_kd` — a motor-side PD toward the
+  same normalized command, with no force limiter.
+- **PD-like robot semantics**: the factory builds it with `command_timeout_s=None`,
+  `engage_on_command=True` and `owns_chain=True`, so one `command_joint_pos` engages the arm from
+  float and holds, and `close()` closes the chain. Built directly, `Arm7OSC` keeps the PR's 0.3 s
+  streaming timeout, needs `enable_arm()`, and leaves the chain to its caller.
+
+`osc_full` tracks the commanded joints' **tool pose**, reaching the joints only through the
+nullspace, so from the singular hanging home pose it can settle in another IK branch. The bench
+runbook is [examples/arm7_osc/README.md](examples/arm7_osc/README.md); its gain caps read the arm
+config's `breakaway_friction` (measured stiction), which is **not** `coulomb_friction` (the gravity-comp
+feedforward).
+
+**EtherCAT transport.** [ethercat_chain.py](i2rt/motor_drivers/ethercat_chain.py) drives DM motors
+through an EtherCAT-to-CAN board with the master in-process (the `i2rt_ecat` package above), so no
+bridge process or ROS is involved. The board carries three CAN frames per channel per 1 kHz cycle, so
+the arm's seven motors rotate and each is served at 3000/7 = 428.6 Hz. Replies are routed by the id
+they carry, so the motors must be flashed `MASTER_ID == ID` (`ReceiveMode.same`, not i2rt's usual
+`p16`). The C++ side moves 8-byte frames only; the DM codec (`pack_mit`/`unpack_mit_feedback` in
+[utils.py](i2rt/motor_drivers/utils.py)) is shared with the CAN driver. Its safety contract:
+- startup detects every motor before enabling any;
+- a reply is stamped only while the motor reports itself enabled, so a fault reads as silence to
+  `Arm7OSC`'s watchdog;
+- the master releases every motor after 100 ms without a command;
+- `close()` releases, then disables.
+
+The same board serves the request/response tools: `open_can_bus` in
+[can_interface.py](i2rt/motor_drivers/can_interface.py) maps a channel `ecat:<nic>` to a python-can bus
+over the master's raw mode, so everything in `motor_config_tool/` and `motor_check` works through it.
+One master per process: SOEM's `ec_` API is global. Kd measured on the previous (external bridge)
+transport was delivered at ~1/8; the runbook's §3 has the conversion.
+
+The board's behaviour was **measured, not documented** — `EcatCanBus.trace(n)` records raw images —
+and the master is built around it:
+- a reply lands two cycles after its request, in the same slot if its id matches the request's;
+- an unanswered slot keeps its last reply for ~25 ms;
+- each input slot only accepts ids matching the last frame its output slot sent (a sticky filter);
+- several same-id frames in one cycle go unanswered.
+
+Hence:
+- cyclic mode believes a reply only from the motor asked in that slot two cycles earlier;
+- a channel needs ≥3 motors (fewer is refused), with a group of three shifted a slot per cycle;
+- raw mode dedups by slot-content change;
+- the python-can adapter primes a slot with a remote frame (slot 2) before each `0x7FF` register
+  request, since the reply carries the motor's id. DM motors answer that remote frame with their
+  state; the adapter swallows it.
+
+Loopback emulates all of this, with `loopback_mute` standing in for a dead motor, and each rule has
+a loopback test that fails without it.
+
 Provenance: ONShape document `a30d2ef2655863e671c75240`, exported by `onshape-to-robot`. Unlike this
 arm's first export it arrives in the shape the pipeline expects — rooted at `base`, `link6` already
 named positionally, meshes placed from one clean assembly origin, and the `base` link frame already
@@ -332,7 +406,7 @@ On the chain-building path the call sits **inside the constructor**, after its a
 branch that opens the socket: everything above that line is pure Python, and register access needs an
 **idle bus**, so there is no later window. `--survey-only` is the other call site and builds no chain at
 all — it is also the one that passes `repair=False`, which is what makes "survey" true in both senses.
-Sim robots reach neither: `get_robot` returns a `SimRobot` before building a chain, so the sim-only
+Sim robots reach neither: `get_robot` returns a `SimRobot` before building a chain, so the hardware-free
 test suite never opens a socket.
 
 Two things `verify_motor_config` cannot derive and takes as arguments. The chain's **control mode**
@@ -353,6 +427,30 @@ is the server (gamepad/RC/API teleop + swerve kinematics); `flow_base_client.py`
 authoritative hardware + commissioning + API doc. Note: the base commissioning SOP references material that
 lives in a separate internal repo, not here.
 
+### Yumi (`i2rt/yumi/`)
+
+A handheld UMI-style data-collection device: a passive gripper (a passive CAN encoder, `0x50E`, read through
+`PassiveEncoderReader`), a Vive tracker (OpenVR/SteamVR) and an i2rt MF150/MF118 USB fisheye camera. The
+camera is always named MF150/MF118 in this repo — never by its vendor's name. `yumi.py`'s `Yumi` is a
+`Robot` (`RobotType.UMI`, one passive DOF, `command_*` raise). Each sensor runs in **its own spawned
+process** (`device_process.py`'s `DeviceStream`), which pushes each new sample, stamped with the child's
+`time.monotonic()`, to the parent over a pipe. The parent keeps the latest and raises `TimeoutError` once that
+stamp is older than the stream's limit, so a sample delayed in the pipe reads as stale, not fresh.
+
+- `gripper_pos = 1 - |clip(angle, ±5.1 rad)| / 5.1`, with the encoder zeroed at the full-open stop.
+- The camera driver lives in `i2rt/camera/mf_camera.py`: `MFCamera` subclasses the `Camera` protocol in
+  `i2rt/camera/camera.py` (as devices subclass `Robot`). Raw frames, no intrinsics. It opens any USB serial (the
+  serial is the lookup key, never checked for a lens token), and without one `Yumi` opens the first
+  capture-capable camera.
+- The device model is [i2rt/robot_models/yumi/yumi.urdf](i2rt/robot_models/yumi/yumi.urdf)
+  (`YUMI_URDF_PATH`), with a hand-kept MJCF twin `yumi.xml` (`YUMI_XML_PATH`; the frames are sites there, and
+  `test_yumi_model.py` holds the two equal): body, two prismatic fingers and the tracker mesh, plus the CAD
+  `tcp`, `camera` (OpenCV optical) and `vive` (the tracker frame of `vive_pose`) frames, tabulated in its README.
+
+[i2rt/yumi/README.md](i2rt/yumi/README.md) is the authoritative device doc (gripper and camera setup, API);
+SteamVR installation and the wired tracker's setup live in
+[docs/guides/steamvr-vive-tracker-setup.md](docs/guides/steamvr-vive-tracker-setup.md).
+
 ### robot_models: URDF is the source of truth
 
 Arm models are **versioned by hardware revision**: each version dir (`i2rt/robot_models/arm/<arm>/v<N>/`) has
@@ -365,6 +463,12 @@ per-arm README tabulates masses, COMs, inertia tensors, joint frames/axes/ranges
 global frames, Modified-DH parameters, and space/body-frame PoE screw axes. A CI test keeps the URDF and MJCF
 honest against each other (masses, COMs, inertia, frames, axes, ranges); the README tables themselves are
 hand-maintained and are not parsed by any test.
+
+**Grippers are the other way round:** the gripper MJCF is the source, and
+[mjcf_to_urdf.py](i2rt/robot_models/scripts/mjcf_to_urdf.py) generates its URDF, whose root link `gripper` is
+the arm's `gripper` mount link. Edit the MJCF and re-run the script;
+[test_gripper_urdf_mjcf_alignment.py](i2rt/robots/tests/test_gripper_urdf_mjcf_alignment.py) fails on a stale or
+misaligned URDF. `flexible_4310.urdf` is an ONShape export in its own frames and is not generated.
 
 ## URDF ↔ MJCF alignment pipeline (this branch's focus)
 
@@ -403,7 +507,8 @@ mass/COM/inertia.
 
 ## Testing notes
 
-- The whole suite is **sim-only** — no CAN bus or motors required. `conftest.py` defines `sim`/`real` markers,
-  but tests are not currently gated by `skipif`; CI just runs everything.
+- The whole suite is **hardware-free** (MuJoCo sim plus fakes) — no CAN bus, motors, cameras or SteamVR
+  required. `conftest.py` defines `sim`/`real` markers, but tests are not currently gated by `skipif`; CI just
+  runs everything.
 - Tests are heavily **parametrized over arm × gripper combinations** — a change to config or model geometry
   can ripple across many test IDs at once.

@@ -62,6 +62,32 @@ transmissions:
     branch: 1
     sign: -1
 
+# Breakaway friction (stiction), N.m -- a different quantity from coulomb_friction above, which is
+# the gravity-comp feedforward. Measured on the RIGHT arm, unchecked on left hardware, by loading
+# each joint until it lets go, both ways: friction reverses with direction and a gravity-model
+# error does not, so half the difference is friction. Repeatable to about 10%. Read only by
+# examples/arm7_osc/arm7_bringup.py,
+# whose gain caps are set against it; re-measure with its `--stage sweep` after a mechanical change.
+breakaway_friction: [1.91, 1.37, 1.18, 0.46, 0.29, 0.04, 0.10]
+
+# Coulomb friction while already moving, N.m. Measured by reading each motor's own
+# reported torque against what the loop commanded: the residual reverses with direction, and half
+# the difference between the two directions is this. Several times smaller than the breakaway
+# figure above, which is what it takes to start a stopped joint, not to keep a moving one moving.
+kinetic_friction: [0.11, 0.15, 0.33, 0.27, 0.43, 0.04, 0.10]
+
+# Arm7OSC's tuning for control_mode "osc" / "osc_full", as in yam_7dof_right_v1.yml, which says how
+# it is read and the bring-up run it came from. Tuned on the RIGHT arm, unchecked on left hardware.
+# The mirror image needs no re-signing: each gain is per world axis, and reflecting the arm only
+# flips the sign of an axis, which a diagonal gain does not see.
+osc:
+  torque_limit: [40.0, 40.0, 20.0, 20.0, 10.0, 8.0, 8.0]
+  motor_kd_active: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  motor_kd_float: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  friction_ff: 1.0
+  kp_cartesian: [977.0, 625.0, 400.0, 977.0, 977.0, 977.0]
+  kd_cartesian: [25.0, 20.0, 25.0, 25.0, 25.0, 25.0]
+
 # The arm's seven joints occupy CAN 0x01-0x07, so its gripper motor takes 0x08 -- the YAM
 # grippers sit at 0x07, which a seven-joint arm has already used.
 gripper_can_id: 0x08

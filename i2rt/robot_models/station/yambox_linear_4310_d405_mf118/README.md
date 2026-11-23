@@ -1,13 +1,13 @@
-# yambox camera extrinsics (`yambox_linear_4310_d405_decxin`)
+# yambox camera extrinsics (`yambox_linear_4310_d405_mf118`)
 
 Two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel RealSense D405 cameras, 0.61 m
-apart — the same arm-to-arm offset as the YAM station — plus a DECXIN camera looking down over the
-shared workspace. `yambox_linear_4310_d405_decxin.urdf` and the MJCF generated from it carry every
+apart — the same arm-to-arm offset as the YAM station — plus an i2rt MF118 camera looking down over the
+shared workspace. `yambox_linear_4310_d405_mf118.urdf` and the MJCF generated from it carry every
 transform below at full precision.
 
 `{side}_gripper` is the flange, i.e. the `joint6` output frame. `tcp_left` / `tcp_right` are the
-tool-centre frames, copied from `linear_4310`'s `grasp_site`: the flange turned 90° about Z and
-carried out to the centre of the two fingertip facets — 144.650 mm along the flange's +Z and
+tool-centre frames, copied from `linear_4310`'s `grasp_site`: the flange's own axes — the passive-XMI tool frame —
+carried out to the centre of the two fingertip facets — 146.773 mm along the flange's +Z and
 0.104 mm off its axis. It is measured from the tip meshes and holds at every finger opening, because
 the fingers slide transversely. Sites are a MuJoCo concept, so these live in the MJCF only.
 `{side}_camera` and `top_camera` are the optical frames. Each is also the frame of its camera
@@ -17,9 +17,9 @@ are the same frame, with nothing to compose between them.
 
 Provenance: the arms and their wrist cameras are byte-identical to
 [`../yam_station_linear_4310_d405/`](../yam_station_linear_4310_d405/README.md) — every arm and
-wrist link and joint of it — so the wrist table below and that station's agree exactly. The DECXIN is
+wrist link and joint of it — so the wrist table below and that station's agree exactly. The MF118 is
 modelled as three CAD parts, its bracket, its cover and the camera body, baked into the single
-`../assets/decxin_top.stl`; the per-part frames and meshes are in git history.
+`../assets/mf118_top.stl`; the per-part frames and meshes are in git history.
 
 ## What is not modelled
 
@@ -73,7 +73,7 @@ The two bases share an orientation and the offset is pure `−y`, so the arms' m
 ### The top-camera assembly
 
 `left_base` → `top_camera` is one fixed joint. The bracket, the cover and the camera body are baked
-into `../assets/decxin_top.stl` expressed in the optical frame, which sits on the lens face rolled
+into `../assets/mf118_top.stl` expressed in the optical frame, which sits on the lens face rolled
 180° about Z from the export's own camera frame — the roll is what puts +Y down the image, as the
 ROS/OpenCV convention requires. The bracket mounts axis-aligned, at a pure 180° yaw about Z to
 0.6 arcsec.
@@ -101,9 +101,9 @@ serves both:
 The optical axis is canted 25° off the flange's +Z approach axis, tilted back toward the gripper
 centreline. In this frame the mount is a pure `Rx(-25°)`, so the quaternion above *is* the cant: the
 ray leaves the camera 70 mm above and 77 mm ahead of the flange and crosses the gripper
-axis at `z = +0.228 m` — 83 mm beyond `tcp_{side}` (`z = +0.14465`) and 81 mm beyond the deepest
-fingertip vertex (`z = +0.1468`). In the TCP's own plane the ray is 38.9 mm off the centreline, and
-the tool centre sits 35.3 mm off the ray itself: the grasp is inside the D405's field of view, not on
+axis at `z = +0.228 m` — 81 mm beyond `tcp_{side}` (`z = +0.14677`), which sits 0.07 mm short of the
+deepest fingertip vertex (`z = +0.1468`). In the TCP's own plane the ray is 37.9 mm off the centreline, and
+the tool centre sits 34.4 mm off the ray itself: the grasp is inside the D405's field of view, not on
 its optical axis.
 
 The wrist camera hangs off `joint6`'s output by a single fixed joint, so this transform holds at

@@ -8,7 +8,7 @@ A Python client library for interacting with [I2RT](https://i2rt.com/) products 
 
 ## Features
 
-- Plug-and-play Python interface for YAM arms and Flow Base
+- Plug-and-play Python interface for YAM arms, Flow Base and the yumi handheld UMI device
 - Real-time robot control via CAN bus (DM series motors)
 - MuJoCo gravity compensation, simulation, and URDF/MJCF models
 - Gripper force control and auto-calibration
@@ -237,6 +237,21 @@ from i2rt.flow_base.flow_base_client import FlowBaseClient
 
 client = FlowBaseClient(host="172.6.2.20")
 client.set_target_velocity([0.1, 0.0, 0.0], frame="local")
+```
+
+## Yumi (handheld UMI device)
+
+A handheld data-collection device that combines a passive UMI gripper (passive CAN encoder), a Vive tracker
+(SteamVR) and an i2rt MF150 fisheye camera. Each sensor runs in its own process. See
+[`docs/guides/steamvr-vive-tracker-setup.md`](docs/guides/steamvr-vive-tracker-setup.md) for SteamVR setup with
+the wired tracker, and [`i2rt/yumi/README.md`](i2rt/yumi/README.md) for the device setup.
+
+```python
+from i2rt.yumi.yumi import Yumi
+
+with Yumi(can_channel="can0", tracker_serial="LHR-XXXXXXXX", camera_serial="MF150_2026061109") as yumi:
+    obs = yumi.get_observations()   # gripper_pos (0 closed .. 1 open), vive_pose (4x4), vive_pose_valid
+    image = yumi.get_image()        # latest RGB frame
 ```
 
 ## Examples

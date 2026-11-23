@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!-- Generated from yam_teaching_handle.xml by i2rt/robot_models/scripts/mjcf_to_urdf.py. Edit the
+     MJCF and re-run the script instead of editing this file. The root link `gripper` is the arm's
+     `gripper` mount link, so these links sit on an arm URDF's `gripper` link as is. -->
+<robot name="yam_teaching_handle">
+    <link name="gripper">
+        <inertial>
+            <origin xyz="0.00222058 0.0299962047 0.0591553401" rpy="0 0 0" />
+            <mass value="0.238592" />
+            <inertia ixx="0.000757284" ixy="5.44276197e-06" ixz="-1.66539758e-05" iyy="0.000475324321" iyz="-0.000255316816" izz="0.000373210679" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.0106413 0.1392684 0.120275271" rpy="2.35620119 0 0" />
+            <geometry>
+                <mesh filename="assets/handle.stl" />
+            </geometry>
+            <material name="rgba_1_0.6_0_1">
+                <color rgba="1 0.6 0 1" />
+            </material>
+        </visual>
+    </link>
+    <link name="tcp_site" />
+    <joint name="tcp_site_joint" type="fixed">
+        <origin xyz="-0.000241398 0.110434524 0.136986203" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="tcp_site" />
+    </joint>
+    <joint name="gripper" type="revolute">
+        <origin xyz="1e-05 0.022721291 0.0994284873" rpy="2.35620119 0 0" />
+        <parent link="gripper" />
+        <child link="trigger" />
+        <axis xyz="1 0 0" />
+        <limit effort="1" velocity="1" lower="-0.680678" upper="0" />
+    </joint>
+    <link name="trigger">
+        <inertial>
+            <origin xyz="-2.88511e-09 0.000787745 -0.0050943" rpy="0 0 0" />
+            <mass value="0.00499911" />
+            <inertia ixx="6.57726e-07" ixy="0" ixz="0" iyy="7.00643e-07" iyz="7.99927e-08" izz="2.3739e-07" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.0106913 -0.0680085 -0.0984379" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/trigger.stl" />
+            </geometry>
+            <material name="rgba_0.764706_0.878431_0.945098_1">
+                <color rgba="0.764706 0.878431 0.945098 1" />
+            </material>
+        </visual>
+    </link>
+</robot>

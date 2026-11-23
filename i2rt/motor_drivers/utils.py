@@ -1,6 +1,6 @@
 import enum
 from dataclasses import dataclass
-from typing import List
+from typing import List, NamedTuple
 
 
 def uint_to_float(x_int: int, x_min: float, x_max: float, bits: int) -> float:
@@ -40,6 +40,55 @@ class MotorConstants:
     KP_MIN: float = 0.0
     KD_MAX: float = 5.0
     KD_MIN: float = 0.0
+
+
+# DM special frames, sent to the motor's own CAN id. FE (save zero) is deliberately absent: it writes
+# Flash, and a cyclic transport that re-sends its latched frame every tick must never carry it.
+DM_ENABLE = bytes([0xFF] * 7 + [0xFC])
+DM_DISABLE = bytes([0xFF] * 7 + [0xFD])
+DM_CLEAR_ERR = bytes([0xFF] * 7 + [0xFB])
+
+
+def pack_mit(pos: float, vel: float, kp: float, kd: float, torque: float, const: "MotorConstants") -> bytearray:
+    """One DM MIT-mode command frame: position on 16 bits, velocity, kp, kd and torque on 12 each."""
+    p = float_to_uint(pos, const.POSITION_MIN, const.POSITION_MAX, 16)
+    v = float_to_uint(vel, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
+    kp_ = float_to_uint(kp, const.KP_MIN, const.KP_MAX, 12)
+    kd_ = float_to_uint(kd, const.KD_MIN, const.KD_MAX, 12)
+    t = float_to_uint(torque, const.TORQUE_MIN, const.TORQUE_MAX, 12)
+    return bytearray(
+        [
+            (p >> 8) & 0xFF,
+            p & 0xFF,
+            (v >> 4) & 0xFF,
+            ((v & 0xF) << 4) | (kp_ >> 8),
+            kp_ & 0xFF,
+            (kd_ >> 4) & 0xFF,
+            ((kd_ & 0xF) << 4) | (t >> 8),
+            t & 0xFF,
+        ]
+    )
+
+
+class MitFeedback(NamedTuple):
+    error: int  # the DM state nibble: 0x1 enabled, 0x0 disabled, 0x8.. faults (MotorErrorCode)
+    position: float
+    velocity: float
+    torque: float
+    temperature_mos: float
+    temperature_rotor: float
+
+
+def unpack_mit_feedback(data: bytes, const: "MotorConstants") -> MitFeedback:
+    """Decode a DM feedback frame against the replying motor's own constants."""
+    return MitFeedback(
+        error=(data[0] & 0xF0) >> 4,
+        position=uint_to_float((data[1] << 8) | data[2], const.POSITION_MIN, const.POSITION_MAX, 16),
+        velocity=uint_to_float((data[3] << 4) | (data[4] >> 4), const.VELOCITY_MIN, const.VELOCITY_MAX, 12),
+        torque=uint_to_float(((data[4] & 0xF) << 8) | data[5], const.TORQUE_MIN, const.TORQUE_MAX, 12),
+        temperature_mos=float(data[6]),
+        temperature_rotor=float(data[7]),
+    )
 
 
 @dataclass

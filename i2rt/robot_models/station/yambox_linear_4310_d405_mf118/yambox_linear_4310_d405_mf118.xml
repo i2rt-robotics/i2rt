@@ -1,11 +1,11 @@
 <!-- yambox dual-arm cell: two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel
-     RealSense D405 cameras, plus a DECXIN camera looking down over the workspace, generated from
-     yambox_linear_4310_d405_decxin.urdf (the source of truth) with the repo's standard URDF -> MJCF
+     RealSense D405 cameras, plus an i2rt MF118 camera looking down over the workspace, generated from
+     yambox_linear_4310_d405_mf118.urdf (the source of truth) with the repo's standard URDF -> MJCF
      conversion. Kinematics only: no defaults, actuators, cameras or keyframe.
 
      The arms and their wrist cameras are byte-identical to
      ../yam_station_linear_4310_d405/yam_station_linear_4310_d405.xml, `right_base`'s 0.61 m offset
-     included. Only the DECXIN, its cover and its bracket are modelled from the box CAD; the mast
+     included. Only the MF118, its cover and its bracket are modelled from the box CAD; the mast
      (`YB01_A01_010_cameraShaft`) the bracket clamps to is absent, and so is the bracket's own arm
      down to it, cut flush under the bracket's head plate. See README.md.
 
@@ -21,12 +21,12 @@
      the extrinsics.
 
      `tcp_left` / `tcp_right` are the tool-centre frames, taken from
-     gripper/linear_4310/linear_4310.xml's `grasp_site`: the flange turned 90 deg about Z and
-     carried out to the centre of the two fingertip facets, 144.650 mm along the flange's +Z and
+     gripper/linear_4310/linear_4310.xml's `grasp_site`: the flange's own axes -- the passive-XMI tool frame --
+     carried out to the centre of the two fingertip facets, 146.773 mm along the flange's +Z and
      0.104 mm off its axis. Measured from the tip meshes, and the same point at every finger
      opening because the fingers slide transversely. Sites are a MuJoCo concept, so the URDF has no
      counterpart. -->
-<mujoco model="yambox_linear_4310_d405_decxin">
+<mujoco model="yambox_linear_4310_d405_mf118">
   <compiler angle="radian" meshdir="."/>
 
   <asset>
@@ -40,7 +40,7 @@
     <mesh name="tip_left" file="../../arm/yam/v1/assets/tip_left.stl"/>
     <mesh name="tip_right" file="../../arm/yam/v1/assets/tip_right.stl"/>
     <mesh name="d405_wrist_linear_4310" file="../assets/d405_wrist_linear_4310.stl"/>
-    <mesh name="decxin_top" file="../assets/decxin_top.stl"/>
+    <mesh name="mf118_top" file="../assets/mf118_top.stl"/>
   </asset>
 
   <worldbody>
@@ -71,7 +71,7 @@
                   <inertial pos="0.000249371 -3.57064e-05 0.0293133" quat="-0.04031451558999538 -0.03581748244452365 0.699467872758143 -0.7126265100059628" mass="0.553219" diaginertia="0.00032441493150336118 0.00036975817680782921 0.00040968689168880947"/>
                   <joint name="left_joint6" pos="0 0 0" axis="2.40808e-14 1.46014e-15 1" type="hinge" range="-2.0943999999999998 2.0943999999999998"/>
                   <geom pos="-0.0463995 -0.014 -0.0731" quat="0 0.7071067811865476 0.7071067811865476 0" type="mesh" rgba="0.109804 0.286275 0.0117647 1" mesh="gripper"/>
-                  <site name="tcp_left" pos="3.88982673e-05 9.68103407e-05 0.144650259" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
+                  <site name="tcp_left" pos="3.88982673e-05 9.68103407e-05 0.146773259" quat="1 0 0 0" size="0.005" rgba="1 0 0 1"/>
                   <body name="left_tip_left" pos="0.0445119 -0.0239931 0.0566829" quat="-3.781163356280465e-15 0.7071067811865481 0.707106781186547 -3.4475185571114922e-15">
                     <inertial pos="0.014584 -0.042586 -0.0228318" quat="0.65772074107926914 -0.57926972033349222 0.48096190187968513 -0.022927424608338076" mass="0.069657" diaginertia="2.7986230132096179e-05 5.9460494201959903e-05 6.1856875665943902e-05"/>
                     <joint name="left_joint7" pos="0 0 0" axis="-6.86541e-15 -1 0" type="slide" range="0 0.046949999999999999"/>
@@ -119,7 +119,7 @@
                     <inertial pos="0.000249371 -3.57064e-05 0.0293133" quat="-0.04031451558999538 -0.03581748244452365 0.699467872758143 -0.7126265100059628" mass="0.553219" diaginertia="0.00032441493150336118 0.00036975817680782921 0.00040968689168880947"/>
                     <joint name="right_joint6" pos="0 0 0" axis="2.40808e-14 1.46014e-15 1" type="hinge" range="-2.0943999999999998 2.0943999999999998"/>
                     <geom pos="-0.0463995 -0.014 -0.0731" quat="0 0.7071067811865476 0.7071067811865476 0" type="mesh" rgba="0.109804 0.286275 0.0117647 1" mesh="gripper"/>
-                    <site name="tcp_right" pos="3.88982673e-05 9.68103407e-05 0.144650259" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
+                    <site name="tcp_right" pos="3.88982673e-05 9.68103407e-05 0.146773259" quat="1 0 0 0" size="0.005" rgba="1 0 0 1"/>
                     <body name="right_tip_left" pos="0.0445119 -0.0239931 0.0566829" quat="-3.781163356280465e-15 0.7071067811865481 0.707106781186547 -3.4475185571114922e-15">
                       <inertial pos="0.014584 -0.042586 -0.0228318" quat="0.65772074107926914 -0.57926972033349222 0.48096190187968513 -0.022927424608338076" mass="0.069657" diaginertia="2.7986230132096179e-05 5.9460494201959903e-05 6.1856875665943902e-05"/>
                       <joint name="right_joint7" pos="0 0 0" axis="-6.86541e-15 -1 0" type="slide" range="0 0.046949999999999999"/>
@@ -143,7 +143,7 @@
       </body>
       <body name="top_camera" pos="0.027300000268037632 -0.30499999974662501 0.62729999996097807" quat="0.26488686248184062 -0.65561799097075357 0.65561799097085716 -0.26488686248158172">
         <inertial pos="1.9814539815456122e-08 0.0070085741482612662 -0.023777967454422358" quat="0.12945190388581945 0.69525945169384606 0.69509383136590286 -0.12923260040631726" mass="4.0957037e-05" diaginertia="9.7166124826973428e-09 1.674826738109139e-08 1.9790643387628062e-08"/>
-        <geom type="mesh" rgba="0.541176 0.682353 0.839216 1" mesh="decxin_top"/>
+        <geom type="mesh" rgba="0.541176 0.682353 0.839216 1" mesh="mf118_top"/>
       </body>
     </body>
   </worldbody>

@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<!-- Generated from crank_4310.xml by i2rt/robot_models/scripts/mjcf_to_urdf.py. Edit the
+     MJCF and re-run the script instead of editing this file. The root link `gripper` is the arm's
+     `gripper` mount link, so these links sit on an arm URDF's `gripper` link as is. -->
+<robot name="crank_4310">
+    <link name="gripper">
+        <inertial>
+            <origin xyz="0 0 0.027" rpy="0 0 0" />
+            <mass value="0.45" />
+            <inertia ixx="0.0005" ixy="0" ixz="0" iyy="0.0003" iyz="0" izz="0.0004" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0.164101 -0.110597" rpy="-1.57079633 0 3.14159265" />
+            <geometry>
+                <mesh filename="assets/gripper.stl" />
+            </geometry>
+            <material name="rgba_1_0.6_0_1">
+                <color rgba="1 0.6 0 1" />
+            </material>
+        </visual>
+    </link>
+    <link name="tcp_site" />
+    <joint name="tcp_site_joint" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="tcp_site" />
+    </joint>
+    <link name="grasp_site" />
+    <joint name="grasp_site_joint" type="fixed">
+        <origin xyz="-8.8323e-05 0.04459 0.14676" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="grasp_site" />
+    </joint>
+    <joint name="joint7" type="prismatic">
+        <origin xyz="0.037 -0.0392 0.0605" rpy="-1.57079633 0 3.14159265" />
+        <parent link="gripper" />
+        <child link="tip_left" />
+        <axis xyz="1 0 0" />
+        <limit effort="1" velocity="1" lower="0" upper="0.039574" />
+    </joint>
+    <link name="tip_left">
+        <inertial>
+            <origin xyz="0.03 -0.04 -0.039" rpy="0 0 0" />
+            <mass value="0.075" />
+            <inertia ixx="6e-05" ixy="0" ixz="0" iyy="6e-05" iyz="0" izz="3e-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0.03495 0.171097 -0.203301" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_left.stl" />
+            </geometry>
+            <material name="rgba_0.74902_0.74902_0.74902_1">
+                <color rgba="0.74902 0.74902 0.74902 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0.03495 0.171097 -0.203301" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_left.stl" />
+            </geometry>
+        </collision>
+    </link>
+    <joint name="joint8" type="prismatic">
+        <origin xyz="-0.037 0.0392 0.0605" rpy="-1.57079633 0 3.14159265" />
+        <parent link="gripper" />
+        <child link="tip_right" />
+        <axis xyz="-1 0 0" />
+        <limit effort="1" velocity="1" lower="0" upper="0.039574" />
+        <mimic joint="joint7" multiplier="1" offset="0" />
+    </joint>
+    <link name="tip_right">
+        <inertial>
+            <origin xyz="-0.03 -0.04 0.039" rpy="0 0 0" />
+            <mass value="0.075" />
+            <inertia ixx="6e-05" ixy="0" ixz="0" iyy="6e-05" iyz="0" izz="3e-05" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.03495 0.171097 -0.124901" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_right.stl" />
+            </geometry>
+            <material name="rgba_0.74902_0.74902_0.74902_1">
+                <color rgba="0.74902 0.74902 0.74902 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="-0.03495 0.171097 -0.124901" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_right.stl" />
+            </geometry>
+        </collision>
+    </link>
+</robot>

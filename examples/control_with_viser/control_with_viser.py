@@ -11,8 +11,10 @@ Usage:
     python examples/control_with_viser/control_with_viser.py --arm big_yam --gripper linear_4310 --sim
     python examples/control_with_viser/control_with_viser.py --arm yam_ultra_2 --sim
     python examples/control_with_viser/control_with_viser.py --arm yam_7dof_left --sim
+    python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --control-mode osc --sim
     python examples/control_with_viser/control_with_viser.py --channel can0
     python examples/control_with_viser/control_with_viser.py --channel can0 --record
+    python examples/control_with_viser/control_with_viser.py --arm yam_7dof_right --channel ecat:enp99s0
 """
 
 import sys
@@ -25,7 +27,7 @@ from typing import Optional
 import tyro
 
 from i2rt.robots.get_robot import get_yam_robot
-from i2rt.robots.utils import ArmName, ArmType, GripperType
+from i2rt.robots.utils import ArmControlMode, ArmName, ArmType, GripperType
 from i2rt.utils.viser_control_interface import ViserControlInterface
 
 # The 7-DOF arms are plate-mounted: the mounting face is the world x-z plane and the arm hangs along -Z,
@@ -48,19 +50,21 @@ def main(
     site: Optional[str] = None,
     friction: bool = False,
     record: bool = False,
+    control_mode: ArmControlMode = "pd",
 ) -> None:
     """Viser control interface for i2rt robots.
 
     Args:
         arm: arm variant.
         gripper: gripper variant.
-        channel: CAN channel.
+        channel: CAN channel, or `ecat:<nic>` for an arm behind an EtherCAT-to-CAN board.
         sim: Use SimRobot.
         dt: Loop timestep (s).
         port: Viser server port.
         site: EE site name (auto-detected if omitted).
         friction: Enable Coulomb friction compensation in gravity comp (real hardware only).
         record: Record motor feedback and computed required torques to a ROS 2 CDR MCAP file.
+        control_mode: `pd`, or operational-space control (`osc` / `osc_full`) on a 7-DOF arm.
     """
     arm_type = ArmType.from_string_name(arm)
     gripper_type = GripperType.from_string_name(gripper)
@@ -69,6 +73,8 @@ def main(
         site = "tcp_site" if gripper_type.is_teaching_handle else "grasp_site"
     if record and sim:
         raise SystemExit("--record requires real hardware motor feedback; remove --sim")
+    if record and control_mode != "pd":
+        raise SystemExit("--record records MotorChainRobot's motor feedback; use --control-mode pd")
 
     robot = get_yam_robot(
         channel=channel,
@@ -76,6 +82,7 @@ def main(
         gripper_type=gripper_type,
         sim=sim,
         use_coulomb_friction=friction,
+        control_mode=control_mode,
     )
 
     try:

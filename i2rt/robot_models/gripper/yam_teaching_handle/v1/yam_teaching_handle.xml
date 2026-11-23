@@ -24,9 +24,9 @@
      `tcp_site` sits at the shell's furthest point along the approach axis (flange +Z), the same
      way every gripper's `grasp_site` sits at its fingertips: the one mesh vertex with the largest
      flange z, on the front of the butt, 208.4 mm from the flange. It is on the shell body, not
-     the trigger, so squeezing does not move it. Its orientation is the shared end-effector
-     convention every other gripper uses (X down, Y and Z horizontal at qpos=0), which
-     test_robot_variants' grasp-site tests enforce; only the position is handle-specific.
+     the trigger, so squeezing does not move it. Its orientation is the flange's, the passive-XMI
+     tool frame every gripper's grasp_site uses (X along the jaw stroke, Y down, Z the approach),
+     which test_robot_variants' grasp-site tests enforce; only the position is handle-specific.
 
      The trigger hinge is named `gripper`, the repo's name for a normalized gripper command, and
      shares that name with the root body (MuJoCo keeps body and joint names in separate
@@ -63,7 +63,7 @@
     <body name="gripper" pos="0 0 0" quat="0.38268 0.92388 0 0">
       <inertial pos="0.0018575 0.02106 -0.0802638" quat="0.7059392426719 -0.057289184102795 -0.704380485114871 -0.0470729989484305" mass="0.252595" diaginertia="0.000177304388462799 0.000970897959001009 0.00105535865253619"/>
       <geom pos="-0.0106413 -0.0134314 -0.183525" quat="1 0 0 0" type="mesh" rgba="0.301961 0.427451 0.701961 1" mesh="handle" contype="0" conaffinity="0"/>
-      <site name="tcp_site" pos="-0.000490393 0.0231556 -0.207129" quat="0.2705980500730985 -0.6532814824381883 0.6532814824381882 0.2705980500730985" size="0.005" rgba="1 0 0 1"/>
+      <site name="tcp_site" pos="-0.000490393 0.0231556 -0.207129" quat="0.38268 -0.92388 0 0" size="0.005" rgba="1 0 0 1"/>
       <body name="trigger" pos="1e-05 0.0533184 -0.0863469" quat="1 0 0 0">
         <inertial pos="-1.91766e-09 -0.000646924 -0.00511405" quat="0.527433056094875 0.470971730933418 0.470971730933418 -0.527433056094875" mass="0.0049991" diaginertia="2.23965486366579e-07 6.5772e-07 7.14059513633421e-07"/>
         <joint name="gripper" pos="0 0 0" axis="1 0 0" range="-0.680678 0"/>

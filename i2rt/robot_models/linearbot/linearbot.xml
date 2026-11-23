@@ -1,0 +1,83 @@
+<!-- Generated from linearbot.urdf by MuJoCo (mujoco.MjSpec.from_file(urdf).to_xml()); regenerate rather than
+     hand-edit, and edit the URDF, which is the source of truth. -->
+<mujoco model="linearbot">
+  <compiler angle="radian"/>
+
+  <asset>
+    <mesh name="base" file="assets/base.stl"/>
+    <mesh name="linear_lift" file="assets/linear_lift.stl"/>
+    <mesh name="linear_lift_holder" file="assets/linear_lift_holder.stl"/>
+    <mesh name="motor1" file="assets/motor1.stl"/>
+    <mesh name="motor2" file="assets/motor2.stl"/>
+    <mesh name="motor3" file="assets/motor3.stl"/>
+    <mesh name="motor4" file="assets/motor4.stl"/>
+    <mesh name="motor5" file="assets/motor5.stl"/>
+    <mesh name="motor6" file="assets/motor6.stl"/>
+    <mesh name="motor7" file="assets/motor7.stl"/>
+    <mesh name="motor8" file="assets/motor8.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="root">
+      <body name="base" pos="0.3975 -0.2035 0.111" quat="0.707107 0 0 -0.707107">
+        <inertial pos="-0.204712 -0.397277 0.100926" quat="0.504719 0.495808 -0.504172 0.495222" mass="30.5" diaginertia="0.00215316 0.00124928 0.00112155"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.231373 0.380392 0.705882 1" mesh="base"/>
+        <body name="motor5" pos="-0.407 -0.599 0.01">
+          <inertial pos="-0.00752727 0.00894052 -0.0417794" quat="0.618275 0.351232 0.126284 0.691682" mass="0.124913" diaginertia="0.000234899 0.000172178 0.000106171"/>
+          <joint name="dof_joint1" pos="0 0 0" axis="0 0 1"/>
+          <geom pos="0.4 0.596 0.015" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor5"/>
+          <body name="motor6" pos="-0.0252 0.02 -0.071">
+            <inertial pos="0.0241102 0 0" mass="0.297603" diaginertia="0.00031015 0.000200747 0.000200747"/>
+            <joint name="dof_joint2" pos="0 0 0" axis="-1 0 0"/>
+            <geom pos="0.4252 0.576 0.086" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor6"/>
+          </body>
+        </body>
+        <body name="motor7" pos="-0.407 -0.196 0.01">
+          <inertial pos="-0.00785058 -0.00895171 -0.0419157" quat="0.692416 0.125429 0.350775 0.617887" mass="0.126813" diaginertia="0.000236846 0.000173681 0.000107147"/>
+          <joint name="dof_joint3" pos="0 0 0" axis="0 0 1"/>
+          <geom pos="0.4 0.196 0.015" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor7"/>
+          <body name="motor8" pos="-0.0249502 -0.02 -0.071" quat="1 0 0 0">
+            <inertial pos="0.0228248 -0.00057186 0.000419668" quat="0.891173 0.453653 0.00264678 0.00133425" mass="0.298689" diaginertia="0.00031843 0.000204325 0.000204266"/>
+            <joint name="dof_joint4" pos="0 0 0" axis="-1 0 0"/>
+            <geom pos="0.42495 0.215293 0.0865185" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor8"/>
+          </body>
+        </body>
+        <body name="motor1" pos="0 -0.196 0.014">
+          <inertial pos="0.00752727 -0.00894052 -0.0457794" quat="0.618275 -0.351232 -0.126284 0.691682" mass="0.124913" diaginertia="0.000234899 0.000172178 0.000106171"/>
+          <joint name="dof_joint5" pos="0 0 0" axis="0 0 1"/>
+          <geom pos="0 0.196 0.011" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor1"/>
+          <body name="motor2" pos="0.0252 -0.02 -0.075">
+            <inertial pos="-0.0241102 0 0" mass="0.297603" diaginertia="0.00031015 0.000200747 0.000200747"/>
+            <joint name="dof_joint6" pos="0 0 0" axis="1 0 0"/>
+            <geom pos="-0.0252 0.216 0.086" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor2"/>
+          </body>
+        </body>
+        <body name="motor3" pos="0 -0.599 0.014">
+          <inertial pos="0.00785058 0.00895171 -0.0459157" quat="0.692416 -0.125429 -0.350775 0.617887" mass="0.126813" diaginertia="0.000236846 0.000173681 0.000107147"/>
+          <joint name="dof_joint7" pos="0 0 0" axis="0 0 1"/>
+          <geom pos="0 0.596 0.011" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor3"/>
+          <body name="motor4" pos="0.0249502 0.02 -0.075">
+            <inertial pos="-0.0228248 0.00057186 0.000419668" quat="0.453653 0.891173 0.00133425 0.00264678" mass="0.298689" diaginertia="0.00031843 0.000204325 0.000204266"/>
+            <joint name="dof_joint8" pos="0 0 0" axis="1 0 0"/>
+            <geom pos="-0.0249502 0.576707 0.0865185" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.298039 0.298039 0.298039 1" mesh="motor4"/>
+          </body>
+        </body>
+        <body name="linear_lift" pos="-0.29425 -0.282479 0.185" quat="1.32679e-06 0 0 1">
+          <inertial pos="-0.0928257 0.025603 0.679073" quat="0.975916 -0.000202205 -0.00466286 0.218095" mass="15.6919" diaginertia="2.84032 2.83389 0.0572293"/>
+          <geom pos="0.10975 0.4301 -0.205" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.611765 0.658824 0.670588 1" mesh="linear_lift"/>
+          <body name="linear_lift_holder" pos="-0.09025 -0.0249001 0.11">
+            <inertial pos="0 -0.11133 0.100839" quat="0.162388 0.688208 0.162388 0.688208" mass="10.9916" diaginertia="0.343893 0.314664 0.0471126"/>
+            <joint name="linear_rail" pos="0 0 0" axis="0 0 1" type="slide" range="0 1" actuatorfrcrange="-1 1"/>
+            <geom pos="0.200004 0.455 -0.891366" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.6 0 1" mesh="linear_lift_holder"/>
+            <body name="left_arm_mount" pos="0.305 -0.141 0.14575" quat="0.707107 0 0 -0.707107">
+              <inertial pos="0 0 0" mass="1e-09" diaginertia="0 0 0"/>
+            </body>
+            <body name="right_arm_mount" pos="-0.305 -0.141 0.14575" quat="0.707107 0 0 -0.707107">
+              <inertial pos="0 0 0" mass="1e-09" diaginertia="0 0 0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
