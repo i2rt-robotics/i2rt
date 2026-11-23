@@ -420,7 +420,7 @@ def get_yam_robot(
         _gripper_kp = gripper_kp if gripper_kp is not None else default_kp
         _gripper_kd = gripper_kd if gripper_kd is not None else default_kd
         gripper_direction = gripper_type.get_motor_direction(arm_type)
-        logging.info(
+        logger.info(
             f"adding gripper motor type={motor_type}, id={hex(hw.gripper_can_id)}, "
             f"kp={_gripper_kp}, kd={_gripper_kd}, direction={gripper_direction:+d}"
         )
@@ -532,21 +532,21 @@ def get_yam_robot(
             expected_registers=hw.motor_registers,
         )
     motor_states = motor_chain.read_states()
-    logging.debug(f"motor_states: {motor_states}")
+    logger.debug(f"motor_states: {motor_states}")
 
-    logging.info(f"current_pos: {[m.pos for m in motor_states]}")
+    logger.info(f"current_pos: {[m.pos for m in motor_states]}")
     for idx, state in enumerate(motor_states):
         step = wrap_around_offset(state.pos, motor_chain.motor_direction[idx])
         if step:
-            logging.info(f"motor {idx} pos={state.pos:.3f}, offset {step:+.3f}")
+            logger.info(f"motor {idx} pos={state.pos:.3f}, offset {step:+.3f}")
             motor_chain.motor_offset[idx] += step
 
-    logging.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
+    logger.info(f"adjusted motor_offsets: {motor_chain.motor_offset.tolist()}")
 
     # Start the control thread with corrected offsets. The EtherCAT master has cycled since it opened.
     if not ethercat:
         motor_chain.start_thread()
-    logging.info(f"YAM initial motor_states: {motor_chain.read_states()}")
+    logger.info(f"YAM initial motor_states: {motor_chain.read_states()}")
 
     if control_mode != "pd":
         # MotorChainRobot's startup check, which a wrong zero offset trips: refuse before any

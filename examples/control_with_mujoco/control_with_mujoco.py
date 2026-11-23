@@ -52,7 +52,7 @@ if _REPO_ROOT not in sys.path:
 
 from i2rt.robots.utils import ArmControlMode, ArmName
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ def _robot_worker(
             if hasattr(robot, "close"):
                 robot.close()
         except Exception as e:
-            logging.warning("robot.close() failed: %s", e)
+            logger.warning("robot.close() failed: %s", e)
         shared.close()
 
 
@@ -583,4 +583,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
