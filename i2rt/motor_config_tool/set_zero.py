@@ -18,7 +18,7 @@ import time
 
 import tyro
 
-from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface, MotorType
+from i2rt.motor_drivers.dm_driver import ControlMode, DMSingleMotorCanInterface, MotorType, ReceiveMode
 
 ARM_MOTOR_IDS = [1, 2, 3, 4, 5, 6, 7]
 
@@ -35,22 +35,27 @@ def main(
     settle: float = 0.2,
     attempts: int = 5,
     tolerance: float = 0.01,
+    receive_mode: ReceiveMode = ReceiveMode.p16,
 ) -> None:
     """Set a motor's current position as its zero position, then verify it and clear its error.
 
     Args:
         motor_id: CAN id to zero. -1 zeros the arm's motors (1-7); a gripper is its own id.
-        channel: CAN channel.
+        channel: CAN channel, or ``ecat:<nic>`` for motors behind an EtherCAT-to-CAN board.
         motor_type: Motor type, which sets the scale the reported position is decoded with -- a
             wrong type makes the read-back silently mis-scaled.
         settle: Seconds to wait between read-back attempts.
         attempts: Read-back attempts before reporting that the zero did not take.
         tolerance: Position shift, in rad, that counts as the zero having landed.
+        receive_mode: The id the motors reply on: ``p16`` (MASTER_ID = ID + 16, the i2rt default)
+            or ``same`` (MASTER_ID == ID). Ignored on ``ecat:<nic>``, which always uses ``same``.
     """
     motor_ids = ARM_MOTOR_IDS if motor_id < 0 else [motor_id]
 
     for mid in motor_ids:
-        interface = DMSingleMotorCanInterface(channel=channel, bustype="socketcan", control_mode=ControlMode.MIT)
+        interface = DMSingleMotorCanInterface(
+            channel=channel, bustype="socketcan", control_mode=ControlMode.MIT, receive_mode=receive_mode
+        )
         try:
             print("#" * 30)
             print(f"processing motor {mid}")

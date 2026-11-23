@@ -17,6 +17,7 @@ from i2rt.motor_drivers.dm_driver import (
 from i2rt.robots.four_bar import FourBarLinkage
 from i2rt.robots.robot import Robot
 from i2rt.robots.utils import (
+    ArmControlMode,
     ArmName,
     ArmType,
     GripperForceLimiter,
@@ -26,6 +27,8 @@ from i2rt.robots.utils import (
 )
 from i2rt.utils.mujoco_utils import MuJoCoKDL
 from i2rt.utils.recording import RobotMcapRecorder
+
+logger = logging.getLogger(__name__)
 
 # How far past its measured travel a linkage joint's motor may read before it is refused. A reading
 # beyond the hard stops means a wrong zero or a wrong `directions` sign, and the map stops meaning
@@ -75,6 +78,32 @@ class JointCommands:
         )
 
 
+@dataclass
+class MotorCommandSample:
+    """The MIT command actually sent to the motors on one ``update()`` cycle.
+
+    All fields except ``timestamp`` are per-joint numpy arrays (length = number of
+    motors). ``torque`` is the feedforward torque actually sent: after the motor-side
+    clip and after any transmission scaling. ``gravity_torque`` and ``friction_torque``
+    are the joint-space components before both (``friction_torque`` is zero when Coulomb
+    friction is disabled).
+
+    So ``torque - gravity_torque - friction_torque`` recovers the commanded feedforward
+    only on a direct-drive joint whose clip did not fire. On a transmission joint (e.g.
+    the 7-DOF arms' joint6) or a saturating cycle, ``torque`` is in the motor frame while
+    the two components are joint-frame, so they do not subtract cleanly.
+    """
+
+    timestamp: float
+    pos: np.ndarray
+    vel: np.ndarray
+    kp: np.ndarray
+    kd: np.ndarray
+    torque: np.ndarray
+    gravity_torque: np.ndarray
+    friction_torque: np.ndarray
+
+
 class MotorChainRobot(Robot):
     """A generic Robot protocol."""
 
@@ -116,6 +145,7 @@ class MotorChainRobot(Robot):
         check_interval: float = 0.05,  # time interval between checks (s)
         pinned_cpu: int | None = None,
         joint_state_saver_factory: Optional[Callable[[], Any]] = None,
+        motor_command_callback: Optional[Callable[["MotorCommandSample"], None]] = None,
         set_realtime_and_pin_callback: Optional[Callable[[int], None]] = None,
         enable_auto_recovery: Optional[bool] = None,  # None: inherit motor_chain's setting; True/False: override it
     ) -> None:
@@ -124,6 +154,7 @@ class MotorChainRobot(Robot):
             set_realtime_and_pin_callback(pinned_cpu)
 
         self._joint_state_saver_factory = joint_state_saver_factory
+        self._motor_command_callback = motor_command_callback
         self._set_realtime_and_pin_callback = set_realtime_and_pin_callback
         self._arm_type = arm_type
         self._gripper_type = gripper_type
@@ -176,7 +207,6 @@ class MotorChainRobot(Robot):
                 f"initializing motorchain robot, gripper_limits: {gripper_limits}, enable_gripper_calibration: {enable_gripper_calibration}"
             )
             if gripper_limits is None and enable_gripper_calibration:
-                logger = logging.getLogger(__name__)
                 logger.info("Auto-detecting gripper limits...")
                 detected_limits = detect_gripper_limits(
                     motor_chain=motor_chain,
@@ -198,7 +228,6 @@ class MotorChainRobot(Robot):
                 )
             else:
                 # Use the provided gripper_limits
-                logger = logging.getLogger(__name__)
                 logger.info(f"Using provided gripper limits: {gripper_limits}")
 
         self._last_gripper_command_qpos = 1  # initialize as fully open
@@ -368,7 +397,7 @@ class MotorChainRobot(Robot):
         iteration_count = 0
         self.update()
 
-        logging.info("initializing, ....")
+        logger.info("initializing, ....")
 
         while not self._stop_event.is_set():  # Check the stop event
             current_time = time.time()
@@ -383,9 +412,9 @@ class MotorChainRobot(Robot):
             if elapsed_time >= 10.0:
                 control_frequency = iteration_count / elapsed_time
                 # Overwrite the current line with the new frequency information
-                logging.info(f"{self}: Grav Comp Control Frequency: {control_frequency:.2f} Hz")
+                logger.info(f"{self}: Grav Comp Control Frequency: {control_frequency:.2f} Hz")
                 if control_frequency < 100:
-                    logging.warning(
+                    logger.warning(
                         f"{self}: Gravity compensation control loop is slow, current frequency: {control_frequency:.2f} Hz"
                     )
                 # Reset the counter and timer
@@ -442,6 +471,34 @@ class MotorChainRobot(Robot):
                 )
                 self._last_gripper_command_qpos = joint_commands.pos[self._gripper_index]
             self._update_joint_state(motor_torques, joint_commands)
+            # Read under the lock, with the sample's arrays, so the whole sample is one cycle.
+            command_timestamp = self._joint_state.timestamp
+
+        # Report the command actually sent this cycle, after the state lock is released so a slow
+        # observer never stalls the control loop. Arrays are copied: the consumer may read them on
+        # another thread, and copies are cheap enough that the control frequency is unaffected.
+        # Guarded so an observer's error can never take down the control loop.
+        callback = self._motor_command_callback
+        if callback is not None:
+            try:
+                callback(
+                    MotorCommandSample(
+                        timestamp=command_timestamp,
+                        pos=joint_commands.pos.copy(),
+                        vel=joint_commands.vel.copy(),
+                        kp=joint_commands.kp.copy(),
+                        kd=joint_commands.kd.copy(),
+                        torque=self._last_motor_torques.copy(),
+                        gravity_torque=np.asarray(g * self.gravity_comp_factor).copy(),
+                        friction_torque=(
+                            friction_comp.copy()
+                            if isinstance(friction_comp, np.ndarray)
+                            else np.zeros_like(motor_torques)
+                        ),
+                    )
+                )
+            except Exception:
+                logger.exception("motor_command_callback failed")
 
     def _update_joint_state(
         self,
@@ -484,7 +541,7 @@ class MotorChainRobot(Robot):
                         temp_rotor=self._joint_state.temp_rotor,
                     )
                 except RuntimeError:
-                    logging.exception("MCAP recording stopped after its writer failed")
+                    logger.exception("MCAP recording stopped after its writer failed")
                     self._mcap_recorder = None
 
         # For SWE-454: keep monitoring qpos during runtime
@@ -610,11 +667,9 @@ class MotorChainRobot(Robot):
             if not np.all(np.isfinite(t)) or np.max(np.abs(t)) > 25.0:
                 print([f"{s:.2f}" for s in t])
                 raise RuntimeError(f"{self}: too large torques")
-            if self._gripper_index is None:
-                return self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
-            else:
-                t = self.kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
-                return np.append(t, 0.0)
+            if self._gripper_index is not None:
+                t = np.append(t, 0.0)
+            return t
 
     # ----------------- Server Functions ----------------- #
 
@@ -689,7 +744,7 @@ class MotorChainRobot(Robot):
             self._commands.kd = kd
 
     def zero_torque_mode(self) -> None:
-        logging.info(f"Entering zero_torque_mode for {self}")
+        logger.info(f"Entering zero_torque_mode for {self}")
         with self._command_lock:
             self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._kp = np.zeros(len(self.motor_chain))
@@ -812,7 +867,7 @@ class MotorChainRobot(Robot):
         zeroing ``_kp``/``_kd``, which no later command restores. ``enter_gravity_comp_idle`` is
         the way back from here.
         """
-        logging.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
+        logger.info(f"{self}: entering zero-torque idle -- nothing is holding the arm")
         with self._command_lock:
             self.use_gravity_comp = False
             self.use_coulomb_friction = False
@@ -866,6 +921,8 @@ class _CliArgs:
     """Operation mode: gravity compensation, gripper cycling, or holding the startup joint positions."""
     record: bool = False
     """Record motor feedback and computed required torques to a ROS 2 CDR MCAP file."""
+    control_mode: ArmControlMode = "pd"
+    """Motor-side PD, or operational-space control (osc / osc_full) on a 7-DOF arm."""
 
 
 if __name__ == "__main__":
@@ -882,7 +939,7 @@ if __name__ == "__main__":
     gripper_type = GripperType.from_string_name(args.gripper)
 
     print(f"Initializing robot with arm_type: {arm_type}, gripper_type: {gripper_type}")
-    robot = get_yam_robot(args.channel, arm_type=arm_type, gripper_type=gripper_type)
+    robot = get_yam_robot(args.channel, arm_type=arm_type, gripper_type=gripper_type, control_mode=args.control_mode)
 
     try:
         if args.record:

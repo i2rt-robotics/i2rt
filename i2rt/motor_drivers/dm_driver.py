@@ -1,5 +1,4 @@
 import logging
-import os
 import struct
 import threading
 import time
@@ -10,24 +9,25 @@ import can
 import numpy as np
 import tyro
 
-from i2rt.motor_drivers.can_interface import CanInterface
+from i2rt.motor_drivers.can_interface import ETHERCAT_CHANNEL_PREFIX, CanInterface
 from i2rt.motor_drivers.motor_check import run_startup_checks
 from i2rt.motor_drivers.utils import (
+    DM_CLEAR_ERR,
+    DM_DISABLE,
+    DM_ENABLE,
     FeedbackFrameInfo,
     MotorErrorCode,
     MotorInfo,
     MotorType,
     ReceiveMode,
-    float_to_uint,
-    uint_to_float,
+    pack_mit,
+    unpack_mit_feedback,
 )
 from i2rt.utils.encoder_manager import EncoderConfig, PassiveJointEncoder
 from i2rt.utils.utils import RateRecorder
 
-log_level = os.getenv("LOGLEVEL", "ERROR").upper()
+logger = logging.getLogger(__name__)
 
-# if no log_level is set, set it to WARNING
-logging.basicConfig(level=log_level)
 
 # set control frequence
 CONTROL_FREQ = 250
@@ -103,19 +103,24 @@ class PassiveEncoderReader:
             self.can_interface.channel, encoder_config
         )
 
-    def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+    def read_raw_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+        """One report as sent: ``position`` is the signed angle in rad, not clipped or normalized."""
         # this encoder's trigger message is 0x02
         data = [0xFF, 0x02]
         message = self.can_interface._send_message_get_response(
             encoder_id, encoder_id, data, expected_id=self.receive_mode.get_receive_id(0x50E), max_retry=15
         )
         pos, vel, button_state = self._parse_encoder_message(message)
+        return PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
+
+    def read_encoder(self, encoder_id: int) -> PassiveEncoderInfo:
+        raw = self.read_raw_encoder(encoder_id)
         pos_range = [-self.range_rad, self.range_rad]
-        pos = np.clip(pos, pos_range[0], pos_range[1])
+        pos = np.clip(raw.position, pos_range[0], pos_range[1])
         # normalize pos to 1 - 0
         delta = np.abs(0.0 - pos)
         pos = delta / self.range_rad
-        result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=vel, io_inputs=button_state)
+        result = PassiveEncoderInfo(id=encoder_id, position=pos, velocity=raw.velocity, io_inputs=raw.io_inputs)
         return result
 
     def _parse_encoder_message(self, message: can.Message) -> PassiveEncoderInfo:
@@ -153,6 +158,11 @@ class DMSingleMotorCanInterface(CanInterface):
         name: str = "default_can_DM_interface",
         use_buffered_reader: bool = False,
     ):
+        if channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+            # The EtherCAT-to-CAN board passes only replies carrying the id its slot sent, so a motor
+            # behind it answers on MASTER_ID == ID whatever was asked. Any other mode never matches a
+            # reply, and a motor_on that sent ENABLE then raises before motor_off, leaving it enabled.
+            receive_mode = ReceiveMode.same
         super().__init__(
             channel, bustype, bitrate, receive_mode=receive_mode, name=name, use_buffered_reader=use_buffered_reader
         )
@@ -170,11 +180,8 @@ class DMSingleMotorCanInterface(CanInterface):
         Args:
             motor_id (int): The ID of the motor to turn on.
         """
-        current_level = logging.getLogger().getEffectiveLevel()
-        logging.getLogger().setLevel(logging.ERROR)
-
         id = motor_id  # self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFC]
+        data = DM_ENABLE
 
         message = self._send_message_get_response(id, motor_id, data)
 
@@ -182,32 +189,31 @@ class DMSingleMotorCanInterface(CanInterface):
         motor_info = self.parse_recv_message(message, MotorType.DM4310, ignore_error=True)
         if int(motor_info.error_code, 16) != MotorErrorCode.normal:
             while int(motor_info.error_code, 16) != MotorErrorCode.normal:
-                logging.info(f"motor {motor_id} error: {motor_info.error_message}")
+                logger.info(f"motor {motor_id} error: {motor_info.error_message}")
                 self.clean_error(motor_id=motor_id)
                 self.try_receive_message()
-                logging.info(f"motor {motor_id} error cleaned")
+                logger.info(f"motor {motor_id} error cleaned")
                 # enable again
 
                 message = self._send_message_get_response(id, motor_id, data)
                 motor_info = self.parse_recv_message(message, motor_type, ignore_error=True)
         else:
-            logging.info(f"motor {motor_id} is already on")
-        logging.getLogger().setLevel(current_level)
+            logger.info(f"motor {motor_id} is already on")
         motor_info = self.parse_recv_message(message, motor_type)
         return motor_info
 
     def clean_error(self, motor_id: int) -> None:
         # self.try_receive_message()
         id = motor_id  # self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFB]
-        logging.info("clear error")
+        data = DM_CLEAR_ERR
+        logger.info("clear error")
         message = can.Message(arbitration_id=motor_id, data=data, is_extended_id=False)
         for _ in range(3):
             try:
                 self.bus.send(message)
             except Exception as e:
-                logging.warning(e)
-                logging.warning(
+                logger.warning(e)
+                logger.warning(
                     "\033[91m" + "CAN Error: Failed to communicate with motor over can bus. Retrying..." + "\033[0m"
                 )
         # message = self._send_message_get_response(id, data)
@@ -219,7 +225,7 @@ class DMSingleMotorCanInterface(CanInterface):
             motor_id (int): The ID of the motor to turn off.
         """
         id = self._get_frame_id(motor_id)
-        data = [0xFF] * 7 + [0xFD]
+        data = DM_DISABLE
         message = self._send_message_get_response(id, motor_id, data)
 
     def save_zero_position(self, motor_id: int) -> None:
@@ -238,7 +244,7 @@ class DMSingleMotorCanInterface(CanInterface):
         current_state = self.set_control(id, MotorType.DM4310, 0, 0, 0, 0, 0)
         diff = abs(current_state.position)
         if diff < 0.01:
-            logging.info(f"motor {motor_id} set zero position success, current position: {current_state.position}")
+            logger.info(f"motor {motor_id} set zero position success, current position: {current_state.position}")
         # message = self._receive_message(timeout=0.5)
 
     def set_control(
@@ -269,24 +275,7 @@ class DMSingleMotorCanInterface(CanInterface):
         # Prepare the CAN message
         data = bytearray(8)
         if self.control_mode == ControlMode.MIT:
-            const = MotorType.get_motor_constants(motor_type)
-
-            pos_tmp = float_to_uint(pos, const.POSITION_MIN, const.POSITION_MAX, 16)
-            vel_tmp = float_to_uint(vel, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
-            kp_tmp = float_to_uint(kp, const.KP_MIN, const.KP_MAX, 12)
-            kd_tmp = float_to_uint(kd, const.KD_MIN, const.KD_MAX, 12)
-            tor_tmp = float_to_uint(torque, const.TORQUE_MIN, const.TORQUE_MAX, 12)
-
-            # "& 0xFF" (bitwise AND with 0xFF) is used to ensure that only the lowest 8 bits (one byte) of a value are kept,
-            # and any higher bits are discarded.
-            data[0] = (pos_tmp >> 8) & 0xFF
-            data[1] = pos_tmp & 0xFF
-            data[2] = (vel_tmp >> 4) & 0xFF
-            data[3] = ((vel_tmp & 0xF) << 4) | (kp_tmp >> 8)
-            data[4] = kp_tmp & 0xFF
-            data[5] = (kd_tmp >> 4) & 0xFF
-            data[6] = ((kd_tmp & 0xF) << 4) | (tor_tmp >> 8)
-            data[7] = tor_tmp & 0xFF
+            data = pack_mit(pos, vel, kp, kd, torque, MotorType.get_motor_constants(motor_type))
         elif self.control_mode == ControlMode.VEL:
             # system will only response to vel command
             can_data = struct.pack("<f", vel)
@@ -320,7 +309,8 @@ class DMSingleMotorCanInterface(CanInterface):
             FeedbackFrameInfo: The current state of the motor.
         """
         data = message.data
-        error_int = (data[0] & 0xF0) >> 4  # TODO: error code seems incorrect, double check
+        fb = unpack_mit_feedback(data, MotorType.get_motor_constants(motor_type))
+        error_int = fb.error  # TODO: error code seems incorrect, double check
 
         # convert error into hex
         error_hex = hex(error_int)
@@ -328,38 +318,25 @@ class DMSingleMotorCanInterface(CanInterface):
 
         motor_id_of_this_response = self.receive_mode.to_motor_id(message.arbitration_id)
         if error_hex != "0x1":
-            logging.warning(
+            logger.warning(
                 f"motor id: {motor_id_of_this_response}, error: {error_message} at {self.name} and channel {self.bus.channel_info}"
             )
             if not ignore_error:
-                logging.error(
+                logger.error(
                     f"motor id: {motor_id_of_this_response}, error: {error_message} at {self.name} and channel {self.bus.channel_info}"
                 )
                 raise RuntimeError(
                     f"Motor error detected: motor id: {motor_id_of_this_response}, error: {error_message}"
                 )
-        p_int = (data[1] << 8) | data[2]
-        v_int = (data[3] << 4) | (data[4] >> 4)
-        t_int = ((data[4] & 0xF) << 8) | data[5]
-        temporature_mos = data[6]
-        temperature_rotor = data[7]
-
-        const = MotorType.get_motor_constants(motor_type)
-        position = uint_to_float(p_int, const.POSITION_MIN, const.POSITION_MAX, 16)
-        velocity = uint_to_float(v_int, const.VELOCITY_MIN, const.VELOCITY_MAX, 12)
-        torque = uint_to_float(t_int, const.TORQUE_MIN, const.TORQUE_MAX, 12)
-        temperature_mos = float(temporature_mos)
-        temperature_rotor = float(temperature_rotor)
-
         return FeedbackFrameInfo(
             id=motor_id_of_this_response,
             error_code=error_hex,
             error_message=error_message,
-            position=position,
-            velocity=velocity,
-            torque=torque,
-            temperature_mos=temperature_mos,
-            temperature_rotor=temperature_rotor,
+            position=fb.position,
+            velocity=fb.velocity,
+            torque=fb.torque,
+            temperature_mos=fb.temperature_mos,
+            temperature_rotor=fb.temperature_rotor,
         )
 
 
@@ -413,6 +390,7 @@ class DMChainCanInterface(MotorChain):
         check_motor_config: bool = False,  # repair CTRL_MODE and compare PMAX/VMAX/TMAX; writes Flash
         loop_critical_motor_ids: Optional[Sequence[int]] = None,  # motors whose feedback the caller's loop acts on
         expected_registers: Optional[Mapping[int, Mapping[str, float]]] = None,  # {can_id: {reg: value}}, config check
+        loop_sleep_s: float = 0.0005,  # per-cycle GIL-yield sleep in the read loop; lower shortens the read cycle, so a waiting writer gets command_lock sooner
     ):
         assert not use_buffered_reader, (
             "buffered reader is not very stable, the latest encoder fix allows us to use the non-buffered reader"
@@ -433,7 +411,7 @@ class DMChainCanInterface(MotorChain):
         # Read live each control-loop iteration; must be set before _motor_on()/start_thread() since
         # some callers (e.g. _get_gripper_only_robot) start the thread inside this constructor.
         self.enable_auto_recovery = enable_auto_recovery
-        logging.info(f"Channel: {channel}, Bitrate: {bitrate}")
+        logger.info(f"Channel: {channel}, Bitrate: {bitrate}")
         # Last moment the bus is idle: everything above is pure Python, and the branch below opens the
         # socket. Register reads need an idle bus, so there is no later window -- see motor_check's
         # module docstring. Which checks may run, and in what order, is run_startup_checks' business:
@@ -473,13 +451,15 @@ class DMChainCanInterface(MotorChain):
         max_bits_per_second = bitrate / 1.1
         if bits_per_second > max_bits_per_second:
             max_safe_freq = max_bits_per_second / (frames_per_cycle * CAN_FRAME_BITS)
-            logging.warning(
+            logger.warning(
                 f"CAN bus bandwidth exceeded: {bits_per_second:.0f} bps > {max_bits_per_second:.0f} bps "
                 f"(bitrate={bitrate}, motors={len(motor_list)}, freq={control_freq}Hz). "
                 f"Max safe frequency: {max_safe_freq:.0f} Hz"
             )
 
+        self._loop_sleep_s = loop_sleep_s
         self.state = None
+        self._feedback_time: Optional[np.ndarray] = None
         self.state_lock = threading.Lock()
         self._report_interval = report_interval
         self._rate_recorder = RateRecorder(name=self, report_interval=report_interval)
@@ -496,14 +476,14 @@ class DMChainCanInterface(MotorChain):
             if self.same_bus_device_driver is not None:
                 drained = self.motor_interface._drain_bus(timeout_s=0.2)
                 if drained:
-                    logging.info(f"Drained {drained} stale frames before motor bring-up")
+                    logger.info(f"Drained {drained} stale frames before motor bring-up")
 
             self.absolute_positions = None
             self._motor_on()
         starting_command = []
         for motor_state in self.state:
             starting_command.append(MotorCmd(torque=motor_state.torque))
-        logging.info(f"Initializing motorchain with starting command: {starting_command}")
+        logger.info(f"Initializing motorchain with starting command: {starting_command}")
         self.commands = starting_command
         self.command_lock = threading.RLock()
 
@@ -565,7 +545,7 @@ class DMChainCanInterface(MotorChain):
         motor_feedback = []
         self.motor_interface._drain_bus(timeout_s=0.05)
         for motor_id, motor_type in self.motor_list:
-            logging.info(f"Turning on motor_id: {motor_id}, motor_type: {motor_type}")
+            logger.info(f"Turning on motor_id: {motor_id}, motor_type: {motor_type}")
             time.sleep(0.003)
             motor_feedback.append(self.motor_interface.motor_on(motor_id, motor_type))
         self._update_absolute_positions(motor_feedback)
@@ -575,14 +555,14 @@ class DMChainCanInterface(MotorChain):
     def start_thread(self) -> None:
         if self.start_thread_flag:
             return
-        logging.info("starting separate thread for control loop")
-        thread = threading.Thread(target=self._set_torques_and_update_state)
-        thread.start()
+        logger.info("starting separate thread for control loop")
+        self._control_thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
             time.sleep(0.1)
-            logging.info("waiting for the first state")
+            logger.info("waiting for the first state")
 
     def _set_torques_and_update_state(self) -> None:
         """
@@ -612,7 +592,7 @@ class DMChainCanInterface(MotorChain):
                     # If step_time > EXPECTED_CONTROL_PERIOD, report every report_interval seconds
                     if step_time_exceed_count > 0 and curr_time - report_start_time >= self._report_interval:
                         mean_step_time = step_time_sum / step_time_count if step_time_count > 0 else 0.0
-                        logging.info(
+                        logger.info(
                             f"[{self} {self._report_interval}s Report] step_time > {EXPECTED_CONTROL_PERIOD}s: {step_time_exceed_count} times, mean step_time: {mean_step_time:.6f} s, max step_time: {max_step_time:.6f} s"
                         )
                         step_time_exceed_count = 0
@@ -627,9 +607,9 @@ class DMChainCanInterface(MotorChain):
                             motor_feedback = self._set_commands(self.commands)
                         except RuntimeError as e:
                             if self.enable_auto_recovery and "Motor error detected" in str(e):
-                                logging.warning(f"Motor error in control loop, attempting recovery: {e}")
+                                logger.warning(f"Motor error in control loop, attempting recovery: {e}")
                                 if self._try_recover_motors():
-                                    logging.warning("Motor recovery successful, continuing control loop")
+                                    logger.warning("Motor recovery successful, continuing control loop")
                                     continue
                                 self.running = False
                                 raise
@@ -638,12 +618,12 @@ class DMChainCanInterface(MotorChain):
                         errors = np.array([motor_feedback[i].error_code != "0x1" for i in range(len(motor_feedback))])
                         if np.any(errors):
                             if self.enable_auto_recovery:
-                                logging.warning(f"Motor errors detected in feedback: {errors}, attempting recovery")
+                                logger.warning(f"Motor errors detected in feedback: {errors}, attempting recovery")
                                 if self._try_recover_motors(motor_feedback):
-                                    logging.warning("Motor recovery successful, continuing control loop")
+                                    logger.warning("Motor recovery successful, continuing control loop")
                                     continue
                             self.running = False
-                            logging.error(f"motor errors: {errors}")
+                            logger.error(f"motor errors: {errors}")
                             raise Exception(f"motor errors detected: {errors}, stopping control loop")
 
                     with self.state_lock:
@@ -654,10 +634,10 @@ class DMChainCanInterface(MotorChain):
                         with self.same_bus_device_lock:
                             # assume the same bus device is a passive input device (no commands to send) for now.
                             self.same_bus_device_states = self.same_bus_device_driver.read_states()
-                    time.sleep(0.0005)  # yield GIL so other threads can acquire locks
+                    time.sleep(self._loop_sleep_s)  # yield GIL so other threads can acquire locks
                     self._rate_recorder.track()
                 except Exception as e:
-                    print(f"DM Error in control loop: {e}")
+                    logger.error("DM Error in control loop: %s", e)
                     self.running = False
                     raise e
 
@@ -679,14 +659,14 @@ class DMChainCanInterface(MotorChain):
 
             for idx in error_indices:
                 motor_id, motor_type = self.motor_list[idx]
-                logging.warning(f"Recovering motor {motor_id} ({motor_type}), attempt {attempt + 1}/{max_retries}")
+                logger.warning(f"Recovering motor {motor_id} ({motor_type}), attempt {attempt + 1}/{max_retries}")
                 self.motor_interface.clean_error(motor_id)
                 time.sleep(0.003)
                 self.motor_interface.try_receive_message(timeout=0.002)
                 try:
                     self.motor_interface.motor_on(motor_id, motor_type)
                 except Exception as e:
-                    logging.warning(f"Motor {motor_id} re-enable failed: {e}")
+                    logger.warning(f"Motor {motor_id} re-enable failed: {e}")
                     continue
 
             # Verify recovery by sending commands
@@ -695,7 +675,7 @@ class DMChainCanInterface(MotorChain):
                 with self.command_lock:
                     motor_feedback = self._set_commands(self.commands)
                     if all(fb.error_code == "0x1" for fb in motor_feedback):
-                        logging.warning("All motors recovered successfully")
+                        logger.warning("All motors recovered successfully")
                         with self.state_lock:
                             self.state = motor_feedback
                             self._update_absolute_positions(motor_feedback)
@@ -707,6 +687,8 @@ class DMChainCanInterface(MotorChain):
 
     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
         motor_feedback = []
+        if self._feedback_time is None:
+            self._feedback_time = np.zeros(len(self.motor_list))
         for idx, motor_info in enumerate(self.motor_list):
             motor_id, motor_type = motor_info
             torque = commands[idx].torque * self.motor_direction[idx]
@@ -726,15 +708,24 @@ class DMChainCanInterface(MotorChain):
                     torque=torque,
                 )
             except Exception as e:
-                logging.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
+                logger.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
                 raise e
 
+            # Stamp when *this* motor answered, not when the caller later reads the batch. A
+            # consumer's missing-frame watchdog can only work off an arrival time: with one shared
+            # read time every motor looks freshly heard from on every call, including one that has
+            # stopped answering entirely, and the fault the watchdog exists for is invisible.
+            self._feedback_time[idx] = time.time()
             motor_feedback.append(fd_back)
         return motor_feedback
 
     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
         motor_infos = []
-        timestamp = time.time()
+        # Per motor, and never the read time. `_set_commands` records when each motor's reply
+        # actually arrived; a motor that has gone quiet keeps its old stamp and its age grows,
+        # which is exactly what a watchdog keys off. Before a first reply the array is zero, so
+        # the age is enormous rather than falsely fresh -- the safe direction.
+        stamps = self._feedback_time if self._feedback_time is not None else np.zeros(len(self.motor_list))
         with self.state_lock:
             for idx in range(len(self.motor_list)):
                 state = self.state[idx]
@@ -748,7 +739,7 @@ class DMChainCanInterface(MotorChain):
                         pos=self._joint_position_real_to_sim_idx(self.absolute_positions[idx], idx),
                         temp_rotor=state.temperature_rotor,
                         temp_mos=state.temperature_mos,
-                        timestamp=timestamp,
+                        timestamp=float(stamps[idx]),
                     )
                 )
         return motor_infos
@@ -792,6 +783,8 @@ class DMChainCanInterface(MotorChain):
 
     def close(self) -> None:
         self.running = False
+        if hasattr(self, "_control_thread") and self._control_thread.is_alive():
+            self._control_thread.join(timeout=2.0)
         self.motor_interface.close()
 
 
@@ -973,7 +966,7 @@ def main(
         )
     # The chain as declared, logged before anything is read: it is what every command below is encoded
     # with, and on this tool it is typed by hand. verify_motor_types logs it too, but only when it runs.
-    logging.info(
+    logger.info(
         "chain on %s in %s: %s",
         channel,
         resolved_mode,

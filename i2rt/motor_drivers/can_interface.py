@@ -6,6 +6,23 @@ import can
 
 from i2rt.motor_drivers.utils import ReceiveMode
 
+logger = logging.getLogger(__name__)
+
+ETHERCAT_CHANNEL_PREFIX = "ecat:"
+
+
+def open_can_bus(channel: str, bustype: str = "socketcan", bitrate: int = 1000000) -> can.BusABC:
+    """A python-can bus on ``channel``.
+
+    ``ecat:<nic>`` (or ``ecat:<nic>:<slave>:<can channel>``) opens one through an EtherCAT-to-CAN
+    board on that NIC instead of a CAN adapter, so every CAN tool that takes a channel works there.
+    """
+    if channel.startswith(ETHERCAT_CHANNEL_PREFIX):
+        from i2rt.motor_drivers.ethercat_chain import EtherCATCanBus
+
+        return EtherCATCanBus(channel)
+    return can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
+
 
 class CanInterface:
     def __init__(
@@ -18,12 +35,12 @@ class CanInterface:
         use_buffered_reader: bool = False,
     ):
         self.channel = channel
-        self.bus = can.interface.Bus(bustype=bustype, channel=channel, bitrate=bitrate)
+        self.bus = open_can_bus(channel, bustype, bitrate)
         self.busstate = self.bus.state
         self.name = name
         self.receive_mode = receive_mode
         self.use_buffered_reader = use_buffered_reader
-        logging.info(f"Can interface {self.name} use_buffered_reader: {use_buffered_reader}")
+        logger.info(f"Can interface {self.name} use_buffered_reader: {use_buffered_reader}")
         if use_buffered_reader:
             # Initialize BufferedReader for asynchronous message handling
             self.buffered_reader = can.BufferedReader()
@@ -50,10 +67,10 @@ class CanInterface:
         message = can.Message(arbitration_id=id, data=data, is_extended_id=False)
         for _ in range(max_retry):
             try:
-                # logging.info("Sending message: %s at %f", message, time.time())
+                # logger.info("Sending message: %s at %f", message, time.time())
                 self.bus.send(message)
                 response = self._receive_message(motor_id, timeout=0.01)
-                # logging.info("Received response: %s at %f", response, time.time())
+                # logger.info("Received response: %s at %f", response, time.time())
 
                 if expected_id is None:
                     expected_id = self.receive_mode.get_receive_id(motor_id)
@@ -61,8 +78,8 @@ class CanInterface:
                     return response
                 self.try_receive_message(id)
             except (can.CanError, AssertionError) as e:
-                logging.warning(e)
-                logging.warning(
+                logger.warning(e)
+                logger.warning(
                     "\033[91m"
                     + f"CAN Error {self.name}: Failed to communicate with motor {id} over can bus. Retrying..."
                     + "\033[0m"
@@ -129,7 +146,7 @@ class CanInterface:
             if message:
                 return message
         if not supress_warning:
-            logging.warning(
+            logger.warning(
                 "\033[91m"
                 + f"Failed to receive message, {self.name} motor id {motor_id} motor timeout. Check if the motor is powered on or if the motor ID exists."
                 + "\033[0m"

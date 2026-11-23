@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!-- yambox dual-arm cell: two YAM v1 arms with linear_4310 grippers and wrist-mounted Intel
-     RealSense D405 cameras, plus a DECXIN camera looking down over the workspace from the box's
+     RealSense D405 cameras, plus an i2rt MF118 camera looking down over the workspace from the box's
      camera mast.
 
      The arms and their wrist cameras are byte-identical to
@@ -9,14 +9,14 @@
      station. All arm meshes are shared from arm/yam/v1/assets/.
 
      Each camera is a single link. The export's per-part chains (a wrist bracket, cable holder,
-     D405 body and cover; the DECXIN's bracket, cover and camera body) are each baked into one mesh
+     D405 body and cover; the MF118's bracket, cover and camera body) are each baked into one mesh
      expressed in the optical frame, so every camera <visual><origin> is identity and the link
      frame, the mesh frame and the optical frame are the same frame. Those merged meshes live in
      ../assets/, d405_wrist_linear_4310.stl shared with the YAM station; the per-part meshes and
      frames are in git history. Each camera <inertial> is the sum of the baked parts' unit-density
      (1 kg/m^3) properties, the convention the CAD export used.
 
-     Only the DECXIN, its cover and its bracket are modelled from the box CAD, so the mast
+     Only the MF118, its cover and its bracket are modelled from the box CAD, so the mast
      (`YB01_A01_010_cameraShaft`) the bracket clamps to is absent, and with it the bracket's own arm
      down to that mast: the merged mesh is cut at left_base z = 0.6194, flush under the bracket's
      head plate, and capped, which drops a 16.9 x 16.9 mm post 153 mm long and its clamp foot.
@@ -29,7 +29,7 @@
      0.6 arcsec, which is how the export mounts it.
 
      `left_base` is the model root. See README.md for the camera extrinsics. -->
-<robot name="yambox_linear_4310_d405_decxin">
+<robot name="yambox_linear_4310_d405_mf118">
     <material name="0.541176_0.682353_0.839216_0.000000_0.000000">
         <color rgba="0.541176 0.682353 0.839216 1" />
     </material>
@@ -509,7 +509,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0" />
             <geometry>
-                <mesh filename="../assets/decxin_top.stl" scale="1 1 1" />
+                <mesh filename="../assets/mf118_top.stl" scale="1 1 1" />
             </geometry>
             <material name="0.541176_0.682353_0.839216_0.000000_0.000000" />
         </visual>
