@@ -5,7 +5,8 @@ One function each, both opt-in on ``DMChainCanInterface``:
 * :func:`verify_motor_types` reads ``Gr`` and refuses a chain that does not hold the motor types its
   ``motor_list`` declares. Arms and the Flow Base both run it (``check_motor_types=True``).
 * :func:`verify_motor_config` checks ``CTRL_MODE`` -- repairing it -- and compares the ``PMAX``/
-  ``VMAX``/``TMAX`` that decide how commands and feedback are scaled. Arms and the Flow Base both run
+  ``VMAX``/``TMAX`` that decide how commands and feedback are scaled, plus any per-motor register values
+  the caller declares (``expected_registers``). Arms and the Flow Base both run
   it too (``check_motor_config=True``), but under different severity: see ``loop_registers`` and
   ``loop_critical_motor_ids`` below, because an arm is the strictest possible caller of it.
 
@@ -114,6 +115,13 @@ part is knowable from here:
   registers on its drive or rail motors mis-scale only translational odometry, so those are logged and
   the base starts. See ``i2rt/flow_base/README.md`` for that reasoning in full.
 
+A caller can also hand it ``expected_registers``, ``{can_id: {register name: value}}``, for values that
+are not derivable from the motor type. An arm config's ``motor_registers`` block is the one source today:
+the 7-DOF arms declare ``KT_Value`` and ``GREF`` on joints 1-7, because the motor turns an MIT torque into
+current through ``KT_Value * GREF`` and their gravity comp is tuned against those numbers. They are read
+in the same pass, compared with the same float32 tolerance, never written, and any mismatch refuses the
+launch on every motor -- a caller only declares a register because its tuning depends on it.
+
 Reading them at startup and nowhere else is the point. A firmware register cannot change while a robot
 is running -- it changes when someone reflashes a motor or reconfigures it from the host tool -- so this
 is the only moment worth spending bus time on, and reading the register is exact where inferring a
@@ -129,12 +137,13 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from i2rt.motor_config_tool.dm_motor_registers import (
     BUS_ERRORS,
     REG_BY_ADDR,
+    REG_BY_NAME,
     DMRegAddr,
     RegSpec,
     Scalar,
@@ -145,6 +154,7 @@ from i2rt.motor_config_tool.dm_motor_registers import (
     write_register,
 )
 from i2rt.motor_config_tool.utils import RawCanInterface
+from i2rt.motor_drivers.can_interface import ETHERCAT_CHANNEL_PREFIX
 from i2rt.motor_drivers.utils import MotorType
 
 logger = logging.getLogger(__name__)
@@ -190,11 +200,12 @@ def _motor_rows(motor_list: Sequence[Sequence[Any]]) -> list[tuple[int, str]]:
     the mutable list forms ``get_robot`` and ``flow_base_controller`` build so they can append the
     gripper or rail motor.
 
-    ``no_gripper`` and ``yam_teaching_handle`` are spelled ``motor_type: ""`` -- they are passive, and
-    the assembled arm chain leaves them out entirely. A gripper-only robot built with a teaching handle
-    is the one path that can still put such a row here. Both checks drop it, because nothing about ""
-    is a motor: ``get_gear_ratio("")`` and ``get_motor_constants("")`` would each raise as though a
-    table were missing an entry, sending the operator to the wrong file.
+    ``no_gripper`` and the ``yam_teaching_handle_v*`` handles are spelled ``motor_type: ""`` -- they are passive, and
+    the assembled arm chain leaves them out entirely. No caller reaches here with such a row today: the
+    last one that could, a gripper-only teaching handle, now builds no motor chain at all (see
+    ``robots/teaching_handle_robot.py``). The drop stays because it is the passive row's only correct
+    handling, and nothing about "" is a motor: ``get_gear_ratio("")`` and ``get_motor_constants("")``
+    would each raise as though a table were missing an entry, sending the operator to the wrong file.
     """
     return [(int(motor_id), str(motor_type)) for motor_id, motor_type in motor_list if str(motor_type)]
 
@@ -224,6 +235,7 @@ def run_startup_checks(
     control_mode: str,
     loop_critical_motor_ids: Sequence[int] | None = None,
     repair: bool = True,
+    expected_registers: Mapping[int, Mapping[str, float]] | None = None,
 ) -> None:
     """Run whichever startup checks a caller asked for, in the only order that is safe.
 
@@ -240,12 +252,21 @@ def run_startup_checks(
     fixes a wrong ``CTRL_MODE``; ``--survey-only`` reports it and writes nothing, which is what makes
     the word "survey" true. It is the only argument here that decides whether anything is written.
 
+    ``expected_registers`` is compared by the config check, so declaring any without
+    ``check_motor_config`` is refused rather than silently ignored.
+
     Raises:
-        ValueError: if ``check_motor_config`` is asked for without ``check_motor_types``, or if either
-            is asked for on a channel that cannot carry it. Both are decidable from the arguments alone
+        ValueError: if ``check_motor_config`` is asked for without ``check_motor_types``, if
+            ``expected_registers`` is declared without ``check_motor_config``, or if either check
+            is asked for on a channel that cannot carry it. All are decidable from the arguments alone
             and are repaired by changing them -- the same category as an unrecorded gear ratio. A
             ``RuntimeError`` from here down always means the bus or a motor refused.
     """
+    if expected_registers and not check_motor_config:
+        raise ValueError(
+            "expected_registers needs check_motor_config=True: the config check is what reads and "
+            "compares them, so declaring them without it would start the robot with them unverified."
+        )
     if not (check_motor_types or check_motor_config):
         return  # before the channel guard: an unchecked chain may be built on any channel, as ever
     if check_motor_config and not check_motor_types:
@@ -256,19 +277,27 @@ def run_startup_checks(
             "advise rewriting PMAX, and write CTRL_MODE to Flash on a motor whose repair is to be "
             "swapped out. Ask for both, or for neither."
         )
-    if "can" not in channel:
+    if "can" not in channel and not channel.startswith(ETHERCAT_CHANNEL_PREFIX):
         raise ValueError(
             f"cannot check the motors on {channel!r}: both checks read registers over socketcan, and "
             "this is not a socketcan channel. Starting anyway would trust every motor's declared type "
             "and scaling unverified, which is the failure these checks exist to make loud -- so a check "
             "that was asked for and cannot run refuses instead of warning. Pass a socketcan channel "
-            "(e.g. 'can0'), or ask for neither check."
+            f"(e.g. 'can0') or an EtherCAT-to-CAN one ('{ETHERCAT_CHANNEL_PREFIX}<nic>'), or ask for "
+            "neither check."
         )
     # check_motor_types is necessarily True here: neither-flag returned above, and config-without-types
     # was just refused. Positional, because the call signature is asserted that way by the tests.
     verify_motor_types(channel, motor_list)
     if check_motor_config:
-        verify_motor_config(channel, motor_list, control_mode, loop_critical_motor_ids, repair=repair)
+        verify_motor_config(
+            channel,
+            motor_list,
+            control_mode,
+            loop_critical_motor_ids,
+            repair=repair,
+            expected_registers=expected_registers,
+        )
 
 
 # --------------------------------------------------------------------------------------------------
@@ -564,18 +593,20 @@ def scaling_for(motor_type: str) -> dict[DMRegAddr, float]:
     }
 
 
-def _read_motor(iface: RawCanInterface, channel: str, motor_id: int) -> dict[DMRegAddr, Scalar] | None:
-    """Read one motor's identity, control mode and scaling, or None if any of it could not be read.
+def _read_motor(
+    iface: RawCanInterface, channel: str, motor_id: int, declared: Sequence[DMRegAddr] = ()
+) -> dict[DMRegAddr, Scalar] | None:
+    """Read one motor's identity, control mode, scaling and ``declared`` registers, or None on any failure.
 
     Bails on the first failure. A register that does not answer costs ~0.65 s of retries inside
     ``_tx_rx``, so continuing would spend seconds to learn what the first read already established --
     and the whole run is about to be abandoned anyway.
 
-    Five registers per motor, roughly 0.4 s for a healthy eight-motor bus. The three scaling registers
-    are most of that; they are read on the same open bus pass because there is no second one.
+    Five registers per motor plus any declared, roughly 0.4 s for a healthy eight-motor bus. The three
+    scaling registers are most of that; they are read on the same open bus pass because there is no second one.
     """
     values: dict[DMRegAddr, Scalar] = {}
-    for reg in (*IDENTITY_REGISTERS, DMRegAddr.CTRL_MODE, *SCALING_REGISTERS):
+    for reg in (*IDENTITY_REGISTERS, DMRegAddr.CTRL_MODE, *SCALING_REGISTERS, *declared):
         spec = REG_BY_ADDR[int(reg)]
         try:
             values[reg] = read_register(iface, motor_id, reg)
@@ -762,6 +793,30 @@ def _check_scaling(
     return blocking
 
 
+def _check_declared(
+    channel: str, motor_id: int, values: dict[DMRegAddr, Scalar], declared: Mapping[DMRegAddr, float]
+) -> bool:
+    """Report any declared register this motor does not hold. True if there was one; every one blocks."""
+    bad = [reg for reg, want in declared.items() if not matches(REG_BY_ADDR[int(reg)], values[reg], want)]
+    for reg in bad:
+        spec = REG_BY_ADDR[int(reg)]
+        want = format_value(spec, declared[reg])
+        logger.error(
+            "%s -- the config declares it, and whatever was tuned on this motor assumes it. NOT starting. "
+            "Nothing was written; set it with the robot stopped: dm_motor_registers.py write %s --value %s "
+            "--motor-id %d --channel %s, then save %s --motor-id %d --channel %s.",
+            describe(channel, motor_id, reg, values[reg], declared[reg]),
+            spec.name,
+            want,
+            motor_id,
+            channel,
+            spec.name,
+            motor_id,
+            channel,
+        )
+    return bool(bad)
+
+
 def verify_motor_config(
     channel: str,
     motor_list: Sequence[Sequence[object]],
@@ -769,6 +824,7 @@ def verify_motor_config(
     loop_critical_motor_ids: Sequence[int] | None = None,
     *,
     repair: bool = True,
+    expected_registers: Mapping[int, Mapping[str, float]] | None = None,
 ) -> None:
     """Check every motor's control mode and feedback scaling on ``channel``.
 
@@ -799,24 +855,38 @@ def verify_motor_config(
             ``dm_driver.py --survey-only``, whose whole promise is that it reads: there the mismatch is
             reported with the command that fixes it, and the robot is still refused. Nothing else this
             function touches is writable by it either way -- see ``_check_scaling``.
+        expected_registers: ``{can_id: {register name: value}}`` for values the motor type does not
+            determine -- an arm config's ``motor_registers``. Read, compared, never written; any
+            mismatch blocks, whatever ``loop_critical_motor_ids`` says.
 
     Raises:
-        RuntimeError: if any motor could not be read, any repair did not stick, or any loop-critical
+        RuntimeError: if any motor could not be read, any repair did not stick, any motor disagrees with
+            ``expected_registers``, or any loop-critical
             motor disagrees on a register that reaches a command or the loop. In each case the robot must
             not start on a configuration nobody can vouch for. Every other scaling mismatch is logged and
             the robot starts. With ``repair=False`` a wrong ``CTRL_MODE`` raises too, rather than being
             reported and passed over: a survey whose exit code cannot distinguish a good chain from a
             broken one is one nobody can script a fleet sweep against.
         ValueError: before the bus is touched, if ``control_mode`` has no recorded ``CTRL_MODE`` -- a gap
-            in ``CTRL_MODE_BY_CONTROL_MODE`` rather than a fault in the hardware.
+            in ``CTRL_MODE_BY_CONTROL_MODE`` rather than a fault in the hardware -- or if
+            ``expected_registers`` names a register that does not exist.
     """
     motors = _motor_rows(motor_list)
     if not motors:
         _nothing_to_check(channel, motor_list)
         return
-    # Resolved up front so an unrecorded control mode fails as a plain ValueError, without opening a
-    # socket, enabling a motor or spending bus time to discover a code gap.
+    # Resolved up front so an unrecorded control mode, or a misspelt register name, fails as a plain
+    # ValueError without opening a socket, enabling a motor or spending bus time to discover a code gap.
     want_mode = expected_ctrl_mode(control_mode)
+    declared: dict[int, dict[DMRegAddr, float]] = {}
+    for motor_id, registers in (expected_registers or {}).items():
+        for name, value in registers.items():
+            if name not in REG_BY_NAME:
+                raise ValueError(
+                    f"expected_registers names {name!r} on motor {motor_id}, which is not a register "
+                    "(names are case-sensitive; see dm_motor_registers.py list-registers)"
+                )
+            declared.setdefault(int(motor_id), {})[DMRegAddr(REG_BY_NAME[name].addr)] = float(value)
     loop_critical = (
         set(motor_id for motor_id, _ in motors) if loop_critical_motor_ids is None else set(loop_critical_motor_ids)
     )
@@ -833,11 +903,12 @@ def verify_motor_config(
     try:
         wrong: list[tuple[int, Scalar]] = []
         mis_scaled: list[int] = []
+        off_declared: list[int] = []
         unreadable: list[int] = []
         failed: list[int] = []
         not_attempted: list[int] = []
         for motor_id, motor_type in motors:
-            values = _read_motor(iface, channel, motor_id)
+            values = _read_motor(iface, channel, motor_id, tuple(declared.get(motor_id, {})))
             if values is None:
                 unreadable.append(motor_id)
                 continue
@@ -856,6 +927,8 @@ def verify_motor_config(
                 wrong.append((motor_id, actual))
             if _check_scaling(channel, motor_id, motor_type, values, control_mode, motor_id in loop_critical):
                 mis_scaled.append(motor_id)
+            if _check_declared(channel, motor_id, values, declared.get(motor_id, {})):
+                off_declared.append(motor_id)
 
         if unreadable:
             raise RuntimeError(
@@ -872,6 +945,12 @@ def verify_motor_config(
                 "Nothing was written. See the ERROR lines above for which register on which motor, and "
                 "what each one costs. Mismatches outside that set are reported the same way and never "
                 "block."
+            )
+        if off_declared:
+            raise RuntimeError(
+                f"motor configuration check failed on {channel}: motor(s) {off_declared} do not hold the "
+                "register values the config declares for them, so the robot was NOT started. Nothing was "
+                "written. See the ERROR lines above for the command that sets each one."
             )
 
         if not repair:

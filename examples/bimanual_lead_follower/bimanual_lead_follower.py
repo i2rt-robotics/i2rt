@@ -4,6 +4,9 @@ import os
 import subprocess
 import sys
 import time
+from typing import Literal
+
+import tyro
 
 current_file_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -70,7 +73,10 @@ def launch_gello_process(
         return None
 
 
-def main() -> None:
+def main(
+    leader_gripper: Literal["yam_teaching_handle_v1", "yam_teaching_handle_v2"] = "yam_teaching_handle_v1",
+) -> None:
+    """Launch two leader/follower pairs; ``leader_gripper`` is the handle fitted to both leaders."""
     processes = []
 
     try:
@@ -81,9 +87,19 @@ def main() -> None:
         # Define the processes to launch
         process_configs = [
             {"can_channel": "can_follower_r", "gripper": "linear_4310", "server_port": 1234},
-            {"can_channel": "can_leader_r", "gripper": "yam_teaching_handle", "mode": "leader", "server_port": 1234},
+            {
+                "can_channel": "can_leader_r",
+                "gripper": leader_gripper,
+                "mode": "leader",
+                "server_port": 1234,
+            },
             {"can_channel": "can_follower_l", "gripper": "linear_4310", "server_port": 1235},
-            {"can_channel": "can_leader_l", "gripper": "yam_teaching_handle", "mode": "leader", "server_port": 1235},
+            {
+                "can_channel": "can_leader_l",
+                "gripper": leader_gripper,
+                "mode": "leader",
+                "server_port": 1235,
+            },
         ]
 
         # Launch all processes
@@ -144,4 +160,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

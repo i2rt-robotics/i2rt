@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- Generated from no_gripper.xml by i2rt/robot_models/scripts/mjcf_to_urdf.py. Edit the
+     MJCF and re-run the script instead of editing this file. The root link `gripper` is the arm's
+     `gripper` mount link, so these links sit on an arm URDF's `gripper` link as is. -->
+<robot name="no_gripper">
+    <link name="gripper">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <mass value="1e-6" />
+            <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09" />
+        </inertial>
+    </link>
+    <link name="tcp_site" />
+    <joint name="tcp_site_joint" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="tcp_site" />
+    </joint>
+    <link name="grasp_site" />
+    <joint name="grasp_site_joint" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="grasp_site" />
+    </joint>
+</robot>

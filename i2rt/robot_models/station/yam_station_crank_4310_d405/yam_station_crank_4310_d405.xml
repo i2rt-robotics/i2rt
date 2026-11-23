@@ -13,7 +13,7 @@
      extrinsics.
 
      `tcp_left` / `tcp_right` are the tool-centre frames, taken from
-     gripper/crank_4310/crank_4310.xml's `grasp_site`: the flange turned 90 deg about Z and carried
+     gripper/crank_4310/crank_4310.xml's `grasp_site`: the flange's own axes -- the passive-XMI tool frame -- carried
      out to the centre of the two claw points, 146.764 mm along the flange's +Z and 44.591 mm off
      its axis. That lateral offset is the geometry, not an error: each claw tapers to a point near
      one end of its jaw, so the two points meet well off the flange axis. Unlike the linear
@@ -64,7 +64,7 @@
                   <inertial pos="0 0 0.027" quat="0 0.7071067811865476 0.7071067811865476 0" mass="0.45" diaginertia="0.0003 0.0005 0.0004"/>
                   <joint name="left_joint6" pos="0 0 0" axis="2.40808e-14 1.46014e-15 1" type="hinge" range="-2.0944 2.0944"/>
                   <geom pos="0 0.164101 -0.110597" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812" type="mesh" rgba="1 0.6 0 1" mesh="gripper"/>
-                  <site name="tcp_left" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
+                  <site name="tcp_left" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="1 0 0 0" size="0.005" rgba="1 0 0 1"/>
                   <body name="left_tip_left" pos="0.037 -0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                     <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
                     <joint name="left_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>
@@ -112,7 +112,7 @@
                     <inertial pos="0 0 0.027" quat="0 0.7071067811865476 0.7071067811865476 0" mass="0.45" diaginertia="0.0003 0.0005 0.0004"/>
                     <joint name="right_joint6" pos="0 0 0" axis="2.40808e-14 1.46014e-15 1" type="hinge" range="-2.0944 2.0944"/>
                     <geom pos="0 0.164101 -0.110597" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812" type="mesh" rgba="1 0.6 0 1" mesh="gripper"/>
-                    <site name="tcp_right" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="-0.7071067811865476 0 0 -0.7071067811865476" size="0.005" rgba="1 0 0 1"/>
+                    <site name="tcp_right" pos="-8.83226729e-05 0.0445904208 0.146764365" quat="1 0 0 0" size="0.005" rgba="1 0 0 1"/>
                     <body name="right_tip_left" pos="0.037 -0.0392 0.0605" quat="-1.2986765038913717e-06 1.2986717334850795e-06 -0.7071054825100438 0.7071080798582812">
                       <inertial pos="0.03 -0.04 -0.039" quat="1 0 0 0" mass="0.075" diaginertia="6e-05 6e-05 3e-05"/>
                       <joint name="right_joint7" pos="0 0 0" axis="1 0 0" type="slide" range="0 0.039574"/>

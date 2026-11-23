@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<!-- yumi handheld UMI device: the body (handle, MF camera housing and tracker seat), two fingers on
+     prismatic rails, and the HTC VIVE Tracker 3.0 screwed to the seat.
+
+     From the ONShape export "assembly_2". Each mesh is baked into its own link frame, so every
+     <visual><origin> is identity, and mesh paths are relative. Every mesh is decimated (99% of
+     vertices within 0.16 mm of the CAD, the worst 2.1 mm off on the body); the tracker mesh is
+     HTC's VIVE Tracker 3.0 model. The frames below were measured on the undecimated CAD.
+
+     `base` has +X forward (the way the fingers point), +Y left, +Z up (toward the tracker), with its
+     origin on the bottom face of the handle. Each finger joint is 0 closed (the fingertips touch) to
+     0.047 m open, along its own axis, outward.
+
+     Three frames, each a fixed child of `base`:
+     - `tcp`: the tool centre, midway between the two fingertip end faces, at the fingertips'
+       furthest point. +Z forward (along the fingers), +Y down, +X right. It holds at every opening
+       while the two fingers open symmetrically.
+     - `camera`: the MF camera's optical frame, OpenCV convention (+X image right, +Y image down,
+       +Z along the optical axis), with its origin at the centre of the lens face. The optical axis
+       points forward and 25 deg down, toward the fingertips.
+     - `vive`: the tracker frame, with its origin at the centre of the seat's 1/4" screw hole on the
+       face the tracker sits against. +Z points out of the tracker's mounting face, away from its
+       dome (into the seat), +Y from the screw toward the tracker's pogo pins, +X completes it.
+       This is the frame the tracker mesh is expressed in, so the mesh drops on at identity.
+
+     No <inertial>: the export's masses are part volumes at unit density, and the device is passive.
+-->
+<robot name="yumi">
+    <link name="base">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/base.stl" scale="1 1 1" />
+            </geometry>
+            <material name="body_orange">
+                <color rgba="1 0.6 0 1" />
+            </material>
+        </visual>
+    </link>
+
+    <link name="left_finger">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/left_finger.stl" scale="1 1 1" />
+            </geometry>
+            <material name="finger_teal">
+                <color rgba="0.227451 0.545098 0.560784 1" />
+            </material>
+        </visual>
+    </link>
+    <joint name="left_finger_joint" type="prismatic">
+        <origin xyz="0.0718427 0.0241478 0.139718" rpy="0 0 0" />
+        <parent link="base" />
+        <child link="left_finger" />
+        <axis xyz="0 1 0" />
+        <limit effort="1" velocity="1" lower="0" upper="0.047" />
+    </joint>
+
+    <link name="right_finger">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/right_finger.stl" scale="1 1 1" />
+            </geometry>
+            <material name="finger_white">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+    </link>
+    <joint name="right_finger_joint" type="prismatic">
+        <origin xyz="0.0718427 -0.0278522 0.135338" rpy="0 0 0" />
+        <parent link="base" />
+        <child link="right_finger" />
+        <axis xyz="0 -1 0" />
+        <limit effort="1" velocity="1" lower="0" upper="0.047" />
+    </joint>
+
+    <link name="tcp" />
+    <joint name="tcp_joint" type="fixed">
+        <origin xyz="0.1683328 -0.001852 0.0911592" rpy="-1.570796327 0 -1.570796327" />
+        <parent link="base" />
+        <child link="tcp" />
+    </joint>
+
+    <link name="camera" />
+    <joint name="camera_joint" type="fixed">
+        <origin xyz="0.1052677 -0.0015498 0.1730542" rpy="-2.007128640 0 -1.570796327" />
+        <parent link="base" />
+        <child link="camera" />
+    </joint>
+
+    <link name="vive">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="assets/vive_tracker.stl" scale="1 1 1" />
+            </geometry>
+            <material name="tracker_black">
+                <color rgba="0.2 0.2 0.2 1" />
+            </material>
+        </visual>
+    </link>
+    <joint name="vive_joint" type="fixed">
+        <origin xyz="0.056383 -0.0015481 0.1885038" rpy="-2.792526803 0 -1.570796327" />
+        <parent link="base" />
+        <child link="vive" />
+    </joint>
+</robot>

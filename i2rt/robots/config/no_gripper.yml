@@ -23,6 +23,24 @@ last_joint_mount:
       pos: "0.0356 0 -0.0404996"
       quat: "0.5 -0.5 0.5 -0.5"
       axis: "0 0 1"
+  # The 7-DOF arm's two sides are separate families, so each carries its own block. joint7 is a
+  # wrist pitch rather than the tool roll, so the gripper bolts off that axis --
+  # gripper_pos/gripper_quat carry that offset, which the mount pose cannot (moving it would
+  # move joint7's axis line).
+  yam_7dof_left:
+    v1:
+      pos: "4.47332e-06 -0.02565 -0.0380064"
+      quat: "-7.3122876473820652e-14 -7.3123145069636984e-14 0.70710807985947355 0.70710548251123628"
+      axis: "0 0 -1"
+      gripper_pos: "-0.068901 -0.000294 0.025637"
+      gripper_quat: "-0.70711 0 0.70711 0"
+  yam_7dof_right:
+    v1:
+      pos: "4.47332e-06 0.02565 -0.0380064"
+      quat: "-7.3122876473820652e-14 7.3123145069636984e-14 0.70710807985947355 -0.70710548251123628"
+      axis: "0 0 1"
+      gripper_pos: "-0.068901 0.000294 0.025637"
+      gripper_quat: "0 0.70711 0 -0.70711"
 
 # No gripper motor
 motor_type: ""

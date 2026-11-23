@@ -16,7 +16,7 @@ def test_can_io_does_not_block_command_updates() -> None:
     chain.command_lock, chain.state_lock = threading.RLock(), threading.Lock()
     chain.commands, chain.motor_list = [MotorCmd()], [(1, "fake")]
     chain._rate_recorder, chain._report_interval = RateRecorder(), 30.0
-    chain.same_bus_device_driver = None
+    chain.same_bus_device_driver, chain._loop_sleep_s = None, 0.0005
     chain._update_absolute_positions = lambda _feedback: None
     with ThreadPoolExecutor(1) as pool:
 
