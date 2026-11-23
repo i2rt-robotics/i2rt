@@ -1057,6 +1057,8 @@ def detect_gripper_limits(
 
         time.sleep(0.3)
 
+    motor_chain.set_commands(torques=zero_torques, pos=initial_positions, kp=hold_kp, kd=hold_kd)
+
     # Calculate detected limits
     min_pos = min(positions)
     max_pos = max(positions)
