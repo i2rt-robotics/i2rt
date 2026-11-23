@@ -58,4 +58,4 @@ limiter:
   sign: 1.0
   force_torque_map: "linear"
   motor_stroke: 6.57
-  gripper_stroke: 0.096
+  gripper_stroke: 0.095

@@ -36,7 +36,7 @@
         <parent link="gripper" />
         <child link="tip_left" />
         <axis xyz="1 0 0" />
-        <limit effort="1" velocity="1" lower="0" upper="0.039574" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
     </joint>
     <link name="tip_left">
         <inertial>
@@ -65,7 +65,7 @@
         <parent link="gripper" />
         <child link="tip_right" />
         <axis xyz="-1 0 0" />
-        <limit effort="1" velocity="1" lower="0" upper="0.039574" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
         <mimic joint="joint7" multiplier="1" offset="0" />
     </joint>
     <link name="tip_right">
