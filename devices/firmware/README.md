@@ -1,7 +1,7 @@
 # Upgrading the teaching-handle encoder firmware
 
 This guide walks you end to end through updating the firmware on the **ioheart** encoder — the
-passive joint encoder inside the `yam_teaching_handle` (leader arm). It covers what you need, how to
+passive joint encoder inside the YAM teaching handle (leader arm). It covers what you need, how to
 do the upgrade, how to confirm it worked, and how to recover if any step fails.
 
 Board: **STM32F103C8T6**. Firmware shipped here: **v2.4.0**.

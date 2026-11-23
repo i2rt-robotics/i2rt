@@ -16,7 +16,7 @@ def _robot() -> MotorChainRobot:
     robot._state_lock = threading.Lock()
     robot._commands = JointCommands.init_all_zero(2)
     robot._kp, robot._kd = np.ones(2), np.ones(2)
-    robot._joint_limits = None
+    robot._joint_limits, robot._motor_command_callback = None, None
     robot.remapper = JointMapper({}, 2)
     robot._joint_state = JointStates([], np.ones(2), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2), 0.0)
     return robot

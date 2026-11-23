@@ -164,9 +164,11 @@ Use the complete YAM end-effector contract when changing shared arm mounts or co
 | `crank_4310` | Active crank | 0 | `tcp_site`, `grasp_site` | Root offset, mass, inertia, crank limiter |
 | `flexible_4310` | Active flexible linear | 2 | `tcp_site`, `grasp_site` | Root offset, geometry, dynamics, motor direction, linear limiter |
 | `no_gripper` | Passive mount placeholder | 0 | `tcp_site`, `grasp_site` | No motor, no calibration, no limiter, six arm DOFs |
-| `yam_teaching_handle` | Passive physical handle | 0 | `tcp_site` | Root offset, mass, inertia, no motor, six arm DOFs |
+| `yam_teaching_handle_v1`, `yam_teaching_handle_v2` | Passive physical handle | 1 | `tcp_site` | Root offset, mass, inertia, no motor, six arm DOFs |
 
 Count only compiled body joints; an equality-section `<joint>` element does not add a MuJoCo joint. Do not add joints, sites, motors, or limiter settings merely to make variants structurally identical.
+
+The teaching handles' one joint is the exception that proves the rule: the trigger hinge, named `gripper`, is *passive* -- the operator squeezes it, and it has no motor and no actuator. It is deliberately not named `joint7` -- `get_robot._load_joint_limits_from_xml` collects every joint whose name starts with `joint`, and the handle robot must stay at six DOFs. It shares its name with the root body, which MuJoCo allows because body and joint names live in separate namespaces. Its `range="-0.680678 0"` is oriented so the standard `q = lo + n*(hi - lo)` mapping of a normalized command `n` follows the repo's "0 = closed, 1 = open" convention. It is also the only gripper joint that is a hinge rather than a slide, so code must not infer "arm DOFs" from the model's hinge count.
 
 Use `linear_4310` as the arm-side mount-frame reference for all four arm variants: `yam`, `yam_pro`, `yam_ultra`, and `big_yam`. Move each end-effector-specific rigid offset into its XML root body, but preserve every target-specific property listed above. Do not modify an unaffected variant unless the user requests it or a shared change requires it.
 
