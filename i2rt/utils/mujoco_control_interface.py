@@ -32,6 +32,7 @@ from i2rt.motor_drivers.dm_driver import PassiveEncoderInfo
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 from i2rt.robots.robot import Robot
+from i2rt.robots.utils import set_teaching_handle_trigger, teaching_handle_trigger_id
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,10 @@ class MujocoControlInterface:
         self._kin = Kinematics(xml_path, ee_site)
 
         self._nq = self._model.nq
-        self._n_arm = sum(1 for j in range(self._model.njnt) if self._model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE)
+        # Arm DOFs the robot can actually command. Counting the model's hinge joints happened to
+        # give the same answer while every gripper's extra joints were slides, but a model can
+        # carry passive hinges the robot has no motor for (the teaching handle's trigger).
+        self._n_arm = self._gripper_index if self._gripper_index is not None else n_dofs
 
         # Validate ee_site
         self._ee_site_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_SITE, ee_site)
@@ -205,6 +209,8 @@ class MujocoControlInterface:
         self._mocap_geom_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_GEOM, "mocap_target_geom")
         self._check_data = mujoco.MjData(self._model)  # scratch buffer for collision checks
         self._in_collision = False
+
+        self._handle_joint_id = teaching_handle_trigger_id(self._model)
 
         # Slider tracking: detect when the user moves a slider in the Control panel
         self._prev_ctrl = np.zeros(self._model.nu)
@@ -350,7 +356,15 @@ class MujocoControlInterface:
         self._data.qpos[:n] = qpos[:n]
         self._denormalize_slide_joints(n)
         self._enforce_eq_constraints()
+        self._mirror_trigger_from_encoder()
         mujoco.mj_forward(self._model, self._data)
+
+    def _mirror_trigger_from_encoder(self) -> None:
+        """Drive the teaching handle's trigger hinge from the live encoder, if any."""
+        state = self._get_teaching_handle_state()
+        set_teaching_handle_trigger(
+            self._model, self._data, self._handle_joint_id, getattr(state, "gripper_pos", None)
+        )
 
     def _denormalize_slide_joints(self, n_set: int) -> None:
         self._denormalize_slide_joints_on(self._data, n_set)
@@ -548,7 +562,7 @@ class MujocoControlInterface:
         button_states: list[bool] | None = None
         handle_state = self._get_teaching_handle_state()
         if handle_state is not None:
-            gripper_pos = 1.0 - float(handle_state.position)
+            gripper_pos = float(handle_state.gripper_pos)
             button_states = list(handle_state.io_inputs)
 
         required = self._compute_sim_torques()
@@ -640,11 +654,15 @@ class MujocoControlInterface:
         ) as viewer:
             self._viewer = viewer
             viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
-            if self._is_sim:
-                self._set_marker_color(self._VIS_RGBA)
-                self._mirror_robot()
-                self._sync_mocap_to_ee()
-                self._sync_sliders_to_robot()
+            # Seed the model, the IK marker and the sliders from the robot before the control thread
+            # can look at any of them. This used to be sim-only, which left real hardware with the
+            # sliders at MjData's zeros, the marker at its injected default, and _prev_mocap_pos at
+            # zeros -- so the first CONTROL-mode iteration saw a "moved" marker it had never been
+            # told about and solved IK to the marker's default pose instead of the arm's.
+            self._set_marker_color(self._VIS_RGBA)
+            self._mirror_robot()
+            self._sync_mocap_to_ee()
+            self._sync_sliders_to_robot()
 
             control_thread = threading.Thread(
                 target=self._control_loop,

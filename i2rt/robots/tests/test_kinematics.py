@@ -20,7 +20,8 @@ def test_fk(kinematics_yam: Kinematics) -> None:
     rotation = pose[:3, :3]
     translation = pose[:3, 3]
 
-    start_rot = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+    # grasp_site carries the flange's axes (passive XMI's tool frame): X right (world -Y), Y down, Z front at home.
+    start_rot = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
     start_trans = np.array([0.1105973, 0.0000010, 0.1735018])
     np.testing.assert_allclose(rotation, start_rot, atol=1e-5)
     np.testing.assert_allclose(translation, start_trans, atol=1e-5)

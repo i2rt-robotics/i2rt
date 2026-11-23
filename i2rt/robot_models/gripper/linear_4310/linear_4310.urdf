@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<!-- Generated from linear_4310.xml by i2rt/robot_models/scripts/mjcf_to_urdf.py. Edit the
+     MJCF and re-run the script instead of editing this file. The root link `gripper` is the arm's
+     `gripper` mount link, so these links sit on an arm URDF's `gripper` link as is. -->
+<robot name="linear_4310">
+    <link name="gripper">
+        <inertial>
+            <origin xyz="0.000249371 -3.57066e-05 0.0293133" rpy="0 0 0" />
+            <mass value="0.553219" />
+            <inertia ixx="0.000324942066" ixy="5.44942466e-07" ixz="4.83956503e-06" iyy="0.000409668108" iyz="-7.91271675e-07" izz="0.000369248826" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.0463995 -0.014 -0.0731" rpy="3.14159265 0 1.57079633" />
+            <geometry>
+                <mesh filename="assets/gripper.stl" />
+            </geometry>
+            <material name="rgba_0.109804_0.286275_0.0117647_1">
+                <color rgba="0.109804 0.286275 0.0117647 1" />
+            </material>
+        </visual>
+    </link>
+    <link name="tcp_site" />
+    <joint name="tcp_site_joint" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="tcp_site" />
+    </joint>
+    <link name="grasp_site" />
+    <joint name="grasp_site_joint" type="fixed">
+        <origin xyz="3.8898e-05 9.681e-05 0.146773" rpy="0 0 0" />
+        <parent link="gripper" />
+        <child link="grasp_site" />
+    </joint>
+    <joint name="joint7" type="prismatic">
+        <origin xyz="0.0450619 -0.0238981 0.0566829" rpy="-1.57079833 1.57079233 -1.57079433" />
+        <parent link="gripper" />
+        <child link="tip_left" />
+        <axis xyz="0 0 -1" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
+    </joint>
+    <link name="tip_left">
+        <inertial>
+            <origin xyz="-0.0224716 0.0143408 -0.0426253" rpy="0 0 0" />
+            <mass value="0.0710042" />
+            <inertia ixx="4.82351234e-05" ixy="1.03366002e-05" ixz="-1.13904017e-05" iyy="5.19530369e-05" iyz="1.10487004e-05" izz="5.06981397e-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0.129783 0.00999321 -0.0914614" rpy="1.57080033 0 1.57080033" />
+            <geometry>
+                <mesh filename="assets/tip_left.stl" />
+            </geometry>
+            <material name="rgba_0.596078_0.788235_0.921569_1">
+                <color rgba="0.596078 0.788235 0.921569 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0.129783 0.00999321 -0.0914614" rpy="1.57080033 0 1.57080033" />
+            <geometry>
+                <mesh filename="assets/tip_left.stl" />
+            </geometry>
+        </collision>
+    </link>
+    <joint name="joint8" type="prismatic">
+        <origin xyz="-0.0450619 0.0238981 0.0566829" rpy="-1.57079208 0 1.57079633" />
+        <parent link="gripper" />
+        <child link="tip_right" />
+        <axis xyz="0 0 -1" />
+        <limit effort="1" velocity="1" lower="0" upper="0.0475" />
+        <mimic joint="joint7" multiplier="1" offset="0" />
+    </joint>
+    <link name="tip_right">
+        <inertial>
+            <origin xyz="-0.0143408 -0.0224716 -0.0426253" rpy="0 0 0" />
+            <mass value="0.0710042" />
+            <inertia ixx="5.19530429e-05" ixy="-1.03366033e-05" ixz="-1.10486927e-05" iyy="4.82351079e-05" iyz="-1.13904043e-05" izz="5.06981492e-05" />
+        </inertial>
+        <visual>
+            <origin xyz="-0.0379932 0.129783 0.00133753" rpy="-1.57080057 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_right.stl" />
+            </geometry>
+            <material name="rgba_0.596078_0.788235_0.921569_1">
+                <color rgba="0.596078 0.788235 0.921569 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="-0.0379932 0.129783 0.00133753" rpy="-1.57080057 0 0" />
+            <geometry>
+                <mesh filename="assets/tip_right.stl" />
+            </geometry>
+        </collision>
+    </link>
+</robot>

@@ -2,15 +2,22 @@ version = 1
 revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version == '3.12.*'",
-    "python_full_version == '3.11.*'",
-    "python_full_version < '3.11'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.13.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.11.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.11.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version < '3.11' and sys_platform == 'darwin'",
+    "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version < '3.11' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.11' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
-
-[manifest]
-build-constraints = [{ name = "scikit-build-core", specifier = "<0.10" }]
 
 [[package]]
 name = "absl-py"
@@ -311,7 +318,9 @@ name = "dm-tree"
 version = "0.1.9"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 dependencies = [
     { name = "absl-py", marker = "python_full_version >= '3.14'" },
@@ -347,10 +356,18 @@ name = "dm-tree"
 version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version == '3.13.*'",
-    "python_full_version == '3.12.*'",
-    "python_full_version == '3.11.*'",
-    "python_full_version < '3.11'",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.13.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.11.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.11.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version < '3.11' and sys_platform == 'darwin'",
+    "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version < '3.11' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.11' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 dependencies = [
     { name = "absl-py", marker = "python_full_version < '3.14'" },
@@ -402,7 +419,9 @@ name = "etils"
 version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version < '3.11'",
+    "python_full_version < '3.11' and sys_platform == 'darwin'",
+    "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version < '3.11' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.11' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9b/a0/522bbff0f3cdd37968f90dd7f26c7aa801ed87f5ba335f156de7f2b88a48/etils-1.13.0.tar.gz", hash = "sha256:a5b60c71f95bcd2d43d4e9fb3dc3879120c1f60472bb5ce19f7a860b1d44f607", size = 106368, upload-time = "2025-07-15T10:29:10.563Z" }
 wheels = [
@@ -422,10 +441,18 @@ name = "etils"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version == '3.12.*'",
-    "python_full_version == '3.11.*'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.13.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.11.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.11.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/26/ce/6e067242fde898841922ac6fc82b0bb2fe35c38e995880bdffdfbe30182a/etils-1.14.0.tar.gz", hash = "sha256:8136e7f4c4173cd0af0ca5481c4475152f0b8686192951eefa60ee8711e1ede4", size = 108127, upload-time = "2026-03-04T17:41:36.291Z" }
 wheels = [
@@ -522,11 +549,14 @@ dependencies = [
     { name = "mink" },
     { name = "mujoco" },
     { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "openvr" },
     { name = "portal" },
     { name = "pydantic" },
     { name = "pygame" },
     { name = "pyserial" },
     { name = "python-can" },
+    { name = "pyudev" },
     { name = "pyyaml" },
     { name = "qpsolvers", extra = ["quadprog"] },
     { name = "rerun-sdk" },
@@ -553,6 +583,9 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
+ethercat = [
+    { name = "i2rt-ecat", marker = "sys_platform == 'linux'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -563,6 +596,8 @@ requires-dist = [
     { name = "mink", specifier = ">=0.0.13" },
     { name = "mujoco", specifier = ">=3.3.5" },
     { name = "numpy", specifier = "==2.2.6" },
+    { name = "opencv-python", specifier = ">=4.11,<4.12" },
+    { name = "openvr", specifier = ">=2.12,<2.13" },
     { name = "portal", specifier = "==3.7.3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pygame", specifier = "==2.6.1" },
@@ -571,11 +606,12 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8.0" },
     { name = "python-can", specifier = "==4.5.0" },
+    { name = "pyudev", specifier = ">=0.24" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "qpsolvers", extras = ["quadprog"], specifier = "==4.7.1" },
     { name = "rerun-sdk", specifier = ">=0.32.2" },
     { name = "rpi-lgpio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'armv6l' and sys_platform == 'linux') or (platform_machine == 'armv7l' and sys_platform == 'linux')", specifier = ">=0.6" },
-    { name = "ruckig", specifier = "==0.15.3" },
+    { name = "ruckig", specifier = ">=0.19.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.6" },
     { name = "threadpoolctl", specifier = "==3.6.0" },
     { name = "tyro", specifier = ">=1.0.0" },
@@ -591,6 +627,18 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.15.6" },
 ]
+ethercat = [{ name = "i2rt-ecat", marker = "sys_platform == 'linux'", directory = "i2rt-ecat" }]
+
+[[package]]
+name = "i2rt-ecat"
+version = "0.1.0"
+source = { directory = "i2rt-ecat" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy" }]
 
 [[package]]
 name = "identify"
@@ -1030,6 +1078,32 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/17/f4/09b2fa1b58f0fb4f7c7963a1649c64c4d315752240377ed74d9cd878f7b5/numpy-2.2.6-pp310-pypy310_pp73-macosx_14_0_x86_64.whl", hash = "sha256:7befc596a7dc9da8a337f79802ee8adb30a552a94f792b9c9d18c840055907db", size = 6786754, upload-time = "2025-05-17T21:44:47.446Z" },
     { url = "https://files.pythonhosted.org/packages/af/30/feba75f143bdc868a1cc3f44ccfa6c4b9ec522b36458e738cd00f67b573f/numpy-2.2.6-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce47521a4754c8f4593837384bd3424880629f718d87c5d44f8ed763edd63543", size = 16643476, upload-time = "2025-05-17T21:45:11.871Z" },
     { url = "https://files.pythonhosted.org/packages/37/48/ac2a9584402fb6c0cd5b5d1a91dcf176b15760130dd386bbafdbfe3640bf/numpy-2.2.6-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:d042d24c90c41b54fd506da306759e06e568864df8ec17ccc17e9e884634fd00", size = 12812666, upload-time = "2025-05-17T21:45:31.426Z" },
+]
+
+[[package]]
+name = "opencv-python"
+version = "4.11.0.86"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/17/06/68c27a523103dad5837dc5b87e71285280c4f098c60e4fe8a8db6486ab09/opencv-python-4.11.0.86.tar.gz", hash = "sha256:03d60ccae62304860d232272e4a4fda93c39d595780cb40b161b310244b736a4", size = 95171956, upload-time = "2025-01-16T13:52:24.737Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/4d/53b30a2a3ac1f75f65a59eb29cf2ee7207ce64867db47036ad61743d5a23/opencv_python-4.11.0.86-cp37-abi3-macosx_13_0_arm64.whl", hash = "sha256:432f67c223f1dc2824f5e73cdfcd9db0efc8710647d4e813012195dc9122a52a", size = 37326322, upload-time = "2025-01-16T13:52:25.887Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/84/0a67490741867eacdfa37bc18df96e08a9d579583b419010d7f3da8ff503/opencv_python-4.11.0.86-cp37-abi3-macosx_13_0_x86_64.whl", hash = "sha256:9d05ef13d23fe97f575153558653e2d6e87103995d54e6a35db3f282fe1f9c66", size = 56723197, upload-time = "2025-01-16T13:55:21.222Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/bd/29c126788da65c1fb2b5fb621b7fed0ed5f9122aa22a0868c5e2c15c6d23/opencv_python-4.11.0.86-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1b92ae2c8852208817e6776ba1ea0d6b1e0a1b5431e971a2a0ddd2a8cc398202", size = 42230439, upload-time = "2025-01-16T13:51:35.822Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/8b/90eb44a40476fa0e71e05a0283947cfd74a5d36121a11d926ad6f3193cc4/opencv_python-4.11.0.86-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6b02611523803495003bd87362db3e1d2a0454a6a63025dc6658a9830570aa0d", size = 62986597, upload-time = "2025-01-16T13:52:08.836Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/d7/1d5941a9dde095468b288d989ff6539dd69cd429dbf1b9e839013d21b6f0/opencv_python-4.11.0.86-cp37-abi3-win32.whl", hash = "sha256:810549cb2a4aedaa84ad9a1c92fbfdfc14090e2749cedf2c1589ad8359aa169b", size = 29384337, upload-time = "2025-01-16T13:52:13.549Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/7d/f1c30a92854540bf789e9cd5dde7ef49bbe63f855b85a2e6b3db8135c591/opencv_python-4.11.0.86-cp37-abi3-win_amd64.whl", hash = "sha256:085ad9b77c18853ea66283e98affefe2de8cc4c1f43eda4c100cf9b2721142ec", size = 39488044, upload-time = "2025-01-16T13:52:21.928Z" },
+]
+
+[[package]]
+name = "openvr"
+version = "2.12.1401"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/37/7217f40ba5525a6189827f8d9671d2ce326e578a6e5d958a8adb348ce603/openvr-2.12.1401.tar.gz", hash = "sha256:245afacb008b66f10bc38eab1f4806cf634a70400c4a0baf349295f617d0f6df", size = 1957770, upload-time = "2025-08-20T03:55:09.792Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/a2/e6cb89bd1803ffe70a25c20121ad8bb533fa1f1334ce7f0f7585d35e5096/openvr-2.12.1401-py3-none-any.whl", hash = "sha256:ef761cef3162843a8025a7812d5e244fd94ab3a992ca8f5ef0d1b0188ad56cb3", size = 1965222, upload-time = "2025-08-20T03:55:06.858Z" },
 ]
 
 [[package]]
@@ -1537,6 +1611,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyudev"
+version = "0.24.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/1d/8bdbf651de1002e8b58fbe817bee22b1e8bfcdd24341d42c3238ce9a75f4/pyudev-0.24.4.tar.gz", hash = "sha256:e788bb983700b1a84efc2e88862b0a51af2a995d5b86bc9997546505cf7b36bc", size = 56135, upload-time = "2025-10-08T17:26:58.661Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/51/3dc0cd6498b24dea3cdeaed648568e3ca7454d41334d840b114156d7479f/pyudev-0.24.4-py3-none-any.whl", hash = "sha256:b3b6b01c68e6fc628428cc45ff3fe6c277afbb5d96507f14473ddb4a6b959e00", size = 62784, upload-time = "2025-10-08T17:26:57.664Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1701,7 +1784,7 @@ name = "rpi-lgpio"
 version = "0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "lgpio" },
+    { name = "lgpio", marker = "sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6e/6d/7b6cb0def16abda6af89d16a3363d4036501bf042f9c67668aad3b34927f/rpi_lgpio-0.6.tar.gz", hash = "sha256:84579b11d543bb8abdddc1e10fcd6bdc2819e5897be72d6949a2b044d71fb73e", size = 12723, upload-time = "2024-05-11T16:09:29.463Z" }
 wheels = [
@@ -1710,9 +1793,41 @@ wheels = [
 
 [[package]]
 name = "ruckig"
-version = "0.15.3"
+version = "0.19.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bc/b7/d3d7c7f507ce8b6a7558418468e796d462dd2053ff3c555727c3f384941e/ruckig-0.15.3.tar.gz", hash = "sha256:48f68535080a594e45275201896c3a71123ac4a64c668eb3cf10b8bc42f34183", size = 870129, upload-time = "2025-05-16T14:04:55.521Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/2a/d1c1639bf76699ab1c3c1281101372f2b749d0ad8aee4c19200947b92785/ruckig-0.19.4.tar.gz", hash = "sha256:71d003bf0ff9aa0031d4520b0290a5ffa6458149f5afce8be3ed6d6fba49ea64", size = 886607, upload-time = "2026-07-15T06:59:43.034Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/7d/99ab1fd780813e6955b95e20fb251681b9515edfabb94306391d23de6a79/ruckig-0.19.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:43d3d004d3cbec7913dbb48d78349ba11d0c25437257f1aee0fa4a6ddfc33e80", size = 689080, upload-time = "2026-07-15T06:58:46.881Z" },
+    { url = "https://files.pythonhosted.org/packages/26/24/27afdb847db06257f5d57ceefe4d8de071eab5cbc7d5b5681bbfa6726866/ruckig-0.19.4-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ecb71e23d9fa7cdd3a5fab4fbc56819317276bc457381d8f6a21a7493a49465c", size = 1062830, upload-time = "2026-07-15T06:58:48.709Z" },
+    { url = "https://files.pythonhosted.org/packages/61/89/913a6a6c032ce9d5c8379f10991ab08847c3ed5e08dcecc6e7073e533244/ruckig-0.19.4-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:a81a652d2ff1a1d7b74eb2b5e3aca1ae32f3df010a6ff3a5b961430f7b0410c5", size = 1561678, upload-time = "2026-07-15T06:58:50.22Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/97/a6e67c2e47a44518f10523d9f60fd4a738681b9f4c4b5c8c3108ab07b18a/ruckig-0.19.4-cp310-cp310-win32.whl", hash = "sha256:d5d34d0c33155af30291c032874605e2bcd164f2d10451bda4dd9a9c4e80b301", size = 1306546, upload-time = "2026-07-15T06:58:51.904Z" },
+    { url = "https://files.pythonhosted.org/packages/81/c8/aafa2e06694c65bf779410a248ac44fd36ca3c4aabe6eced54cef47bd20c/ruckig-0.19.4-cp310-cp310-win_amd64.whl", hash = "sha256:4d70b25314d26f8740b7c350f0707ce4d322a108bc559c8b30091d207d4f4812", size = 1535012, upload-time = "2026-07-15T06:58:53.37Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/00/815fe81a7df845522e72d8e2c7f3f8178f737735bf92473a9da235e0e3ed/ruckig-0.19.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:ac6133b08be5717d58fcb997d4ff3f0fa7e5427b2ae152c43e6a896a7694c0b0", size = 689081, upload-time = "2026-07-15T06:58:55.022Z" },
+    { url = "https://files.pythonhosted.org/packages/52/60/a8b7ebc2ee187a05d878a6c48b63a9a1bce5b9c1393ced89eeb959d9492c/ruckig-0.19.4-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0ce3d7f701ba26eed841561ba2ed1a1804087afc1e996e83b5cd85bf6632e6c4", size = 1062888, upload-time = "2026-07-15T06:58:56.751Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/ef/4684a822e0ab0ac592615266f62fcf2f208b271d6a2735326db580936f42/ruckig-0.19.4-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:cdf8c0a1643a840a2aa4245edf38b35eac19985550fda8771862f9f1c4b12e77", size = 1561172, upload-time = "2026-07-15T06:58:58.296Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/74/26b471a0f3b3240f752e49a144b7d6a2b3e50d9a689e176598b3f8d89699/ruckig-0.19.4-cp311-cp311-win32.whl", hash = "sha256:d90f6c838291212acc9483f8115660c9a93595d4d4f6b3acd79f69e9da865874", size = 1306705, upload-time = "2026-07-15T06:59:00.453Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/ae/fbec06c9631d271ffa29a75c11312995c42e6d17f77480b75ca1aaec07db/ruckig-0.19.4-cp311-cp311-win_amd64.whl", hash = "sha256:e90a7dafdffc03cac4d69df26d8b5ef2f0999e78fba41c59a31e18de7b6e2377", size = 1534816, upload-time = "2026-07-15T06:59:02.185Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/cd/792797f51ec3b83fc6ee93b0b6eb057f3e1e3573138a4bc67914203bfd59/ruckig-0.19.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:a353458a177992771edfef9f93baa3701642fd0f852059329e2addbf8686a8cd", size = 688146, upload-time = "2026-07-15T06:59:03.789Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/63/fae4e7af16e6156e0bdd8c3195cf29b4eaf6364cce5c06783703629b03ce/ruckig-0.19.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:347ad72d2003886c55a4c772ae686e82d808c2d9afb99318c287d3c0e24bf12e", size = 1061774, upload-time = "2026-07-15T06:59:05.356Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/9e/67cb1b29c703bd034dc364d884f151913afbdc912eafb8885a7dedfdda4e/ruckig-0.19.4-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:4b36110e4fb18c54db6308c9b3e9ed7a16559d90e640a4fdea4e25d37acbc0f2", size = 1560237, upload-time = "2026-07-15T06:59:06.861Z" },
+    { url = "https://files.pythonhosted.org/packages/73/d7/0d6a829e2d70accc6943c00e8d5584a21ae20a98a34372ad9b85507a72c0/ruckig-0.19.4-cp312-cp312-win32.whl", hash = "sha256:28d96e84fb600d15bbfaa2ce5c73f7a33e42b396ff3e700293557a52f1d2bcb3", size = 1306157, upload-time = "2026-07-15T06:59:08.317Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/30/1eac56a589f84007fb6fd25761612738345262e60cf517d8cae30dcc5146/ruckig-0.19.4-cp312-cp312-win_amd64.whl", hash = "sha256:9ca62445749dbcdb1533eb44ef8d434bdd43c33f7e274c9117698221c9c4d620", size = 1534285, upload-time = "2026-07-15T06:59:09.861Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/29/7c705a110ac2c25bfd4c6eeb27ab6b58f34afe25b36166587127216609e9/ruckig-0.19.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:c9b9e98a1864d59dc67bb3a324a74a3eb92542e8fadb09575522097f51a54248", size = 688153, upload-time = "2026-07-15T06:59:11.498Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/c6/b0ac54f514570bd2626a472e9ec2f8c60353e6156a6c85dbe17929d62ab1/ruckig-0.19.4-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2566a9cb27d3379d113696e5d885c6a3b3a6e10dce2503598aa1b317d8b5cfb6", size = 1061699, upload-time = "2026-07-15T06:59:13.054Z" },
+    { url = "https://files.pythonhosted.org/packages/82/bd/1eb52b4412f91f1043c8de0c56f23f2c2bdd4c05ffec4baaa75cbcfdcd04/ruckig-0.19.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:da0887ac090c327a97a366f6b0b5ec8bfdb28836c20a1afcc4ee5c1bbbd31149", size = 1560189, upload-time = "2026-07-15T06:59:14.82Z" },
+    { url = "https://files.pythonhosted.org/packages/16/42/610cea86a003a8a3475a683c91268f5c524200f5c585fbda6ce3c49572ba/ruckig-0.19.4-cp313-cp313-win32.whl", hash = "sha256:4adc97fdaca33021f311d71925411e79d6fb41e6123b01dd797465111f9a8488", size = 1306132, upload-time = "2026-07-15T06:59:16.275Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/bb/48004d2bb468fee790644e9ed0fefe18929d97dfbadd369553121b8a894b/ruckig-0.19.4-cp313-cp313-win_amd64.whl", hash = "sha256:b5a3cbe5bced4b0993e93737000c49c574786cebca314d1bed725cd44114645c", size = 1534216, upload-time = "2026-07-15T06:59:17.783Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/f1/4046cfebcde683672c0c33f1ee0a94474c87db83849eaf8d4ec7ce3454ac/ruckig-0.19.4-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:8406833bbf6fd11f6e6c46ae9290c0a68d6f8abb77590619459e957b66b4c3bc", size = 687981, upload-time = "2026-07-15T06:59:19.461Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/78/3dc19956097ac690f885e4d8e979f3905977ff546f6bdb7386d73e3f31f8/ruckig-0.19.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1a32ad56149f34783728f08da67b088ffacc2074f247946da7d83f265af35e82", size = 1061812, upload-time = "2026-07-15T06:59:21.011Z" },
+    { url = "https://files.pythonhosted.org/packages/13/5d/f84d61401b7da196c8bd995fa833ee8cecf9d1e1e8f4d5ff547428ec2b8f/ruckig-0.19.4-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:5640da60eaf7746942eac6c11a7f0d0ca86a66e3270e7b0fffdedcc1c125a18c", size = 1559934, upload-time = "2026-07-15T06:59:22.762Z" },
+    { url = "https://files.pythonhosted.org/packages/87/8e/6a49a0b43812bc19684e2bd462e64a22b81b4647bcff759a8577b2f08736/ruckig-0.19.4-cp314-cp314-win32.whl", hash = "sha256:45a0d6eda72e8515a7fea4d77a8794671077b9f350c2adcf65352072472d72c3", size = 1320911, upload-time = "2026-07-15T06:59:24.281Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/7b/83c7d6d08bdac0cb43eafce2d8ce01829f9a3f15ba5937c61e028ea64ebb/ruckig-0.19.4-cp314-cp314-win_amd64.whl", hash = "sha256:c57f6405bd00511fcce21aba34ffda8052f4478cd7f0a780607774cdc83bcaf5", size = 1552893, upload-time = "2026-07-15T06:59:25.864Z" },
+    { url = "https://files.pythonhosted.org/packages/56/69/63d6f0080ddc7fa0a4bcd556785ecb9ab7148dd5f89e7eadeb48c27a2e56/ruckig-0.19.4-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:b2a95c93f0786b78ca5fbd753ff23525f33df761a11ba3bc8ffb114c51545f69", size = 691120, upload-time = "2026-07-15T06:59:27.353Z" },
+    { url = "https://files.pythonhosted.org/packages/38/ff/5db0cae7f93a821a99c9814a1c2073a58852ad2c42a09d9b7f6597c01169/ruckig-0.19.4-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:418bd43087271579b4799f5c5d09a32ee9cda73b890bd6d163a130d75b6ba4f3", size = 1065497, upload-time = "2026-07-15T06:59:28.873Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/e1/dd55caa81e62179d39ecc8409e053fc75ad9a330bcf816ee90176f798feb/ruckig-0.19.4-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:2a54d6e271fbcba67db9a3291e823ee5f6bbc15e33b328376282f1ff5256b000", size = 1563991, upload-time = "2026-07-15T06:59:30.684Z" },
+    { url = "https://files.pythonhosted.org/packages/36/88/13949791de7844b6556416e13983eb68fec02314b7bb29b1c2cdfa531d44/ruckig-0.19.4-cp314-cp314t-win32.whl", hash = "sha256:31e94f695b74f1c01a533256354428365627a0ce5d78d8f8588eaf5a9f067e61", size = 1322699, upload-time = "2026-07-15T06:59:32.527Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/8a/45afac0f3c376adef1ac356ae6d663bad96bb0917c8a353c5c416a4d6864/ruckig-0.19.4-cp314-cp314t-win_amd64.whl", hash = "sha256:7a6566d207f34c1e493be8092669a2c3f4194c80dda71eea86ae45c7fb804f6c", size = 1555930, upload-time = "2026-07-15T06:59:34.095Z" },
+]
 
 [[package]]
 name = "ruff"
@@ -1744,7 +1859,9 @@ name = "scipy"
 version = "1.15.3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version < '3.11'",
+    "python_full_version < '3.11' and sys_platform == 'darwin'",
+    "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version < '3.11' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.11' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version < '3.11'" },
@@ -1803,10 +1920,18 @@ name = "scipy"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14'",
-    "python_full_version == '3.13.*'",
-    "python_full_version == '3.12.*'",
-    "python_full_version == '3.11.*'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.13.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version == '3.11.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.11.*' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version >= '3.11'" },

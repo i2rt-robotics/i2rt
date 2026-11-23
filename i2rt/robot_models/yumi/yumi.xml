@@ -1,0 +1,36 @@
+<!-- yumi handheld UMI device: the MJCF twin of yumi.urdf, which is the source of truth and documents the
+     model (see also README.md). The same body, fingers, joints, meshes and colours; the URDF's three frame
+     links `tcp`, `camera` and `vive` are sites on `base`, and the tracker mesh sits on `base` at the `vive`
+     pose. Site quats are the URDF rpy's, exactly.
+
+     Like the URDF, the fingers are two independent joints (0 closed to 0.047 m open) and nothing collides.
+     The URDF has no inertials, so MuJoCo derives each body's from its mesh at its default density; the
+     device is passive and these masses are not measured. -->
+<mujoco model="yumi">
+  <compiler angle="radian" meshdir="assets"/>
+
+  <asset>
+    <mesh name="base" file="base.stl"/>
+    <mesh name="left_finger" file="left_finger.stl"/>
+    <mesh name="right_finger" file="right_finger.stl"/>
+    <mesh name="vive_tracker" file="vive_tracker.stl"/>
+  </asset>
+
+  <worldbody>
+    <body name="base">
+      <geom type="mesh" mesh="base" rgba="1 0.6 0 1" contype="0" conaffinity="0"/>
+      <geom pos="0.056383 -0.0015481 0.1885038" quat="0.122787804 -0.69636424 0.69636424 -0.122787804" type="mesh" mesh="vive_tracker" rgba="0.2 0.2 0.2 1" contype="0" conaffinity="0"/>
+      <site name="tcp" pos="0.1683328 -0.001852 0.0911592" quat="0.5 -0.5 0.5 -0.5" size="0.005" rgba="1 0 0 1"/>
+      <site name="camera" pos="0.1052677 -0.0015498 0.1730542" quat="0.379928196 -0.596367811 0.596367811 -0.379928197" size="0.005" rgba="0 1 0 1"/>
+      <site name="vive" pos="0.056383 -0.0015481 0.1885038" quat="0.122787804 -0.69636424 0.69636424 -0.122787804" size="0.005" rgba="0 0 1 1"/>
+      <body name="left_finger" pos="0.0718427 0.0241478 0.139718">
+        <joint name="left_finger_joint" type="slide" axis="0 1 0" range="0 0.047"/>
+        <geom type="mesh" mesh="left_finger" rgba="0.227451 0.545098 0.560784 1" contype="0" conaffinity="0"/>
+      </body>
+      <body name="right_finger" pos="0.0718427 -0.0278522 0.135338">
+        <joint name="right_finger_joint" type="slide" axis="0 -1 0" range="0 0.047"/>
+        <geom type="mesh" mesh="right_finger" rgba="1 1 1 1" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

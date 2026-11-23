@@ -1,4 +1,4 @@
-"""Firmware flashing for the yam_teaching_handle's ioheart encoder over CAN.
+"""Firmware flashing for the YAM teaching handle's ioheart encoder over CAN.
 
 Talks to the STM32 bootloader (CAN IDs 0x700 cmd / 0x701+ reply) to upload a
 firmware image one 1 KiB page at a time, with per-page and whole-image CRC-32

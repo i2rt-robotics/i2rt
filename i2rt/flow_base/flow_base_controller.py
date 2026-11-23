@@ -15,7 +15,7 @@ import threading
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import portal
@@ -314,7 +314,19 @@ class Vehicle(Robot):
         control_freq: float = CONTROL_FREQ,
         verify_motor_config: bool = True,
         check_caster_steering: bool = True,
+        state_callback: Optional[Callable[[], None]] = None,
     ):
+        """
+        Args:
+            state_callback: Called with no arguments once per control cycle, after that cycle's command is
+                sent, e.g. to record state at the control rate (like MotorChainRobot's joint_state_saver).
+                Runs on the control thread (SCHED_FIFO, max priority), so keep it well under 1 / control_freq
+                (5 ms at 200 Hz), and keep any lock it shares with other threads briefly held: Python locks
+                have no priority inheritance. No Vehicle lock is held, so it may call get_odometry(),
+                get_wheel_states() and get_linear_rail_state(), but never stop_control() or close(), which
+                join the control thread. With auto_start=True it starts before this constructor returns.
+                Exceptions are logged (at most every 5 s) and swallowed; calls continue.
+        """
         self.max_vel = np.array(max_vel)
         self.max_accel = np.array(max_accel)
         # Neither limit survives a non-positive component, and this is the only place either can be
@@ -405,6 +417,9 @@ class Vehicle(Robot):
         # How long a healthy ramp may take at *this* caller's limits; see STOP_TIMEOUT_S.
         self._stop_budget = max(STOP_TIMEOUT_S, STOP_MARGIN * float(np.max(self.max_vel / self.max_accel)))
 
+        self._state_callback = state_callback
+        self._state_callback_logged_at = -math.inf
+
         # Control loop
         self.command_queue = queue.Queue(1)
         self.control_loop_thread = threading.Thread(target=self.control_loop, daemon=True)
@@ -472,8 +487,7 @@ class Vehicle(Robot):
         self.CpT_Cqinv_drive[0] = r * c
         self.CpT_Cqinv_drive[1] = r * s
         self.CpT_Cqinv_drive[2] = r * (h_x * s - h_y * c - b_y)
-        with threadpool_limits(limits=1, user_api="blas"):  # Prevent excessive CPU usage
-            self.C_pinv = np.linalg.solve(self.C_p.T @ self.C_p, self.CpT_Cqinv)
+        self.C_pinv = np.linalg.solve(self.C_p.T @ self.C_p, self.CpT_Cqinv)
 
         # Odometry
         with self._lock:
@@ -505,6 +519,14 @@ class Vehicle(Robot):
             )
         except PermissionError:
             print("Failed to set real-time scheduling policy, please edit /etc/security/limits.d/99-realtime.conf")
+
+        # Cap BLAS to one thread once, up front. Previously update_state wrapped each np.linalg.solve in
+        # threadpool_limits, whose constructor rescans every loaded BLAS lib (~1 ms) on each call --
+        # 16-23% of the control loop. The limit persists (threadpoolctl does not restore it on GC), so
+        # setting it once here makes every solve in the loop single-threaded without the per-cycle rescan.
+        # It now holds process-wide for the controller's lifetime instead of only during each solve --
+        # intended: a real-time control process wants BLAS single-threaded throughout.
+        threadpool_limits(limits=1, user_api="blas")
 
         disable_motors = True
         last_command_time = time.time()
@@ -543,6 +565,7 @@ class Vehicle(Robot):
                 # The command-timeout branch below must not run here -- it forces current_velocity and
                 # would hold pose instead of ramping velocity to zero.
                 if self._brake_to_stop():
+                    self._notify_state()  # once per update_state(), the exit cycle included
                     break
             else:
                 # Check for new command
@@ -627,6 +650,23 @@ class Vehicle(Robot):
                         self._caster_fault = fault
                         self._stop_deadline = time.monotonic() + self._stop_budget
                         logger.error("%s", fault.render())
+
+            # Last, so a slow callback delays the next cycle's read, not this cycle's command.
+            self._notify_state()
+
+    def _notify_state(self) -> None:
+        """Run the caller's state_callback, if any, without letting it end the control loop."""
+        if self._state_callback is None:
+            return
+        try:
+            self._state_callback()
+        except Exception:
+            # If this thread dies the chain keeps re-sending the last wheel velocities and nothing notices. Keep
+            # calling -- a failure can be transient, e.g. before the constructor returns -- and rate-limit the log.
+            now = time.monotonic()
+            if now - self._state_callback_logged_at >= 5.0:
+                self._state_callback_logged_at = now
+                logger.exception("state_callback raised; base control continues")
 
     def _brake_to_stop(self) -> bool:
         """Ride the OTG down to a stop after a caster fault. True once the base has stopped.
@@ -865,6 +905,7 @@ class LinearRailVehicle(Vehicle):
         usb_gpio_device: Optional[str] = None,
         verify_motor_config: bool = True,
         check_caster_steering: bool = True,
+        state_callback: Optional[Callable[[], None]] = None,
     ):
         """
         Initialize LinearRailVehicle with optional linear rail lift module.
@@ -897,6 +938,7 @@ class LinearRailVehicle(Vehicle):
                 its commanded velocity, is reaching the heading the kinematics demand, and is not running
                 away. On a confirmed fault the base is ramped to a stop and caster_fault() is published.
                 See i2rt/flow_base/caster_steering_check.py.
+            state_callback: Called by the control loop after every state update; see Vehicle.
         """
         # Take the single-instance lock before opening CAN. Vehicle.__init__ also calls this, but only
         # from super().__init__() below -- by which point this constructor has already energized every
@@ -949,6 +991,11 @@ class LinearRailVehicle(Vehicle):
             check_motor_types=verify_motor_config,
             check_motor_config=verify_motor_config,
             loop_critical_motor_ids=STEER_MOTOR_IDS,
+            # Shorter GIL-yield than the 0.5 ms default: the base control thread writes commands every
+            # cycle and must take command_lock; a tighter read-loop sleep shortens the read cycle, so the
+            # waiting writer gets command_lock sooner. YAM arms keep the default. Tested 0.1 ms too; it
+            # gained only ~4 Hz, so 0.2 ms was kept.
+            loop_sleep_s=0.0002,
         )
 
         # From here to the end of __init__ the chain is live and nothing else will ever stop it: its
@@ -980,6 +1027,7 @@ class LinearRailVehicle(Vehicle):
                 # constructor already ran the pre-chain register check itself and the base-class path
                 # would only repeat it. This check runs at runtime, so it has to be passed down.
                 check_caster_steering=check_caster_steering,
+                state_callback=state_callback,
             )
             # We built unified_motor_chain above, so we own it -- but Vehicle only saw a chain *object*
             # handed in, which it correctly reads as someone else's. Re-assert it, or close() leaves the
