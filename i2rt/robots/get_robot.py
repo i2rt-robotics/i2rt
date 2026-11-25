@@ -402,8 +402,6 @@ def get_yam_robot(
     all_joint_limits = _load_joint_limits_from_xml(arm_type.get_xml_path(), gripper_type.get_xml_path())
     n_arm_joints = len(hw.motor_list)
     joint_limits = all_joint_limits[:n_arm_joints]
-    joint_limits[:, 0] -= 0.15  # safety buffer
-    joint_limits[:, 1] += 0.15
 
     # Build mutable lists from the frozen arm config, then extend for gripper.
     motor_list = _yam_motor_list(arm_type, gripper_type)

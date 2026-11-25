@@ -472,12 +472,11 @@ def test_sim_robot_round_trips_a_command(sim_robot: Robot) -> None:
     assert 0.0 <= reached[N_ARM_JOINTS] <= 1.0
 
 
-def test_sim_joint_limits_are_the_model_limits_plus_buffer(arm: ArmType, sim_robot: Robot) -> None:
-    """The arm limits are widened by the same 0.15 rad buffer every YAM arm gets."""
+def test_sim_joint_limits_are_the_model_limits(arm: ArmType, sim_robot: Robot) -> None:
+    """The arm limits are the model's own, with no buffer, as on every YAM arm."""
     model_limits = mujoco.MjModel.from_xml_path(arm.get_xml_path()).jnt_range[:N_ARM_JOINTS]
     limits = np.asarray(sim_robot.get_robot_info()["joint_limits"])[:N_ARM_JOINTS]
-    assert np.allclose(limits[:, 0], model_limits[:, 0] - 0.15)
-    assert np.allclose(limits[:, 1], model_limits[:, 1] + 0.15)
+    assert np.allclose(limits, model_limits)
 
 
 # --------------------------------------------------------------------------- the joint6 four-bar
