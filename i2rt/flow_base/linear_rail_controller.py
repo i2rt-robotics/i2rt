@@ -432,7 +432,7 @@ class LinearRailController:
         with self._lock:
             return self._homing_event.is_set()
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self, motor_state: Optional[MotorInfo] = None) -> Dict[str, Any]:
         """Get the current state of the linear rail.
 
         Returns position and velocity in BOTH units:
@@ -440,8 +440,14 @@ class LinearRailController:
           - position.linear / velocity.linear: linear travel in m / m/s, derived from
             ``meters_per_rad`` captured during startup calibration. ``None`` until the
             controller is calibrated (e.g. when ``auto_home=False``).
+
+        Args:
+            motor_state: A pre-read rail ``MotorInfo`` to report instead of reading the chain now.
+                The base control loop passes the sample it already read this cycle so the rail state
+                lines up with the rest of the recorded frame; left ``None`` it reads live.
         """
-        motor_state = self.single_motor_control_interface.get_state()
+        if motor_state is None:
+            motor_state = self.single_motor_control_interface.get_state()
 
         with self._lock:
             brake_on = self.brake_on
